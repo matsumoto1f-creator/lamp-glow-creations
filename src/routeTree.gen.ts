@@ -42,6 +42,7 @@ import { Route as ApiBrainDraftRouteImport } from './routes/api.brain.draft'
 import { Route as ApiDocumentsRequestRouteImport } from './routes/api.documents.request'
 import { Route as ApiDocumentsRequestUploadRouteImport } from './routes/api.documents.request-upload'
 import { Route as ApiDocumentsUploadRouteImport } from './routes/api.documents.upload'
+import { Route as ApiEnginePushRouteImport } from './routes/api.engine.push'
 import { Route as ApiFundersSendRouteImport } from './routes/api.funders.send'
 import { Route as ApiGmailCallbackRouteImport } from './routes/api.gmail.callback'
 import { Route as ApiGmailConnectRouteImport } from './routes/api.gmail.connect'
@@ -214,6 +215,11 @@ const ApiDocumentsUploadRoute = ApiDocumentsUploadRouteImport.update({
   path: '/upload',
   getParentRoute: () => ApiDocumentsRoute,
 } as any)
+const ApiEnginePushRoute = ApiEnginePushRouteImport.update({
+  id: '/api/engine/push',
+  path: '/api/engine/push',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiFundersSendRoute = ApiFundersSendRouteImport.update({
   id: '/api/funders/send',
   path: '/api/funders/send',
@@ -274,6 +280,7 @@ export interface FileRoutesByFullPath {
   '/api/documents/request': typeof ApiDocumentsRequestRoute
   '/api/documents/request-upload': typeof ApiDocumentsRequestUploadRoute
   '/api/documents/upload': typeof ApiDocumentsUploadRoute
+  '/api/engine/push': typeof ApiEnginePushRoute
   '/api/funders/send': typeof ApiFundersSendRoute
   '/api/gmail/callback': typeof ApiGmailCallbackRoute
   '/api/gmail/connect': typeof ApiGmailConnectRoute
@@ -314,6 +321,7 @@ export interface FileRoutesByTo {
   '/api/documents/request': typeof ApiDocumentsRequestRoute
   '/api/documents/request-upload': typeof ApiDocumentsRequestUploadRoute
   '/api/documents/upload': typeof ApiDocumentsUploadRoute
+  '/api/engine/push': typeof ApiEnginePushRoute
   '/api/funders/send': typeof ApiFundersSendRoute
   '/api/gmail/callback': typeof ApiGmailCallbackRoute
   '/api/gmail/connect': typeof ApiGmailConnectRoute
@@ -355,6 +363,7 @@ export interface FileRoutesById {
   '/api/documents/request': typeof ApiDocumentsRequestRoute
   '/api/documents/request-upload': typeof ApiDocumentsRequestUploadRoute
   '/api/documents/upload': typeof ApiDocumentsUploadRoute
+  '/api/engine/push': typeof ApiEnginePushRoute
   '/api/funders/send': typeof ApiFundersSendRoute
   '/api/gmail/callback': typeof ApiGmailCallbackRoute
   '/api/gmail/connect': typeof ApiGmailConnectRoute
@@ -397,6 +406,7 @@ export interface FileRouteTypes {
     | '/api/documents/request'
     | '/api/documents/request-upload'
     | '/api/documents/upload'
+    | '/api/engine/push'
     | '/api/funders/send'
     | '/api/gmail/callback'
     | '/api/gmail/connect'
@@ -437,6 +447,7 @@ export interface FileRouteTypes {
     | '/api/documents/request'
     | '/api/documents/request-upload'
     | '/api/documents/upload'
+    | '/api/engine/push'
     | '/api/funders/send'
     | '/api/gmail/callback'
     | '/api/gmail/connect'
@@ -477,6 +488,7 @@ export interface FileRouteTypes {
     | '/api/documents/request'
     | '/api/documents/request-upload'
     | '/api/documents/upload'
+    | '/api/engine/push'
     | '/api/funders/send'
     | '/api/gmail/callback'
     | '/api/gmail/connect'
@@ -515,6 +527,7 @@ export interface RootRouteChildren {
   ApiApplicationUploadRoute: typeof ApiApplicationUploadRoute
   ApiBrainBriefRoute: typeof ApiBrainBriefRoute
   ApiBrainDraftRoute: typeof ApiBrainDraftRoute
+  ApiEnginePushRoute: typeof ApiEnginePushRoute
   ApiFundersSendRoute: typeof ApiFundersSendRoute
   ApiGmailCallbackRoute: typeof ApiGmailCallbackRoute
   ApiGmailConnectRoute: typeof ApiGmailConnectRoute
@@ -755,6 +768,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDocumentsUploadRouteImport
       parentRoute: typeof ApiDocumentsRoute
     }
+    '/api/engine/push': {
+      id: '/api/engine/push'
+      path: '/api/engine/push'
+      fullPath: '/api/engine/push'
+      preLoaderRoute: typeof ApiEnginePushRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/funders/send': {
       id: '/api/funders/send'
       path: '/api/funders/send'
@@ -840,6 +860,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiApplicationUploadRoute: ApiApplicationUploadRoute,
   ApiBrainBriefRoute: ApiBrainBriefRoute,
   ApiBrainDraftRoute: ApiBrainDraftRoute,
+  ApiEnginePushRoute: ApiEnginePushRoute,
   ApiFundersSendRoute: ApiFundersSendRoute,
   ApiGmailCallbackRoute: ApiGmailCallbackRoute,
   ApiGmailConnectRoute: ApiGmailConnectRoute,

@@ -26,6 +26,7 @@ import { Route as ApiApplicationInvitesRouteImport } from './routes/api.applicat
 import { Route as ApiDocumentsRouteImport } from './routes/api.documents'
 import { Route as ApiLeadsRouteImport } from './routes/api.leads'
 import { Route as ApiServerCheckRouteImport } from './routes/api.server-check'
+import { Route as ApiStatementsRouteImport } from './routes/api.statements'
 import { Route as ApiTeamRouteImport } from './routes/api.team'
 import { Route as ApiTrackRouteImport } from './routes/api.track'
 import { Route as ApplicationRepRouteImport } from './routes/application.$rep'
@@ -131,6 +132,11 @@ const ApiLeadsRoute = ApiLeadsRouteImport.update({
 const ApiServerCheckRoute = ApiServerCheckRouteImport.update({
   id: '/api/server-check',
   path: '/api/server-check',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiStatementsRoute = ApiStatementsRouteImport.update({
+  id: '/api/statements',
+  path: '/api/statements',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiTeamRoute = ApiTeamRouteImport.update({
@@ -258,6 +264,7 @@ export interface FileRoutesByFullPath {
   '/api/documents': typeof ApiDocumentsRouteWithChildren
   '/api/leads': typeof ApiLeadsRoute
   '/api/server-check': typeof ApiServerCheckRoute
+  '/api/statements': typeof ApiStatementsRoute
   '/api/team': typeof ApiTeamRoute
   '/api/track': typeof ApiTrackRoute
   '/application/$rep': typeof ApplicationRepRoute
@@ -298,6 +305,7 @@ export interface FileRoutesByTo {
   '/api/documents': typeof ApiDocumentsRouteWithChildren
   '/api/leads': typeof ApiLeadsRoute
   '/api/server-check': typeof ApiServerCheckRoute
+  '/api/statements': typeof ApiStatementsRoute
   '/api/team': typeof ApiTeamRoute
   '/api/track': typeof ApiTrackRoute
   '/application/$rep': typeof ApplicationRepRoute
@@ -339,6 +347,7 @@ export interface FileRoutesById {
   '/api/documents': typeof ApiDocumentsRouteWithChildren
   '/api/leads': typeof ApiLeadsRoute
   '/api/server-check': typeof ApiServerCheckRoute
+  '/api/statements': typeof ApiStatementsRoute
   '/api/team': typeof ApiTeamRoute
   '/api/track': typeof ApiTrackRoute
   '/application/$rep': typeof ApplicationRepRoute
@@ -381,6 +390,7 @@ export interface FileRouteTypes {
     | '/api/documents'
     | '/api/leads'
     | '/api/server-check'
+    | '/api/statements'
     | '/api/team'
     | '/api/track'
     | '/application/$rep'
@@ -421,6 +431,7 @@ export interface FileRouteTypes {
     | '/api/documents'
     | '/api/leads'
     | '/api/server-check'
+    | '/api/statements'
     | '/api/team'
     | '/api/track'
     | '/application/$rep'
@@ -461,6 +472,7 @@ export interface FileRouteTypes {
     | '/api/documents'
     | '/api/leads'
     | '/api/server-check'
+    | '/api/statements'
     | '/api/team'
     | '/api/track'
     | '/application/$rep'
@@ -502,6 +514,7 @@ export interface RootRouteChildren {
   ApiDocumentsRoute: typeof ApiDocumentsRouteWithChildren
   ApiLeadsRoute: typeof ApiLeadsRoute
   ApiServerCheckRoute: typeof ApiServerCheckRoute
+  ApiStatementsRoute: typeof ApiStatementsRoute
   ApiTeamRoute: typeof ApiTeamRoute
   ApiTrackRoute: typeof ApiTrackRoute
   ApplicationRepRoute: typeof ApplicationRepRoute
@@ -641,6 +654,13 @@ declare module '@tanstack/react-router' {
       path: '/api/server-check'
       fullPath: '/api/server-check'
       preLoaderRoute: typeof ApiServerCheckRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/statements': {
+      id: '/api/statements'
+      path: '/api/statements'
+      fullPath: '/api/statements'
+      preLoaderRoute: typeof ApiStatementsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/team': {
@@ -827,6 +847,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiDocumentsRoute: ApiDocumentsRouteWithChildren,
   ApiLeadsRoute: ApiLeadsRoute,
   ApiServerCheckRoute: ApiServerCheckRoute,
+  ApiStatementsRoute: ApiStatementsRoute,
   ApiTeamRoute: ApiTeamRoute,
   ApiTrackRoute: ApiTrackRoute,
   ApplicationRepRoute: ApplicationRepRoute,

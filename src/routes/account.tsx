@@ -23,6 +23,7 @@ import type { Database } from "@/integrations/supabase/types";
 import { btnOutline, btnPrimary, card, PageShell } from "@/components/site/layout";
 import { MyOffers } from "@/components/site/my-offers";
 import { CompleteApplication } from "@/components/site/complete-application";
+import { TrainingShelf } from "@/components/staff/training";
 
 export const Route = createFileRoute("/account")({
   head: () =>
@@ -222,6 +223,14 @@ function Account() {
         ) : (
           <Dashboard app={app} userId={user.id} />
         )}
+
+        <div className="mt-12">
+          <h2 className="font-display text-xl font-semibold">How Lamp works</h2>
+          <p className="mt-1 text-sm text-smoke">
+            Three short videos: applying, your account, and your offers.
+          </p>
+          <TrainingShelf role="merchant" heading={false} />
+        </div>
       </div>
     </PageShell>
   );

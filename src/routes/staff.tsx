@@ -20,6 +20,7 @@ import { Dashboard } from "@/components/staff/dashboard";
 import { Team } from "@/components/staff/team";
 import { NotificationsBell } from "@/components/staff/notifications";
 import { AppLinks } from "@/components/staff/app-links";
+import { Training } from "@/components/staff/training";
 
 type StaffSearch = {
   view?: View | undefined;
@@ -29,8 +30,16 @@ type StaffSearch = {
   lead?: string | undefined;
 };
 
-type View = "dashboard" | "engine" | "sent" | "funders" | "money" | "team";
-const VIEWS: readonly View[] = ["dashboard", "engine", "sent", "funders", "money", "team"];
+type View = "dashboard" | "engine" | "sent" | "funders" | "money" | "team" | "training";
+const VIEWS: readonly View[] = [
+  "dashboard",
+  "engine",
+  "sent",
+  "funders",
+  "money",
+  "team",
+  "training",
+];
 /** Tabs only admins see. */
 const ADMIN_VIEWS: readonly View[] = ["team"];
 const VIEW_TITLE: Record<View, string> = {
@@ -40,6 +49,7 @@ const VIEW_TITLE: Record<View, string> = {
   funders: "Funders",
   money: "Money",
   team: "Team",
+  training: "Training",
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -177,6 +187,8 @@ function Staff() {
           <Funders isAdmin={access.isAdmin} />
         ) : search.view === "money" ? (
           <Money isAdmin={access.isAdmin} userId={access.userId} reps={reps} />
+        ) : search.view === "training" ? (
+          <Training isAdmin={access.isAdmin} />
         ) : search.view === "team" ? (
           access.isAdmin ? (
             <Team onChanged={() => setRepsTick((t) => t + 1)} />

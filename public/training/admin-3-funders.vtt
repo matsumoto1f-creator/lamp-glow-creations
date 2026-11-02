@@ -1,0 +1,53 @@
+WEBVTT
+
+1
+00:00:00.420 --> 00:00:03.770
+Lamp for admins. Part three: funders.
+
+2
+00:00:04.210 --> 00:00:11.020
+Funders is the list of who Lamp sends files to. A file can only go to a funder on this list.
+
+3
+00:00:11.500 --> 00:00:17.050
+Click Add funder. Give it a name and a type: direct, ISO, bank, or other.
+
+4
+00:00:17.410 --> 00:00:23.680
+Commission points is what the funder pays Lamp. Five means five percent of the funded amount.
+
+5
+00:00:24.050 --> 00:00:28.360
+Paper grades are the credit grades it takes, like A, B and C.
+
+6
+00:00:28.730 --> 00:00:38.840
+Then its rules: minimum and maximum amount, minimum monthly deposits, months in business, credit score, and how many open positions it allows.
+
+7
+00:00:39.410 --> 00:00:44.580
+List the industries and states it won't fund. Lamp only matches files that fit every rule.
+
+8
+00:00:44.970 --> 00:00:52.160
+Where files go is the funder's submission email. Add their contact, and their portal link if they have one.
+
+9
+00:00:52.460 --> 00:00:59.970
+Send automatically sends every matching file to that funder as soon as it has a signed application and three statements.
+
+10
+00:01:00.600 --> 00:01:04.990
+Turn it on only for funders you trust with every file that fits.
+
+11
+00:01:05.520 --> 00:01:09.870
+Files go out by email from the partners mailbox. Connect it once, here.
+
+12
+00:01:10.270 --> 00:01:15.680
+Edit changes a funder. Make it inactive to stop sending to it, without losing its history.
+
+13
+00:01:16.100 --> 00:01:18.670
+Next: the dashboard and money.

@@ -32,7 +32,7 @@ export const TRAINING: readonly TrainingVideo[] = [
     part: 2,
     title: "Engine leads",
     about: "Where your calls come from, how to work them, and how to get their email.",
-    sec: 170,
+    sec: 200,
   },
   {
     slug: "rep-3-files-and-stages",

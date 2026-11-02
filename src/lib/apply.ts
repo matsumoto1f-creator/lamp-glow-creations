@@ -158,6 +158,36 @@ export function utmFromParams(params: Record<string, unknown>): Record<string, s
   return out;
 }
 
+const QUICK_LABEL: Record<ChoiceKey, string> = {
+  amount: "Looking for",
+  purpose: "For",
+  revenue: "Monthly deposits",
+  tib: "In business",
+  credit: "Credit (their guess)",
+  industry: "Industry",
+  timeline: "Needs it",
+};
+
+/** The answers as short lines, for an email: "Looking for: $50k – $100k". */
+export function quickLines(a: Partial<Record<ChoiceKey, string>>): string[] {
+  return QUESTIONS.flatMap((q) => {
+    const label = labelFor(q.key, a[q.key]);
+    return label ? [`${QUICK_LABEL[q.key]}: ${label}`] : [];
+  });
+}
+
+/** Only the known questions and their known choices; anything else is dropped. */
+export function cleanChoices(v: unknown): Partial<Record<ChoiceKey, string>> {
+  const out: Partial<Record<ChoiceKey, string>> = {};
+  if (!v || typeof v !== "object" || Array.isArray(v)) return out;
+  const r = v as Record<string, unknown>;
+  for (const q of QUESTIONS) {
+    const id = r[q.key];
+    if (typeof id === "string" && q.options.some((o) => o.id === id)) out[q.key] = id;
+  }
+  return out;
+}
+
 export function labelFor(key: ChoiceKey, id: string | undefined): string | undefined {
   return QUESTIONS.find((q) => q.key === key)?.options.find((o) => o.id === id)?.label;
 }

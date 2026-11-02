@@ -1,5 +1,6 @@
 // Server side of the application link's first screen (POST /api/application/start): someone on a
-// rep's public link gives their name, phone and email before the long form. That's saved at once
+// rep's public link answers the quick questions (the front page's) and gives their name, business,
+// phone and email before the long form. That's saved at once
 // as a lead with the rep (utm.ref, through leads_before_insert), and the rep is emailed, with Asad
 // and Stevie copied, so they can call while the person is still on the page. Once per email and
 // rep a day, and within the lead form's per-network limit. Never import this from browser code.
@@ -18,6 +19,7 @@ import { EMAIL_RE, fromName, hashToken, isToken, newToken } from "@/lib/applicat
 import { isStage, rank, type Stage } from "@/lib/application-progress";
 import { NEW_APPLICATION_COPY } from "@/lib/site";
 import { recipients, startedEmail } from "@/lib/new-application-email";
+import { cleanChoices, quickLines } from "@/lib/apply";
 
 const SLUG = /^[a-z0-9][a-z0-9-]{1,31}$/;
 const DAY_MS = 86_400_000;
@@ -28,7 +30,10 @@ type Body = {
   last_name?: unknown;
   phone?: unknown;
   email?: unknown;
+  business_name?: unknown;
   phone_consent?: unknown;
+  /** The quick questions, by the front page's keys and choice ids (amount, purpose, ...). */
+  answers?: unknown;
   utm?: unknown;
   /** Which public link: the step-by-step application ("online") or the one-page form ("pdf"). */
   form?: unknown;
@@ -50,6 +55,8 @@ export async function startApplication(request: Request): Promise<Response> {
   const phone = text(body.phone, 40);
   const digits = phone.replace(/\D/g, "");
   const consent = text(body.phone_consent, 600);
+  const businessName = text(body.business_name, 200);
+  const quick = cleanChoices(body.answers);
   if (!SLUG.test(rep)) return json(400, { error: "That link isn't right." });
   if (!first || !last) return json(400, { error: "Add your first and last name." });
   if (!EMAIL_RE.test(email)) return json(400, { error: "Enter a valid email." });
@@ -97,9 +104,11 @@ export async function startApplication(request: Request): Promise<Response> {
       first_name: first,
       phone,
       answers: {
+        ...quick,
         source: "application_link",
         form,
         lastName: last,
+        ...(businessName ? { businessName } : {}),
         ...(consent ? { phoneConsent: `${new Date().toISOString()} | ${consent}` } : {}),
       } as never,
       utm: utm as never,
@@ -115,7 +124,16 @@ export async function startApplication(request: Request): Promise<Response> {
     const to = recipients(repEmail, NEW_APPLICATION_COPY);
     const access = to ? await gmailAccessToken(svc) : null;
     if (to && access && !("error" in access)) {
-      const m = startedEmail({ repName: r.name, first, last, phone, email, textsOk: !!consent });
+      const m = startedEmail({
+        repName: r.name,
+        first,
+        last,
+        business: businessName,
+        phone,
+        email,
+        textsOk: !!consent,
+        answered: quickLines(quick),
+      });
       await fetch(GMAIL_SEND_URL(), {
         method: "POST",
         headers: { Authorization: `Bearer ${access.access}`, "Content-Type": "application/json" },

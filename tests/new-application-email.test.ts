@@ -164,3 +164,32 @@ Deno.test("started: tells the rep who to call, with texts allowed or calls only"
   assertStringIncludes(m.text, "Phone: (201) 555-0100");
   assertStringIncludes(m.text, "Texts OK: No, calls only");
 });
+
+Deno.test("started: carries the business and the quick answers when given", async () => {
+  const { startedEmail } = await import("../src/lib/new-application-email.ts");
+  const m = startedEmail({
+    repName: "Asad",
+    first: "Ana",
+    last: "Diaz",
+    business: "Riverbend Diner",
+    phone: "(201) 555-0100",
+    email: "ana@test.dev",
+    textsOk: true,
+    answered: ["Looking for: $50k – $100k", "Needs it: This week"],
+  });
+  assertStringIncludes(m.text, "Business: Riverbend Diner");
+  assertStringIncludes(
+    m.text,
+    "What they told us:\r\nLooking for: $50k – $100k\r\nNeeds it: This week",
+  );
+  const bare = startedEmail({
+    repName: "Asad",
+    first: "Ana",
+    last: "Diaz",
+    phone: "1",
+    email: "a@b.c",
+    textsOk: true,
+  });
+  assert(!bare.text.includes("What they told us"));
+  assert(!bare.text.includes("Business:"));
+});

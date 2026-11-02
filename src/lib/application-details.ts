@@ -336,6 +336,44 @@ export function prefill(app: {
   return d;
 }
 
+const QUICK_INDUSTRY: Record<string, string> = {
+  restaurant: "Restaurant or bar",
+  trucking: "Transportation or trucking",
+  construction: "Construction or contracting",
+  retail: "Retail store",
+  beauty: "Beauty, salon or barber",
+  auto: "Auto repair",
+  medical: "Healthcare, medical or dental",
+};
+
+const QUICK_CREDIT: Record<string, string> = { "lt-550": "Under 550", unsure: "Not sure" };
+
+/**
+ * The online application's quick questions, carried into the long form where they map cleanly:
+ * business name, industry, what the money is for, and the owner's credit guess. Ranges (amount,
+ * revenue, time in business) stay as answers on the lead; the form asks for exact figures.
+ * Never overwrites something already filled.
+ */
+export function withQuickAnswers(
+  d: Details,
+  q: { businessName?: string; industry?: string; purpose?: string; credit?: string },
+): Details {
+  const industry = q.industry ? QUICK_INDUSTRY[q.industry] : undefined;
+  const use = q.purpose ? PURPOSE_USE[q.purpose] : undefined;
+  const credit = q.credit ? QUICK_CREDIT[q.credit] : undefined;
+  const owner = d.owners[0]!;
+  return {
+    ...d,
+    business: {
+      ...d.business,
+      legal_name: d.business.legal_name || (q.businessName ?? ""),
+      industry: d.business.industry || (industry ?? ""),
+    },
+    owners: [{ ...owner, credit: owner.credit || (credit ?? "") }, ...d.owners.slice(1)],
+    request: { ...d.request, uses: d.request.uses.length || !use ? d.request.uses : [use] },
+  };
+}
+
 const digits = (s: string) => s.replace(/\D/g, "");
 
 /** What still has to be filled before the application can be signed, in plain words. */

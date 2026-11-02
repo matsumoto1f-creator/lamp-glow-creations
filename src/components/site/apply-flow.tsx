@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, ArrowRight, Check, Loader2, Lock, Mail, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ArrowRight, Loader2, Lock, Mail, ShieldCheck } from "lucide-react";
 import {
   answersFromParams,
   estimate,
@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { btnOutline, btnPrimary, card, PageShell } from "@/components/site/layout";
 import { GoogleButton, sendMagicLink, signInWithGoogle } from "@/components/site/auth";
 import { track } from "@/lib/track";
+import { QuickQuestion } from "@/components/site/quick-question";
 
 const CONTACT_STEP = QUESTIONS.length;
 const RESULT_STEP = QUESTIONS.length + 1;
@@ -119,40 +120,7 @@ export function ApplyFlow({ search, rep }: { search: Record<string, unknown>; re
               {step === startStep && answers.firstName && (
                 <p className="mb-2 font-semibold text-forest">Hi {answers.firstName}.</p>
               )}
-              <h1 className="font-display text-3xl font-bold tracking-tight sm:text-4xl">
-                {q.title}
-              </h1>
-              {q.subtitle && <p className="mt-3 text-lg text-smoke">{q.subtitle}</p>}
-              <div className="mt-8 grid gap-3" role="radiogroup" aria-label={q.title}>
-                {q.options.map((o) => {
-                  const selected = answers[q.key] === o.id;
-                  return (
-                    <button
-                      key={o.id}
-                      type="button"
-                      role="radio"
-                      aria-checked={selected}
-                      onClick={() => choose(q.key, o.id)}
-                      className={cn(
-                        "flex items-center justify-between rounded-2xl px-5 py-4 text-left text-[1.05rem] font-semibold transition",
-                        selected
-                          ? "bg-leaf/15 ring-2 ring-leaf"
-                          : "bg-white ring-1 ring-line hover:ring-ink/30",
-                      )}
-                    >
-                      {o.label}
-                      <span
-                        className={cn(
-                          "grid size-6 place-items-center rounded-full ring-1",
-                          selected ? "bg-leaf text-ink ring-leaf" : "ring-line",
-                        )}
-                      >
-                        {selected && <Check className="size-4" />}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+              <QuickQuestion q={q} value={answers[q.key]} onChoose={(id) => choose(q.key, id)} />
             </>
           )}
 

@@ -12,6 +12,7 @@ import { labelFor, QUESTIONS, type Answers } from "@/lib/apply";
 import { downloadApplicationPdf, type PdfPages } from "@/lib/application-pdf";
 import { detailsToPdf } from "@/lib/application-details";
 import { FileApplication } from "@/components/staff/file-application";
+import { StatementReport } from "@/components/staff/statement-report";
 import { RESTRICTED, revealFullApplication, useFullApplication } from "@/lib/full-application";
 import {
   EVENT_LABEL,
@@ -660,6 +661,7 @@ export function FileView({
         </div>
 
         <div className="space-y-5">
+          <StatementReport fileId={fileId} />
           <FileApplication fileId={fileId} full={full} />
 
           <section className={cn(card, "p-6")}>

@@ -156,10 +156,14 @@ export function startedEmail(a: {
   repName: string | null;
   first: string;
   last: string;
+  business?: string;
   phone: string;
   email: string;
   textsOk: boolean;
+  /** The quick questions they answered first, a line each ("Looking for: $50k – $100k"). */
+  answered?: string[];
 }): { subject: string; text: string } {
+  const answered = a.answered ?? [];
   const name = `${a.first} ${a.last}`.trim();
   const subject = `Started: ${name} opened the application${a.repName ? ` on ${a.repName}'s link` : ""}`;
   const text = [
@@ -168,9 +172,11 @@ export function startedEmail(a: {
     `${name} just started the application on your link. They haven't signed yet, so now is the time to call.`,
     "",
     `Name: ${name}`,
+    ...(a.business ? [`Business: ${a.business}`] : []),
     `Phone: ${a.phone}`,
     `Email: ${a.email}`,
     `Texts OK: ${a.textsOk ? "Yes" : "No, calls only"}`,
+    ...(answered.length ? ["", "What they told us:", ...answered] : []),
     "",
     "When they sign, you'll get the signed application and their statements in a second email.",
     "",

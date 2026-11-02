@@ -8,6 +8,7 @@ import { card } from "@/components/site/layout";
 import { tel } from "@/lib/engine-leads";
 import { isStage, STAGE_INFO, STAGES, type Stage } from "@/lib/application-progress";
 import { NotesCalls } from "@/components/staff/notes-calls";
+import { labelFor, QUESTIONS } from "@/lib/apply";
 
 /**
  * A lead's profile (staff only): someone who gave their name, phone and email on a rep's link or the
@@ -105,6 +106,13 @@ export function LeadProfile({
   const repName = (slug: string | null) =>
     slug ? (reps.find((r) => r.slug === slug)?.name ?? slug) : "Unassigned";
   const utm = Object.entries(lead.utm ?? {}).filter(([k]) => k.startsWith("utm_"));
+  const business = typeof a["businessName"] === "string" ? a["businessName"] : "";
+  // the quick questions (the website's, and a rep link's first screens)
+  const told = QUESTIONS.flatMap((q) => {
+    const id = a[q.key];
+    const label = typeof id === "string" ? labelFor(q.key, id) : undefined;
+    return label ? [{ key: q.key, title: q.title, label }] : [];
+  });
 
   return (
     <div className="mt-6" data-lead-profile={lead.id}>
@@ -198,6 +206,12 @@ export function LeadProfile({
           <section className={cn(card, "p-6 text-sm")}>
             <h3 className="font-display text-lg font-semibold">Contact</h3>
             <dl className="mt-3 space-y-3">
+              {business && (
+                <div>
+                  <dt className="text-xs text-smoke">Business</dt>
+                  <dd>{business}</dd>
+                </div>
+              )}
               <div>
                 <dt className="text-xs text-smoke">Phone</dt>
                 <dd>
@@ -234,6 +248,19 @@ export function LeadProfile({
               </div>
             </dl>
           </section>
+          {told.length > 0 && (
+            <section className={cn(card, "p-6 text-sm")} data-lead-answers>
+              <h3 className="font-display text-lg font-semibold">What they told us</h3>
+              <dl className="mt-3 space-y-3">
+                {told.map((t) => (
+                  <div key={t.key}>
+                    <dt className="text-xs text-smoke">{t.title}</dt>
+                    <dd>{t.label}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          )}
           <section className={cn(card, "p-6 text-sm")}>
             <h3 className="font-display text-lg font-semibold">How they came in</h3>
             <dl className="mt-3 space-y-3">

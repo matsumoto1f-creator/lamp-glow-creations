@@ -23,6 +23,7 @@ import {
   fromRow,
   missing,
   signatureMatches,
+  withQuickAnswers,
   type Details,
 } from "@/lib/application-details";
 import { missingRealEstate, usd0, amount } from "@/lib/real-estate";
@@ -47,7 +48,8 @@ import {
 import { SignBlock } from "@/components/application/sign-block";
 import { emptySigning, uploadType, type Signing } from "@/components/application/form-kit";
 import { F, inputCls, Text } from "@/components/application/fields";
-import { PHONE_CONSENT_TEXT } from "@/lib/apply";
+import { cleanChoices, PHONE_CONSENT_TEXT, QUESTIONS, type ChoiceKey } from "@/lib/apply";
+import { QuickQuestion } from "@/components/site/quick-question";
 import { reportStage, saveProgressToken } from "@/lib/application-progress";
 
 /**
@@ -145,6 +147,9 @@ export function LinkApplication({ repSlug, token }: { repSlug: string; token: st
   const [uploading, setUploading] = useState<string | null>(null);
   // a public link asks for name, phone and email first; a personal link already knows who it's for
   const [contactDone, setContactDone] = useState(Boolean(token) || hasStarted(repSlug));
+  // before that, the front page's quick questions, one tap each (kept in this browser)
+  const [quick, setQuick] = useState<Partial<Record<ChoiceKey, string>>>(() => loadQuick(repSlug));
+  const [quickStep, setQuickStep] = useState(() => firstUnanswered(loadQuick(repSlug)));
   const honeypot = useRef<HTMLInputElement | null>(null);
   const started = useRef(false);
   const topRef = useRef<HTMLDivElement | null>(null);
@@ -450,30 +455,48 @@ export function LinkApplication({ repSlug, token }: { repSlug: string; token: st
               firstName={d.owners[0]?.first ?? ""}
             />
 
-            {!contactDone ? (
+            {!contactDone && quickStep < QUESTIONS.length ? (
+              <QuickQuestions
+                step={quickStep}
+                quick={quick}
+                onChoose={(key, id) => {
+                  const next = { ...quick, [key]: id };
+                  setQuick(next);
+                  saveQuick(repSlug, next);
+                  // brief pause so the selection registers before the next question
+                  window.setTimeout(() => setQuickStep((n) => n + 1), 180);
+                }}
+                onBack={() => setQuickStep((n) => Math.max(0, n - 1))}
+              />
+            ) : !contactDone ? (
               <ContactGate
                 repSlug={rep?.slug ?? repSlug}
                 repFirst={repFirst}
+                quick={quick}
+                onBack={() => setQuickStep(QUESTIONS.length - 1)}
                 onDone={(c) => {
                   markStarted(repSlug);
-                  update((x) => ({
-                    ...x,
-                    business: {
-                      ...x.business,
-                      phone: x.business.phone || c.phone,
-                      email: x.business.email || c.email,
-                    },
-                    owners: [
-                      {
-                        ...x.owners[0]!,
-                        first: c.first,
-                        last: c.last,
-                        mobile: c.phone,
-                        email: c.email,
+                  update((x) => {
+                    const y = withQuickAnswers(x, { ...quick, businessName: c.business });
+                    return {
+                      ...y,
+                      business: {
+                        ...y.business,
+                        phone: y.business.phone || c.phone,
+                        email: y.business.email || c.email,
                       },
-                      ...x.owners.slice(1),
-                    ],
-                  }));
+                      owners: [
+                        {
+                          ...y.owners[0]!,
+                          first: c.first,
+                          last: c.last,
+                          mobile: c.phone,
+                          email: c.email,
+                        },
+                        ...y.owners.slice(1),
+                      ],
+                    };
+                  });
                   setContactDone(true);
                   window.scrollTo({ top: 0 });
                 }}
@@ -622,6 +645,91 @@ function markStarted(rep: string) {
   }
 }
 
+const quickKey = (rep: string) => `lamp.application.quick.rep.${rep}`;
+
+function loadQuick(rep: string): Partial<Record<ChoiceKey, string>> {
+  try {
+    if (typeof window === "undefined") return {};
+    return cleanChoices(JSON.parse(window.localStorage.getItem(quickKey(rep)) ?? "{}"));
+  } catch {
+    return {};
+  }
+}
+
+function saveQuick(rep: string, quick: Partial<Record<ChoiceKey, string>>) {
+  try {
+    window.localStorage.setItem(quickKey(rep), JSON.stringify(quick));
+  } catch {
+    /* the page still works without it */
+  }
+}
+
+/** The first question not answered yet; QUESTIONS.length once they're all done. */
+function firstUnanswered(quick: Partial<Record<ChoiceKey, string>>): number {
+  const i = QUESTIONS.findIndex((q) => !quick[q.key]);
+  return i === -1 ? QUESTIONS.length : i;
+}
+
+/**
+ * A public link opens like the front page: the quick questions, one tap each, then name and
+ * number. The answers go on the lead with the rep and fill what they can of the long form.
+ */
+function QuickQuestions({
+  step,
+  quick,
+  onChoose,
+  onBack,
+}: {
+  step: number;
+  quick: Partial<Record<ChoiceKey, string>>;
+  onChoose: (key: ChoiceKey, id: string) => void;
+  onBack: () => void;
+}) {
+  const q = QUESTIONS[step]!;
+  // the questions, then the contact screen
+  const total = QUESTIONS.length + 1;
+  const progress = Math.round(((step + 1) / total) * 100);
+  return (
+    <div className="ll-glass mt-6 rounded-[1.75rem] p-5 ring-1 ring-line sm:p-9" data-quick={q.key}>
+      <div className="flex items-center gap-4">
+        <button
+          type="button"
+          onClick={onBack}
+          className={cn(
+            "grid size-11 shrink-0 place-items-center rounded-full bg-white ring-1 ring-line transition hover:ring-ink/30",
+            step === 0 && "invisible",
+          )}
+          aria-label="Back"
+        >
+          <ArrowLeft className="size-4" />
+        </button>
+        <div
+          className="h-2 flex-1 overflow-hidden rounded-full bg-line"
+          role="progressbar"
+          aria-label="Progress"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={progress}
+        >
+          <div
+            className="h-full rounded-full bg-leaf transition-all duration-500"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <span className="w-10 text-right text-sm font-semibold tabular-nums text-smoke">
+          {step + 1}/{total}
+        </span>
+      </div>
+      <div key={q.key} className="rise mt-8">
+        <QuickQuestion q={q} value={quick[q.key]} onChoose={(id) => onChoose(q.key, id)} />
+      </div>
+      <p className="mt-8 flex items-center justify-center gap-2 text-center text-sm text-smoke">
+        <Lock className="size-3.5" /> Your answers are private and never affect your credit.
+      </p>
+    </div>
+  );
+}
+
 /**
  * A public link's first screen: who this is, before the long form. Saved at once (as a lead with
  * this rep, who is emailed) so a person who stops halfway can still be called. No account here;
@@ -630,13 +738,24 @@ function markStarted(rep: string) {
 function ContactGate({
   repSlug,
   repFirst,
+  quick,
+  onBack,
   onDone,
 }: {
   repSlug: string;
   repFirst: string;
-  onDone: (c: { first: string; last: string; phone: string; email: string }) => void;
+  quick: Partial<Record<ChoiceKey, string>>;
+  onBack: () => void;
+  onDone: (c: {
+    first: string;
+    last: string;
+    business: string;
+    phone: string;
+    email: string;
+  }) => void;
 }) {
   const [first, setFirst] = useState("");
+  const [business, setBusiness] = useState("");
   const [last, setLast] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -647,6 +766,7 @@ function ContactGate({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!first.trim() || !last.trim()) return setError("Add your first and last name.");
+    if (!business.trim()) return setError("Add your business name.");
     if (phone.replace(/\D/g, "").length < 10) return setError("Enter a 10-digit phone number.");
     if (!EMAIL_RE.test(email.trim())) return setError("Enter a valid email.");
     setBusy(true);
@@ -661,9 +781,11 @@ function ContactGate({
           rep: repSlug,
           first_name: first,
           last_name: last,
+          business_name: business,
           phone,
           email,
           phone_consent: consent ? PHONE_CONSENT_TEXT : null,
+          answers: quick,
           utm,
           form: "online",
         }),
@@ -684,6 +806,7 @@ function ContactGate({
     onDone({
       first: first.trim(),
       last: last.trim(),
+      business: business.trim(),
       phone: phone.trim(),
       email: email.trim().toLowerCase(),
     });
@@ -695,6 +818,13 @@ function ContactGate({
       className="ll-glass mt-6 rounded-[1.75rem] p-5 ring-1 ring-line sm:p-9"
       noValidate
     >
+      <button
+        type="button"
+        onClick={onBack}
+        className="mb-5 inline-flex items-center gap-1.5 text-sm font-semibold text-smoke hover:text-ink"
+      >
+        <ArrowLeft className="size-3.5" /> Back
+      </button>
       <p className="font-mono text-[0.7rem] font-medium uppercase tracking-[0.16em] text-leaf">
         Before you start
       </p>
@@ -702,8 +832,8 @@ function ContactGate({
         Let's start with you
       </h2>
       <p className="mt-2 leading-relaxed text-smoke">
-        Your name and number, so {repFirst} can help if you get stuck. The rest takes about 10
-        minutes, and it saves as you go.
+        Your name, business and number, so {repFirst} can help if you get stuck. The rest takes
+        about 10 minutes, and it saves as you go.
       </p>
       <div className="mt-6 grid gap-4 sm:grid-cols-2">
         <F label="First name">
@@ -712,6 +842,11 @@ function ContactGate({
         <F label="Last name">
           <Text value={last} onChange={setLast} autoComplete="family-name" />
         </F>
+        <div className="sm:col-span-2">
+          <F label="Business name">
+            <Text value={business} onChange={setBusiness} autoComplete="organization" />
+          </F>
+        </div>
         <F label="Mobile phone">
           <Text value={phone} onChange={setPhone} inputMode="tel" autoComplete="tel" />
         </F>

@@ -40,6 +40,39 @@ export function signalSummary(signals: unknown): string {
     .join(" · ");
 }
 
+export const LEAD_TYPES = ["fleet", "contractor", "auto", "ucc"] as const;
+export type LeadType = (typeof LEAD_TYPES)[number];
+export const LEAD_TYPE_LABEL: Record<LeadType, string> = {
+  fleet: "Fleet",
+  contractor: "Contractor",
+  auto: "Auto shop",
+  ucc: "UCC",
+};
+
+const signalTypes = (signals: unknown): Set<string> =>
+  new Set(
+    Array.isArray(signals)
+      ? (signals as Signal[]).map((s) => (s && typeof s === "object" ? (s.signal_type ?? "") : ""))
+      : [],
+  );
+
+/**
+ * Which kind of lead this is, read from what the engine saw, in the order the engine's push picks
+ * them: an established trucking fleet, else a contractor (NYC permit or license, NJ home
+ * improvement registration), else an auto repair shop, else a merchant known only from a UCC filing.
+ */
+export function leadType(signals: unknown): LeadType | null {
+  const t = signalTypes(signals);
+  if (t.has("fmcsa_established")) return "fleet";
+  if (t.has("nyc_permit") || t.has("nyc_license") || t.has("nj_hic")) return "contractor";
+  if (t.has("nj_auto_facility")) return "auto";
+  if (t.has("mca_ucc")) return "ucc";
+  return null;
+}
+
+/** A UCC filing by an MCA funder is on record: this merchant has taken an advance before. */
+export const tookMca = (signals: unknown) => signalTypes(signals).has("mca_ucc");
+
 export const tel = (phone: string | null) => (phone ?? "").replace(/[^0-9+]/g, "");
 
 /** RFC 4180 CSV: quoted fields may hold commas, quotes ("") and line breaks. */

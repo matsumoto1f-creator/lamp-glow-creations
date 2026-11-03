@@ -11,14 +11,19 @@ import {
   BOARD_ORIGINS,
   ENGINE_STATUS_LABEL,
   ENGINE_STATUSES,
+  LEAD_TYPE_LABEL,
+  LEAD_TYPES,
   TIERS,
   boardBatch,
+  leadType,
   leadsFromCsv,
   leadsToCsv,
   searchFilter,
   signalSummary,
   tel,
+  tookMca,
   type EngineStatus,
+  type LeadType,
 } from "@/lib/engine-leads";
 
 /**
@@ -66,6 +71,8 @@ export function EngineLeads({
 }) {
   const [tier, setTier] = useState<string>(isAdmin ? "A" : "");
   const [status, setStatus] = useState<string>("new");
+  // "" shows every type in one list; a type narrows the loaded list without a reload
+  const [kind, setKind] = useState<LeadType | "">("");
   const [search, setSearch] = useState("");
   // what the list was last loaded for: the box waits for a pause in typing
   const [query, setQuery] = useState("");
@@ -162,7 +169,8 @@ export function EngineLeads({
 
   // Do-not-call leads never get a link (the server refuses them too).
   const canPick = (r: Row) => r.status !== "do_not_call";
-  const pickable = (rows ?? []).filter(canPick);
+  const shown = rows && kind ? rows.filter((r) => leadType(r.signals) === kind) : rows;
+  const pickable = (shown ?? []).filter(canPick);
   const allPicked = pickable.length > 0 && pickable.every((r) => selected.has(r.id));
   const somePicked = pickable.some((r) => selected.has(r.id));
 
@@ -251,6 +259,27 @@ export function EngineLeads({
             <option value="">Any status</option>
           </select>
         </label>
+        <label className="text-sm">
+          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-smoke">
+            Type
+          </span>
+          <select
+            className="rounded-full bg-white px-4 py-2 text-sm ring-1 ring-line"
+            value={kind}
+            onChange={(e) => {
+              setKind(e.target.value as LeadType | "");
+              setSelected(new Set());
+            }}
+            data-lead-type
+          >
+            <option value="">All types, one list</option>
+            {LEAD_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {LEAD_TYPE_LABEL[t]}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="min-w-[14rem] flex-1 text-sm sm:max-w-sm">
           <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-smoke">
             Search
@@ -277,6 +306,7 @@ export function EngineLeads({
         <p className="ml-auto text-sm text-smoke">
           {isAdmin ? "Every engine lead" : "Your leads"}
           {rows && ` · ${rows.length}${rows.length === LIMIT ? "+" : ""}`}
+          {rows && kind && ` · ${shown?.length ?? 0} ${LEAD_TYPE_LABEL[kind].toLowerCase()}`}
         </p>
       </div>
 
@@ -306,10 +336,15 @@ export function EngineLeads({
       )}
 
       <div className={cn(card, "mt-4 overflow-x-auto")}>
-        {rows === null ? (
+        {rows === null || shown === null ? (
           <div className="grid place-items-center py-16">
             <Loader2 className="size-6 animate-spin text-smoke" />
           </div>
+        ) : rows.length > 0 && shown.length === 0 && kind ? (
+          <p className="px-6 py-12 text-center text-sm text-smoke">
+            No {LEAD_TYPE_LABEL[kind].toLowerCase()} leads in this list. Pick All types to see the
+            rest.
+          </p>
         ) : rows.length === 0 ? (
           <p className="px-6 py-12 text-center text-sm text-smoke">
             {query
@@ -336,6 +371,7 @@ export function EngineLeads({
                   />
                 </th>
                 <th className="px-4 py-3 font-semibold">Tier</th>
+                <th className="px-4 py-3 font-semibold">Type</th>
                 <th className="px-4 py-3 font-semibold">Business</th>
                 <th className="px-4 py-3 font-semibold">Phone</th>
                 <th className="px-4 py-3 font-semibold">Where</th>
@@ -347,7 +383,7 @@ export function EngineLeads({
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {shown.map((r) => (
                 <tr
                   key={r.id}
                   data-engine-lead={r.id}
@@ -370,6 +406,26 @@ export function EngineLeads({
                   <td className="px-4 py-3 font-semibold tabular-nums">
                     {r.tier ?? "—"}
                     {r.need != null && <span className="ml-1 text-xs text-smoke">{r.need}</span>}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-xs">
+                    {(() => {
+                      const t = leadType(r.signals);
+                      return t ? (
+                        <span className="rounded-full bg-sand px-2.5 py-1 font-semibold">
+                          {LEAD_TYPE_LABEL[t]}
+                        </span>
+                      ) : (
+                        <span className="text-smoke">—</span>
+                      );
+                    })()}
+                    {tookMca(r.signals) && leadType(r.signals) !== "ucc" && (
+                      <div
+                        className="mt-1 text-smoke"
+                        title="A UCC filing by an MCA funder is on record"
+                      >
+                        Took an MCA
+                      </div>
+                    )}
                   </td>
                   <td className="max-w-[16rem] px-4 py-3 font-medium">
                     <div className="truncate">{r.name || "Unnamed business"}</div>

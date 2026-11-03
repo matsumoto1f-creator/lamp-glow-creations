@@ -6,8 +6,35 @@ import {
   leadsFromCsv,
   leadsToCsv,
   type LeadExport,
+  leadType,
   searchFilter,
+  tookMca,
 } from "../src/lib/engine-leads.ts";
+
+const sig = (...types: string[]) =>
+  types.map((t) => ({ source: "x", signal_type: t, signal_date: "2026-11-03" }));
+
+Deno.test("lead type: fleet first, then contractor, auto shop, UCC", () => {
+  assertEquals(leadType(sig("fmcsa_established")), "fleet");
+  assertEquals(leadType(sig("nj_hic", "fmcsa_established")), "fleet");
+  assertEquals(leadType(sig("nyc_license")), "contractor");
+  assertEquals(leadType(sig("nyc_permit", "mca_ucc")), "contractor");
+  assertEquals(leadType(sig("nj_auto_facility")), "auto");
+  assertEquals(leadType(sig("mca_ucc")), "ucc");
+});
+
+Deno.test("lead type: no or odd signals have no type", () => {
+  assertEquals(leadType(null), null);
+  assertEquals(leadType("fmcsa_established"), null);
+  assertEquals(leadType([null, 3, {}]), null);
+  assertEquals(leadType(sig("ny_new_corp")), null);
+});
+
+Deno.test("took an MCA: only a UCC filing by an MCA funder counts", () => {
+  assert(tookMca(sig("fmcsa_established", "mca_ucc")));
+  assert(!tookMca(sig("fmcsa_established")));
+  assert(!tookMca(undefined));
+});
 
 Deno.test("search: empty box searches nothing", () => {
   assertEquals(searchFilter("   "), null);

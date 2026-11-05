@@ -364,6 +364,25 @@ export async function discordLink(request: Request): Promise<Response> {
 
 // ---------- registering /lamp, once ----------
 
+/** Whether the stored token is shaped like a bot token, and whose: no part of its value. */
+function tokenShape(token: string) {
+  const parts = token.split(".");
+  let appId: string | null = null;
+  try {
+    const id = atob((parts[0] ?? "").replace(/-/g, "+").replace(/_/g, "/"));
+    appId = /^\d{17,20}$/.test(id) ? id : null;
+  } catch {
+    appId = null;
+  }
+  return {
+    length: token.length,
+    parts: parts.length,
+    first_part_is_an_app_id: appId !== null,
+    app_id: appId,
+    starts_with_bot_word: /^bot\s/i.test(token),
+  };
+}
+
 export async function discordSetup(request: Request): Promise<Response> {
   if (
     !env("ENGINE_PUSH_SECRET") ||
@@ -373,7 +392,13 @@ export async function discordSetup(request: Request): Promise<Response> {
   if (!env("DISCORD_BOT_TOKEN")) return json(412, { error: "DISCORD_BOT_TOKEN isn't set." });
   const me = await discord("GET", "/oauth2/applications/@me");
   const appId = typeof me.data["id"] === "string" ? me.data["id"] : null;
-  if (!me.ok || !appId) return json(502, { error: `Discord said ${me.status} for the app.` });
+  if (!me.ok || !appId)
+    return json(502, {
+      error: `Discord said ${me.status} for the app.`,
+      // what the stored token looks like, never its value: a bot token has three parts and its
+      // first part is the app's id in base64; a client secret or public key has one
+      token_shape: tokenShape(env("DISCORD_BOT_TOKEN")),
+    });
   const reg = await discord("PUT", `/applications/${appId}/commands`, [LAMP_COMMAND]);
   if (!reg.ok) return json(502, { error: `Discord said ${reg.status} registering /lamp.` });
   return json(200, {

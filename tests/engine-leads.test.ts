@@ -6,8 +6,10 @@ import {
   leadsFromCsv,
   leadsToCsv,
   type LeadExport,
+  leadRecords,
   leadType,
   searchFilter,
+  splitWhy,
   tookMca,
 } from "../src/lib/engine-leads.ts";
 
@@ -34,6 +36,56 @@ Deno.test("took an MCA: only a UCC filing by an MCA funder counts", () => {
   assert(tookMca(sig("fmcsa_established", "mca_ucc")));
   assert(!tookMca(sig("fmcsa_established")));
   assert(!tookMca(undefined));
+});
+
+Deno.test("why: owner, where the name came from, and each point explained", () => {
+  const w = splitWhy(
+    "Owner: Genci Sela (licensed contractor on an NYC permit); also Ana Sela · operating in 2020-21 (PPP loan) · PPP payroll $138,000/mo · contractor · has phone",
+  );
+  assertEquals(w.owner, "Genci Sela");
+  assertEquals(w.ownerFrom, "licensed contractor on an NYC permit");
+  assertEquals(w.alsoOwner, "Ana Sela");
+  assertEquals(
+    w.points.map((p) => p.text),
+    ["operating in 2020-21 (PPP)", "PPP payroll $138,000/mo"],
+  );
+  assert(w.points[1].means!.includes("$138,000 a month"));
+  assert(!w.points.some((p) => /loan/i.test(p.text + (p.means ?? ""))));
+});
+
+Deno.test("why: no owner, or nothing at all", () => {
+  const w = splitWhy("FMCSA registered 2010 · 19 trucks · has phone");
+  assertEquals(w.owner, null);
+  assertEquals(
+    w.points.map((p) => p.means),
+    ["A registered trucking company since 2010.", "19 trucks on its federal registration."],
+  );
+  assertEquals(splitWhy(null), { owner: null, ownerFrom: null, alsoOwner: null, points: [] });
+});
+
+Deno.test("records: plain names, details kept, repeats dropped, newest first", () => {
+  const r = leadRecords([
+    { source: "nyc_permit", signal_type: "nyc_permit", signal_date: "2026-10-05" },
+    { source: "nyc_permit", signal_type: "nyc_permit", signal_date: "2026-10-05" },
+    {
+      source: "nyc_permit",
+      signal_type: "nyc_permit",
+      signal_date: "2026-10-27",
+      detail: "1 permitted job(s) since 2026-10-22, $56,000 estimated; Plumbing",
+    },
+    { source: "nj_auto", signal_type: "nj_auto_facility", signal_date: "" },
+    null,
+  ]);
+  assertEquals(r, [
+    {
+      label: "NYC building permit",
+      date: "2026-10-27",
+      detail: "1 permitted job(s) since 2026-10-22, $56,000 estimated; Plumbing",
+    },
+    { label: "NYC building permit", date: "2026-10-05", detail: null },
+    { label: "NJ auto facility license", date: null, detail: null },
+  ]);
+  assertEquals(leadRecords("x"), []);
 });
 
 Deno.test("search: empty box searches nothing", () => {

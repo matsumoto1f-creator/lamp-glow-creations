@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Download, Loader2, Search, Send } from "lucide-react";
+import { Fragment, useEffect, useState } from "react";
+import { ChevronDown, Download, Loader2, Search, Send } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { age } from "@/lib/staff";
@@ -11,15 +11,18 @@ import {
   BOARD_ORIGINS,
   ENGINE_STATUS_LABEL,
   ENGINE_STATUSES,
+  LEAD_APPROACH,
   LEAD_TYPE_LABEL,
   LEAD_TYPES,
   TIERS,
   boardBatch,
+  leadRecords,
   leadType,
   leadsFromCsv,
   leadsToCsv,
   searchFilter,
   signalSummary,
+  splitWhy,
   tel,
   tookMca,
   type EngineStatus,
@@ -31,6 +34,8 @@ import {
  * list). The engine runs outside Lamp; an admin picks leads there, downloads them with the rep
  * each one goes to, and uploads the file here. A rep sees and works only their own leads and
  * records what happened on the call; the engine never dials or sends, a person does.
+ * Details under each lead lay out who to ask for, why it was picked, every public record
+ * behind it and how to open the call, so a rep dials knowing what the engine knows.
  * Ticking leads opens Send the application: one personal link each, by email or to copy.
  * Search looks through name, phone, email, city and industry within the tier and status
  * picked; admins can also download the ticked leads as a CSV.
@@ -81,6 +86,8 @@ export function EngineLeads({
   const [saving, setSaving] = useState<number | null>(null);
   const [reload, setReload] = useState(0);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  // leads whose details are open under their row
+  const [open, setOpen] = useState<Set<number>>(new Set());
   // The send panel, keyed so picking again starts it fresh with the new picks.
   const [sending, setSending] = useState<{ key: number; seed: SendSeed[] } | null>(null);
 
@@ -173,6 +180,16 @@ export function EngineLeads({
   const pickable = (shown ?? []).filter(canPick);
   const allPicked = pickable.length > 0 && pickable.every((r) => selected.has(r.id));
   const somePicked = pickable.some((r) => selected.has(r.id));
+
+  function toggleOpen(id: number) {
+    setOpen((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  const allOpen = (shown ?? []).length > 0 && (shown ?? []).every((r) => open.has(r.id));
 
   function pick(id: number, on: boolean) {
     setSelected((s) => {
@@ -303,6 +320,15 @@ export function EngineLeads({
         >
           Refresh
         </button>
+        <button
+          type="button"
+          className="rounded-full px-4 py-2 text-sm font-semibold text-smoke ring-1 ring-line hover:text-ink disabled:opacity-40"
+          disabled={!shown?.length}
+          onClick={() => setOpen(allOpen ? new Set() : new Set((shown ?? []).map((r) => r.id)))}
+          data-open-all
+        >
+          {allOpen ? "Close all details" : "Open all details"}
+        </button>
         <p className="ml-auto text-sm text-smoke">
           {isAdmin ? "Every engine lead" : "Your leads"}
           {rows && ` · ${rows.length}${rows.length === LIMIT ? "+" : ""}`}
@@ -384,121 +410,166 @@ export function EngineLeads({
             </thead>
             <tbody>
               {shown.map((r) => (
-                <tr
-                  key={r.id}
-                  data-engine-lead={r.id}
-                  className={cn(
-                    "border-b border-line last:border-0 hover:bg-sand",
-                    selected.has(r.id) && "bg-sand",
-                  )}
-                >
-                  <td className="w-10 py-3 pl-4 pr-0">
-                    <input
-                      type="checkbox"
-                      className="size-4 align-middle disabled:opacity-40"
-                      aria-label={`Select ${r.name ?? "lead"}`}
-                      title={canPick(r) ? undefined : "Marked do not call"}
-                      disabled={!canPick(r)}
-                      checked={selected.has(r.id)}
-                      onChange={(e) => pick(r.id, e.target.checked)}
-                    />
-                  </td>
-                  <td className="px-4 py-3 font-semibold tabular-nums">
-                    {r.tier ?? "—"}
-                    {r.need != null && <span className="ml-1 text-xs text-smoke">{r.need}</span>}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-xs">
-                    {(() => {
-                      const t = leadType(r.signals);
-                      return t ? (
-                        <span className="rounded-full bg-sand px-2.5 py-1 font-semibold">
-                          {LEAD_TYPE_LABEL[t]}
-                        </span>
+                <Fragment key={r.id}>
+                  <tr
+                    data-engine-lead={r.id}
+                    className={cn(
+                      "border-b border-line last:border-0 hover:bg-sand",
+                      selected.has(r.id) && "bg-sand",
+                    )}
+                  >
+                    <td className="w-10 py-3 pl-4 pr-0">
+                      <input
+                        type="checkbox"
+                        className="size-4 align-middle disabled:opacity-40"
+                        aria-label={`Select ${r.name ?? "lead"}`}
+                        title={canPick(r) ? undefined : "Marked do not call"}
+                        disabled={!canPick(r)}
+                        checked={selected.has(r.id)}
+                        onChange={(e) => pick(r.id, e.target.checked)}
+                      />
+                    </td>
+                    <td className="px-4 py-3 font-semibold tabular-nums">
+                      {r.tier ?? "—"}
+                      {r.need != null && <span className="ml-1 text-xs text-smoke">{r.need}</span>}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-xs">
+                      {(() => {
+                        const t = leadType(r.signals);
+                        return t ? (
+                          <span className="rounded-full bg-sand px-2.5 py-1 font-semibold">
+                            {LEAD_TYPE_LABEL[t]}
+                          </span>
+                        ) : (
+                          <span className="text-smoke">—</span>
+                        );
+                      })()}
+                      {tookMca(r.signals) && leadType(r.signals) !== "ucc" && (
+                        <div
+                          className="mt-1 text-smoke"
+                          title="A UCC filing by an MCA funder is on record"
+                        >
+                          Took an MCA
+                        </div>
+                      )}
+                    </td>
+                    <td className="max-w-[16rem] px-4 py-3 font-medium">
+                      <div className="truncate">{r.name || "Unnamed business"}</div>
+                      {r.industry && (
+                        <div className="truncate text-xs text-smoke">{r.industry}</div>
+                      )}
+                      <button
+                        type="button"
+                        className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-forest hover:underline"
+                        aria-expanded={open.has(r.id)}
+                        aria-controls={`lead-detail-${r.id}`}
+                        onClick={() => toggleOpen(r.id)}
+                        data-lead-details={r.id}
+                      >
+                        <ChevronDown
+                          className={cn(
+                            "size-3.5 transition-transform",
+                            open.has(r.id) && "rotate-180",
+                          )}
+                        />
+                        {open.has(r.id) ? "Hide details" : "Details"}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 tabular-nums">
+                      {r.phone ? (
+                        <a
+                          href={`tel:${tel(r.phone)}`}
+                          className="underline-offset-4 hover:text-forest hover:underline"
+                        >
+                          {r.phone}
+                        </a>
                       ) : (
-                        <span className="text-smoke">—</span>
-                      );
-                    })()}
-                    {tookMca(r.signals) && leadType(r.signals) !== "ucc" && (
-                      <div
-                        className="mt-1 text-smoke"
-                        title="A UCC filing by an MCA funder is on record"
-                      >
-                        Took an MCA
-                      </div>
-                    )}
-                  </td>
-                  <td className="max-w-[16rem] px-4 py-3 font-medium">
-                    <div className="truncate">{r.name || "Unnamed business"}</div>
-                    {r.industry && <div className="truncate text-xs text-smoke">{r.industry}</div>}
-                  </td>
-                  <td className="px-4 py-3 tabular-nums">
-                    {r.phone ? (
-                      <a
-                        href={`tel:${tel(r.phone)}`}
-                        className="underline-offset-4 hover:text-forest hover:underline"
-                      >
-                        {r.phone}
-                      </a>
-                    ) : (
-                      "—"
-                    )}
-                    {r.email && (
-                      <div className="max-w-[12rem] truncate text-xs text-smoke">{r.email}</div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-smoke">
-                    {[r.city, r.state].filter(Boolean).join(", ") || "—"}
-                  </td>
-                  <td className="max-w-[18rem] px-4 py-3 text-smoke">
-                    <span className="line-clamp-2">{r.reason || "—"}</span>
-                  </td>
-                  <td className="max-w-[14rem] px-4 py-3 text-xs text-smoke">
-                    <span className="line-clamp-2">{signalSummary(r.signals) || "—"}</span>
-                  </td>
-                  <td className="px-4 py-3 tabular-nums text-smoke">
-                    {r.first_found ?? age(r.pushed_at)}
-                  </td>
-                  <td className="px-4 py-3">
-                    <select
-                      className="rounded-full bg-white px-3 py-1.5 text-xs ring-1 ring-line"
-                      value={r.status}
-                      disabled={saving === r.id}
-                      onChange={(e) => void setLeadStatus(r, e.target.value as EngineStatus)}
-                      aria-label={`Status for ${r.name ?? "lead"}`}
-                    >
-                      {ENGINE_STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {ENGINE_STATUS_LABEL[s]}
-                        </option>
-                      ))}
-                    </select>
-                    {r.worked_at && (
-                      <span className="ml-2 text-xs tabular-nums text-smoke">
-                        {age(r.worked_at)}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-smoke">
-                    {isAdmin ? (
+                        "—"
+                      )}
+                      {r.email && (
+                        <div className="max-w-[12rem] truncate text-xs text-smoke">{r.email}</div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-smoke">
+                      {[r.city, r.state].filter(Boolean).join(", ") || "—"}
+                    </td>
+                    <td className="max-w-[18rem] px-4 py-3 text-smoke">
+                      {(() => {
+                        const w = splitWhy(r.reason);
+                        const rest = w.points.map((p) => p.text).join(" · ");
+                        return (
+                          <button
+                            type="button"
+                            className="block text-left hover:text-ink"
+                            onClick={() => toggleOpen(r.id)}
+                            title={open.has(r.id) ? "Hide details" : "Show the full reason"}
+                          >
+                            {w.owner && (
+                              <span className="block truncate font-semibold text-ink">
+                                Ask for {w.owner}
+                              </span>
+                            )}
+                            <span className="line-clamp-2">{rest || (w.owner ? "" : "—")}</span>
+                          </button>
+                        );
+                      })()}
+                    </td>
+                    <td className="max-w-[14rem] px-4 py-3 text-xs text-smoke">
+                      <span className="line-clamp-2">{signalSummary(r.signals) || "—"}</span>
+                    </td>
+                    <td className="px-4 py-3 tabular-nums text-smoke">
+                      {r.first_found ?? age(r.pushed_at)}
+                    </td>
+                    <td className="px-4 py-3">
                       <select
                         className="rounded-full bg-white px-3 py-1.5 text-xs ring-1 ring-line"
-                        value={r.rep_slug ?? ""}
+                        value={r.status}
                         disabled={saving === r.id}
-                        onChange={(e) => void assignRep(r, e.target.value)}
-                        aria-label={`Rep for ${r.name ?? "lead"}`}
+                        onChange={(e) => void setLeadStatus(r, e.target.value as EngineStatus)}
+                        aria-label={`Status for ${r.name ?? "lead"}`}
                       >
-                        <option value="">Unassigned</option>
-                        {reps.map((p) => (
-                          <option key={p.slug} value={p.slug}>
-                            {p.name}
+                        {ENGINE_STATUSES.map((s) => (
+                          <option key={s} value={s}>
+                            {ENGINE_STATUS_LABEL[s]}
                           </option>
                         ))}
                       </select>
-                    ) : (
-                      (repName(r.rep_slug) ?? "—")
-                    )}
-                  </td>
-                </tr>
+                      {r.worked_at && (
+                        <span className="ml-2 text-xs tabular-nums text-smoke">
+                          {age(r.worked_at)}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-smoke">
+                      {isAdmin ? (
+                        <select
+                          className="rounded-full bg-white px-3 py-1.5 text-xs ring-1 ring-line"
+                          value={r.rep_slug ?? ""}
+                          disabled={saving === r.id}
+                          onChange={(e) => void assignRep(r, e.target.value)}
+                          aria-label={`Rep for ${r.name ?? "lead"}`}
+                        >
+                          <option value="">Unassigned</option>
+                          {reps.map((p) => (
+                            <option key={p.slug} value={p.slug}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        (repName(r.rep_slug) ?? "—")
+                      )}
+                    </td>
+                  </tr>
+                  {open.has(r.id) && (
+                    <tr id={`lead-detail-${r.id}`} className="border-b border-line bg-sand/60">
+                      <td />
+                      <td colSpan={10} className="px-4 pb-5 pt-2">
+                        <LeadDetail row={r} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               ))}
             </tbody>
           </table>
@@ -547,6 +618,114 @@ export function EngineLeads({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Everything the engine knows about one lead, laid out for the call. */
+function LeadDetail({ row }: { row: Row }) {
+  const why = splitWhy(row.reason);
+  const records = leadRecords(row.signals);
+  const type = leadType(row.signals);
+  const approach = [
+    ...(type ? [LEAD_APPROACH[type]] : []),
+    ...(type !== "ucc" && tookMca(row.signals) ? [LEAD_APPROACH.ucc] : []),
+  ];
+  const head = "text-xs font-semibold uppercase tracking-wide text-smoke";
+  return (
+    <div className="grid gap-5 text-sm md:grid-cols-2 xl:grid-cols-4" data-lead-detail={row.id}>
+      <section>
+        <h4 className={head}>Who to ask for</h4>
+        {why.owner ? (
+          <>
+            <p className="mt-2 text-base font-semibold">{why.owner}</p>
+            {why.ownerFrom && (
+              <p className="mt-0.5 text-xs text-smoke">From public records: {why.ownerFrom}</p>
+            )}
+            {why.alsoOwner && (
+              <p className="mt-1 text-xs text-smoke">Also named: {why.alsoOwner}</p>
+            )}
+            <p className="mt-2 text-xs text-smoke">
+              Ask for them by name. If someone else answers, ask who handles the money side.
+            </p>
+          </>
+        ) : (
+          <p className="mt-2 text-smoke">
+            No owner name in the public records yet. Ask for the owner, or whoever handles the
+            finances, and note the name for next time.
+          </p>
+        )}
+        <dl className="mt-3 space-y-1 text-xs text-smoke">
+          {row.industry && (
+            <div>
+              <dt className="inline font-semibold">Business: </dt>
+              <dd className="inline">{row.industry}</dd>
+            </div>
+          )}
+          {(row.city || row.state) && (
+            <div>
+              <dt className="inline font-semibold">Where: </dt>
+              <dd className="inline">{[row.city, row.state].filter(Boolean).join(", ")}</dd>
+            </div>
+          )}
+          <div>
+            <dt className="inline font-semibold">Tier: </dt>
+            <dd className="inline">
+              {row.tier ?? "—"}
+              {row.tier === "A" && " (dial first)"}
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <section>
+        <h4 className={head}>Why it was picked</h4>
+        {why.points.length ? (
+          <ul className="mt-2 space-y-2">
+            {why.points.map((p) => (
+              <li key={p.text}>
+                <span className="font-medium">{p.text}</span>
+                {p.means && <span className="block text-xs text-smoke">{p.means}</span>}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-smoke">The engine gave no reason for this one.</p>
+        )}
+      </section>
+
+      <section>
+        <h4 className={head}>On the public record</h4>
+        {records.length ? (
+          <ul className="mt-2 space-y-2">
+            {records.map((x) => (
+              <li key={`${x.label}|${x.date}|${x.detail}`}>
+                <span className="font-medium">{x.label}</span>
+                {x.date && <span className="ml-1.5 text-xs tabular-nums text-smoke">{x.date}</span>}
+                {x.detail && <span className="block text-xs text-smoke">{x.detail}</span>}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-smoke">No records came with this lead.</p>
+        )}
+      </section>
+
+      <section>
+        <h4 className={head}>How to open the call</h4>
+        {approach.length ? (
+          approach.map((a) => (
+            <div key={a.ask} className="mt-2">
+              <p className="text-smoke">{a.why}</p>
+              <p className="mt-1.5 font-medium">{a.ask}</p>
+            </div>
+          ))
+        ) : (
+          <p className="mt-2 text-smoke">
+            Ask what they'd do with extra working capital this month, and how fast they'd need it.
+          </p>
+        )}
+      </section>
     </div>
   );
 }

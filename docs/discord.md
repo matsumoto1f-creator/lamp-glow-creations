@@ -20,9 +20,10 @@ What it does once set up:
      Secrets) as `DISCORD_PUBLIC_KEY`.
    - **Bot:** Reset Token, copy it straight into Lovable as `DISCORD_BOT_TOKEN`. Don't paste it
      anywhere else.
-3. **The #deals webhook.** In Discord, hover #deals, the gear (Edit Channel), Integrations,
-   Webhooks, New Webhook, Copy Webhook URL. Paste it into Lovable as `DISCORD_DEALS_WEBHOOK`. The
-   URL works like a password: only Lovable gets it.
+3. **The #deals channel.** Add its channel id in Lovable as `DISCORD_DEALS_CHANNEL` (not a secret: in
+   Discord, the number at the end of the channel's address on discord.com). The bot posts there
+   itself; it needs Send Messages, which the invite link below grants. (A channel webhook URL in
+   `DISCORD_DEALS_WEBHOOK` also works instead; it is a secret.)
 4. **Publish** the site in Lovable so it picks up the three values.
 5. **Point Discord at Lamp.** Back in the Developer Portal, General Information, Interactions
    Endpoint URL: `https://getlamp.app/api/discord/interactions`, Save. (Discord checks it right
@@ -41,7 +42,7 @@ What it does once set up:
 - `notifications` insert -> trigger `notifications_to_team` (pg_net) -> POST `/api/team/relay` with
   the notification id and a secret from Vault -> the site reads the row, DMs the person if they've
   linked (`profiles.discord_id`), and for deal events claims a row in `team_channel_posts` so #deals
-  hears it once (through the webhook).
+  hears it once (the bot posts to `DISCORD_DEALS_CHANNEL`, or the webhook if that's set instead).
 - `/lamp` -> POST `/api/discord/interactions`, checked against `DISCORD_PUBLIC_KEY` (Ed25519) and
   refused if older than five minutes. `/lamp link` hands back a link signed with the Vault secret,
   good for 30 minutes; `/discord-link` finishes it for the signed-in staff member.

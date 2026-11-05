@@ -1,11 +1,19 @@
-import { Fragment, useEffect, useState } from "react";
-import { ChevronDown, Download, Loader2, Search, Send } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ChevronRight, Download, Loader2, Phone, Search, Send } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { age } from "@/lib/staff";
 import { btnOutline, btnPrimary, card } from "@/components/site/layout";
+import { input, textarea } from "@/components/staff/field-styles";
 import { SendApplications, type SendSeed } from "@/components/staff/send-applications";
-import { MAX_RECIPIENTS } from "@/lib/application-links";
+import { EMAIL_RE, MAX_RECIPIENTS } from "@/lib/application-links";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import type { TablesInsert } from "@/integrations/supabase/types";
 import {
   BOARD_ORIGINS,
@@ -34,8 +42,9 @@ import {
  * list). The engine runs outside Lamp; an admin picks leads there, downloads them with the rep
  * each one goes to, and uploads the file here. A rep sees and works only their own leads and
  * records what happened on the call; the engine never dials or sends, a person does.
- * Details under each lead lay out who to ask for, why it was picked, every public record
- * behind it and how to open the call, so a rep dials knowing what the engine knows.
+ * Clicking a lead opens its page: the contact the rep gets on the call (who, the email for the
+ * application, the best number) and notes, saved to columns no push touches; then who to ask for,
+ * why it was picked, every public record behind it and how to open the call.
  * Ticking leads opens Send the application: one personal link each, by email or to copy.
  * Search looks through name, phone, email, city and industry within the tier and status
  * picked; admins can also download the ticked leads as a CSV.
@@ -59,10 +68,16 @@ type Row = {
   first_found: string | null;
   pushed_at: string;
   worked_at: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  contact_updated_at: string | null;
 };
 
+type ContactPatch = Pick<Row, "contact_name" | "contact_email" | "contact_phone" | "notes">;
+
 const COLUMNS =
-  "id,name,phone,email,city,state,industry,tier,need,reason,signals,status,notes,rep_slug,first_found,pushed_at,worked_at";
+  "id,name,phone,email,city,state,industry,tier,need,reason,signals,status,notes,rep_slug,first_found,pushed_at,worked_at,contact_name,contact_email,contact_phone,contact_updated_at";
 const LIMIT = 300;
 
 export function EngineLeads({
@@ -86,8 +101,8 @@ export function EngineLeads({
   const [saving, setSaving] = useState<number | null>(null);
   const [reload, setReload] = useState(0);
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  // leads whose details are open under their row
-  const [open, setOpen] = useState<Set<number>>(new Set());
+  // the lead whose page is open
+  const [openId, setOpenId] = useState<number | null>(null);
   // The send panel, keyed so picking again starts it fresh with the new picks.
   const [sending, setSending] = useState<{ key: number; seed: SendSeed[] } | null>(null);
 
@@ -181,15 +196,35 @@ export function EngineLeads({
   const allPicked = pickable.length > 0 && pickable.every((r) => selected.has(r.id));
   const somePicked = pickable.some((r) => selected.has(r.id));
 
-  function toggleOpen(id: number) {
-    setOpen((s) => {
-      const next = new Set(s);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const openRow = openId == null ? null : ((rows ?? []).find((r) => r.id === openId) ?? null);
+
+  /** Saves what the rep got on the call; returns an error to show, or "" when it saved. */
+  async function saveContact(row: Row, patch: ContactPatch): Promise<string> {
+    const sb = getSupabase();
+    if (!sb) return "Not connected. Refresh and try again.";
+    const { data, error: err } = await sb
+      .from("engine_leads")
+      .update(patch)
+      .eq("id", row.id)
+      .select("contact_updated_at")
+      .maybeSingle();
+    if (err) return `Couldn't save: ${err.message}`;
+    if (!data) return "Couldn't save: this lead isn't yours to change.";
+    setRows((rs) =>
+      rs
+        ? rs.map((r) =>
+            r.id === row.id
+              ? {
+                  ...r,
+                  ...patch,
+                  contact_updated_at: data.contact_updated_at ?? r.contact_updated_at,
+                }
+              : r,
+          )
+        : rs,
+    );
+    return "";
   }
-  const allOpen = (shown ?? []).length > 0 && (shown ?? []).every((r) => open.has(r.id));
 
   function pick(id: number, on: boolean) {
     setSelected((s) => {
@@ -211,15 +246,10 @@ export function EngineLeads({
     });
   }
 
-  function openSend() {
-    const seed = (rows ?? [])
-      .filter((r) => selected.has(r.id) && canPick(r))
-      .map((r) => ({
-        lead_id: r.id,
-        business_name: r.name ?? "",
-        phone: r.phone ?? "",
-        email: r.email ?? "",
-      }));
+  function openSend(only?: Row) {
+    const seed = (only ? [only] : (rows ?? []).filter((r) => selected.has(r.id)))
+      .filter(canPick)
+      .map((r) => sendSeed(r));
     if (seed.length) setSending((s) => ({ key: (s?.key ?? 0) + 1, seed }));
   }
 
@@ -320,15 +350,6 @@ export function EngineLeads({
         >
           Refresh
         </button>
-        <button
-          type="button"
-          className="rounded-full px-4 py-2 text-sm font-semibold text-smoke ring-1 ring-line hover:text-ink disabled:opacity-40"
-          disabled={!shown?.length}
-          onClick={() => setOpen(allOpen ? new Set() : new Set((shown ?? []).map((r) => r.id)))}
-          data-open-all
-        >
-          {allOpen ? "Close all details" : "Open all details"}
-        </button>
         <p className="ml-auto text-sm text-smoke">
           {isAdmin ? "Every engine lead" : "Your leads"}
           {rows && ` · ${rows.length}${rows.length === LIMIT ? "+" : ""}`}
@@ -410,171 +431,193 @@ export function EngineLeads({
             </thead>
             <tbody>
               {shown.map((r) => (
-                <Fragment key={r.id}>
-                  <tr
-                    data-engine-lead={r.id}
-                    className={cn(
-                      "border-b border-line last:border-0 hover:bg-sand",
-                      selected.has(r.id) && "bg-sand",
-                    )}
-                  >
-                    <td className="w-10 py-3 pl-4 pr-0">
-                      <input
-                        type="checkbox"
-                        className="size-4 align-middle disabled:opacity-40"
-                        aria-label={`Select ${r.name ?? "lead"}`}
-                        title={canPick(r) ? undefined : "Marked do not call"}
-                        disabled={!canPick(r)}
-                        checked={selected.has(r.id)}
-                        onChange={(e) => pick(r.id, e.target.checked)}
-                      />
-                    </td>
-                    <td className="px-4 py-3 font-semibold tabular-nums">
-                      {r.tier ?? "—"}
-                      {r.need != null && <span className="ml-1 text-xs text-smoke">{r.need}</span>}
-                    </td>
-                    <td className="whitespace-nowrap px-4 py-3 text-xs">
-                      {(() => {
-                        const t = leadType(r.signals);
-                        return t ? (
-                          <span className="rounded-full bg-sand px-2.5 py-1 font-semibold">
-                            {LEAD_TYPE_LABEL[t]}
-                          </span>
-                        ) : (
-                          <span className="text-smoke">—</span>
-                        );
-                      })()}
-                      {tookMca(r.signals) && leadType(r.signals) !== "ucc" && (
-                        <div
-                          className="mt-1 text-smoke"
-                          title="A UCC filing by an MCA funder is on record"
-                        >
-                          Took an MCA
-                        </div>
-                      )}
-                    </td>
-                    <td className="max-w-[16rem] px-4 py-3 font-medium">
-                      <div className="truncate">{r.name || "Unnamed business"}</div>
-                      {r.industry && (
-                        <div className="truncate text-xs text-smoke">{r.industry}</div>
-                      )}
-                      <button
-                        type="button"
-                        className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-forest hover:underline"
-                        aria-expanded={open.has(r.id)}
-                        aria-controls={`lead-detail-${r.id}`}
-                        onClick={() => toggleOpen(r.id)}
-                        data-lead-details={r.id}
+                <tr
+                  key={r.id}
+                  data-engine-lead={r.id}
+                  className={cn(
+                    "cursor-pointer border-b border-line last:border-0 hover:bg-sand",
+                    (selected.has(r.id) || openId === r.id) && "bg-sand",
+                  )}
+                  // a click anywhere on the lead opens its page; its own controls keep working
+                  onClick={(e) => {
+                    if ((e.target as HTMLElement).closest("input,select,a,button,label")) return;
+                    setOpenId(r.id);
+                  }}
+                >
+                  <td className="w-10 py-3 pl-4 pr-0">
+                    <input
+                      type="checkbox"
+                      className="size-4 align-middle disabled:opacity-40"
+                      aria-label={`Select ${r.name ?? "lead"}`}
+                      title={canPick(r) ? undefined : "Marked do not call"}
+                      disabled={!canPick(r)}
+                      checked={selected.has(r.id)}
+                      onChange={(e) => pick(r.id, e.target.checked)}
+                    />
+                  </td>
+                  <td className="px-4 py-3 font-semibold tabular-nums">
+                    {r.tier ?? "—"}
+                    {r.need != null && <span className="ml-1 text-xs text-smoke">{r.need}</span>}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-xs">
+                    {(() => {
+                      const t = leadType(r.signals);
+                      return t ? (
+                        <span className="rounded-full bg-sand px-2.5 py-1 font-semibold">
+                          {LEAD_TYPE_LABEL[t]}
+                        </span>
+                      ) : (
+                        <span className="text-smoke">—</span>
+                      );
+                    })()}
+                    {tookMca(r.signals) && leadType(r.signals) !== "ucc" && (
+                      <div
+                        className="mt-1 text-smoke"
+                        title="A UCC filing by an MCA funder is on record"
                       >
-                        <ChevronDown
-                          className={cn(
-                            "size-3.5 transition-transform",
-                            open.has(r.id) && "rotate-180",
-                          )}
-                        />
-                        {open.has(r.id) ? "Hide details" : "Details"}
-                      </button>
-                    </td>
-                    <td className="px-4 py-3 tabular-nums">
-                      {r.phone ? (
+                        Took an MCA
+                      </div>
+                    )}
+                  </td>
+                  <td className="max-w-[16rem] px-4 py-3 font-medium">
+                    <div className="truncate">{r.name || "Unnamed business"}</div>
+                    {r.industry && <div className="truncate text-xs text-smoke">{r.industry}</div>}
+                    <button
+                      type="button"
+                      className="mt-1 inline-flex items-center gap-0.5 text-xs font-semibold text-forest hover:underline"
+                      onClick={() => setOpenId(r.id)}
+                      data-open-lead={r.id}
+                    >
+                      Open lead <ChevronRight className="size-3.5" />
+                    </button>
+                  </td>
+                  <td className="px-4 py-3 tabular-nums">
+                    {r.phone ? (
+                      <a
+                        href={`tel:${tel(r.phone)}`}
+                        className="underline-offset-4 hover:text-forest hover:underline"
+                      >
+                        {r.phone}
+                      </a>
+                    ) : (
+                      "—"
+                    )}
+                    {r.contact_phone && (
+                      <div className="text-xs text-smoke">
+                        Best:{" "}
                         <a
-                          href={`tel:${tel(r.phone)}`}
+                          href={`tel:${tel(r.contact_phone)}`}
                           className="underline-offset-4 hover:text-forest hover:underline"
                         >
-                          {r.phone}
+                          {r.contact_phone}
                         </a>
-                      ) : (
-                        "—"
-                      )}
-                      {r.email && (
-                        <div className="max-w-[12rem] truncate text-xs text-smoke">{r.email}</div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-smoke">
-                      {[r.city, r.state].filter(Boolean).join(", ") || "—"}
-                    </td>
-                    <td className="max-w-[18rem] px-4 py-3 text-smoke">
-                      {(() => {
-                        const w = splitWhy(r.reason);
-                        const rest = w.points.map((p) => p.text).join(" · ");
-                        return (
-                          <button
-                            type="button"
-                            className="block text-left hover:text-ink"
-                            onClick={() => toggleOpen(r.id)}
-                            title={open.has(r.id) ? "Hide details" : "Show the full reason"}
-                          >
-                            {w.owner && (
-                              <span className="block truncate font-semibold text-ink">
-                                Ask for {w.owner}
-                              </span>
-                            )}
-                            <span className="line-clamp-2">{rest || (w.owner ? "" : "—")}</span>
-                          </button>
-                        );
-                      })()}
-                    </td>
-                    <td className="max-w-[14rem] px-4 py-3 text-xs text-smoke">
-                      <span className="line-clamp-2">{signalSummary(r.signals) || "—"}</span>
-                    </td>
-                    <td className="px-4 py-3 tabular-nums text-smoke">
-                      {r.first_found ?? age(r.pushed_at)}
-                    </td>
-                    <td className="px-4 py-3">
+                      </div>
+                    )}
+                    {(r.contact_email || r.email) && (
+                      <div className="max-w-[12rem] truncate text-xs text-smoke">
+                        {r.contact_email || r.email}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-smoke">
+                    {[r.city, r.state].filter(Boolean).join(", ") || "—"}
+                  </td>
+                  <td className="max-w-[18rem] px-4 py-3 text-smoke">
+                    {(() => {
+                      const w = splitWhy(r.reason);
+                      const rest = w.points.map((p) => p.text).join(" · ");
+                      return (
+                        <button
+                          type="button"
+                          className="block text-left hover:text-ink"
+                          onClick={() => setOpenId(r.id)}
+                          title="Open the lead"
+                        >
+                          {(r.contact_name || w.owner) && (
+                            <span className="block truncate font-semibold text-ink">
+                              Ask for {r.contact_name || w.owner}
+                            </span>
+                          )}
+                          <span className="line-clamp-2">{rest || (w.owner ? "" : "—")}</span>
+                        </button>
+                      );
+                    })()}
+                  </td>
+                  <td className="max-w-[14rem] px-4 py-3 text-xs text-smoke">
+                    <span className="line-clamp-2">{signalSummary(r.signals) || "—"}</span>
+                  </td>
+                  <td className="px-4 py-3 tabular-nums text-smoke">
+                    {r.first_found ?? age(r.pushed_at)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <select
+                      className="rounded-full bg-white px-3 py-1.5 text-xs ring-1 ring-line"
+                      value={r.status}
+                      disabled={saving === r.id}
+                      onChange={(e) => void setLeadStatus(r, e.target.value as EngineStatus)}
+                      aria-label={`Status for ${r.name ?? "lead"}`}
+                    >
+                      {ENGINE_STATUSES.map((s) => (
+                        <option key={s} value={s}>
+                          {ENGINE_STATUS_LABEL[s]}
+                        </option>
+                      ))}
+                    </select>
+                    {r.worked_at && (
+                      <span className="ml-2 text-xs tabular-nums text-smoke">
+                        {age(r.worked_at)}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-smoke">
+                    {isAdmin ? (
                       <select
                         className="rounded-full bg-white px-3 py-1.5 text-xs ring-1 ring-line"
-                        value={r.status}
+                        value={r.rep_slug ?? ""}
                         disabled={saving === r.id}
-                        onChange={(e) => void setLeadStatus(r, e.target.value as EngineStatus)}
-                        aria-label={`Status for ${r.name ?? "lead"}`}
+                        onChange={(e) => void assignRep(r, e.target.value)}
+                        aria-label={`Rep for ${r.name ?? "lead"}`}
                       >
-                        {ENGINE_STATUSES.map((s) => (
-                          <option key={s} value={s}>
-                            {ENGINE_STATUS_LABEL[s]}
+                        <option value="">Unassigned</option>
+                        {reps.map((p) => (
+                          <option key={p.slug} value={p.slug}>
+                            {p.name}
                           </option>
                         ))}
                       </select>
-                      {r.worked_at && (
-                        <span className="ml-2 text-xs tabular-nums text-smoke">
-                          {age(r.worked_at)}
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-smoke">
-                      {isAdmin ? (
-                        <select
-                          className="rounded-full bg-white px-3 py-1.5 text-xs ring-1 ring-line"
-                          value={r.rep_slug ?? ""}
-                          disabled={saving === r.id}
-                          onChange={(e) => void assignRep(r, e.target.value)}
-                          aria-label={`Rep for ${r.name ?? "lead"}`}
-                        >
-                          <option value="">Unassigned</option>
-                          {reps.map((p) => (
-                            <option key={p.slug} value={p.slug}>
-                              {p.name}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        (repName(r.rep_slug) ?? "—")
-                      )}
-                    </td>
-                  </tr>
-                  {open.has(r.id) && (
-                    <tr id={`lead-detail-${r.id}`} className="border-b border-line bg-sand/60">
-                      <td />
-                      <td colSpan={10} className="px-4 pb-5 pt-2">
-                        <LeadDetail row={r} />
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
+                    ) : (
+                      (repName(r.rep_slug) ?? "—")
+                    )}
+                  </td>
+                </tr>
               ))}
             </tbody>
           </table>
         )}
       </div>
+
+      <Sheet open={openRow != null} onOpenChange={(o) => !o && setOpenId(null)}>
+        <SheetContent
+          side="right"
+          className="w-full overflow-y-auto bg-paper sm:max-w-2xl"
+          data-lead-page={openRow?.id}
+        >
+          {openRow && (
+            <LeadPage
+              key={openRow.id}
+              row={openRow}
+              isAdmin={isAdmin}
+              reps={reps}
+              saving={saving === openRow.id}
+              repName={repName(openRow.rep_slug)}
+              onStatus={(next) => void setLeadStatus(openRow, next)}
+              onRep={(slug) => void assignRep(openRow, slug)}
+              onSave={(patch) => saveContact(openRow, patch)}
+              onSend={canPick(openRow) ? () => openSend(openRow) : undefined}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
 
       {selected.size > 0 && (
         <div
@@ -594,7 +637,7 @@ export function EngineLeads({
               type="button"
               className={cn(btnPrimary, "px-4 py-2")}
               disabled={selected.size > MAX_RECIPIENTS}
-              onClick={openSend}
+              onClick={() => openSend()}
             >
               <Send className="size-4" /> Send application ({selected.size})
             </button>
@@ -622,6 +665,247 @@ export function EngineLeads({
   );
 }
 
+/** A lead as the send panel's first row: the rep's contact first, the engine's after. */
+function sendSeed(r: Row): SendSeed {
+  const [first = "", ...rest] = (r.contact_name ?? "").trim().split(/\s+/);
+  return {
+    lead_id: r.id,
+    first_name: first,
+    last_name: rest.join(" "),
+    business_name: r.name ?? "",
+    phone: r.contact_phone || r.phone || "",
+    email: r.contact_email || r.email || "",
+  };
+}
+
+/** One lead in full: the contact the rep gets on the call, then everything the engine knows. */
+function LeadPage({
+  row,
+  isAdmin,
+  reps,
+  saving,
+  repName,
+  onStatus,
+  onRep,
+  onSave,
+  onSend,
+}: {
+  row: Row;
+  isAdmin: boolean;
+  reps: { slug: string; name: string }[];
+  saving: boolean;
+  repName: string | null;
+  onStatus: (next: EngineStatus) => void;
+  onRep: (slug: string) => void;
+  onSave: (patch: ContactPatch) => Promise<string>;
+  onSend?: (() => void) | undefined;
+}) {
+  const why = splitWhy(row.reason);
+  const type = leadType(row.signals);
+  const [name, setName] = useState(row.contact_name ?? "");
+  const [email, setEmail] = useState(row.contact_email ?? row.email ?? "");
+  const [phone, setPhone] = useState(row.contact_phone ?? "");
+  const [notes, setNotes] = useState(row.notes ?? "");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const patch: ContactPatch = {
+    contact_name: name.trim() || null,
+    contact_email: email.trim().toLowerCase() || null,
+    contact_phone: phone.trim() || null,
+    notes: notes.trim(),
+  };
+  const changed =
+    patch.contact_name !== (row.contact_name ?? null) ||
+    patch.contact_email !== (row.contact_email ?? row.email ?? null) ||
+    patch.contact_phone !== (row.contact_phone ?? null) ||
+    patch.notes !== (row.notes ?? "").trim();
+  const problem =
+    patch.contact_email && !EMAIL_RE.test(patch.contact_email)
+      ? "That email address doesn't look right."
+      : patch.contact_phone && !/^[0-9+()\s.\-x]{7,40}$/.test(patch.contact_phone)
+        ? "Numbers only for the best number, like (718) 555-0142."
+        : "";
+
+  async function save() {
+    if (problem || !changed) return;
+    setBusy(true);
+    setMsg(null);
+    const err = await onSave(patch);
+    setBusy(false);
+    setMsg(err ? { ok: false, text: err } : { ok: true, text: "Saved." });
+  }
+
+  const label = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-smoke";
+  return (
+    <div className="pb-10">
+      <SheetHeader className="pr-8">
+        <SheetTitle className="font-display text-2xl">{row.name || "Unnamed business"}</SheetTitle>
+        <SheetDescription className="text-smoke">
+          {[row.industry, [row.city, row.state].filter(Boolean).join(", ")]
+            .filter(Boolean)
+            .join(" · ")}
+        </SheetDescription>
+        <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+          {type && (
+            <span className="rounded-full bg-sand px-2.5 py-1 font-semibold">
+              {LEAD_TYPE_LABEL[type]}
+            </span>
+          )}
+          {tookMca(row.signals) && type !== "ucc" && (
+            <span className="rounded-full bg-sand px-2.5 py-1 font-semibold">Took an MCA</span>
+          )}
+          <span className="rounded-full bg-sand px-2.5 py-1 font-semibold">
+            Tier {row.tier ?? "—"}
+          </span>
+          <span className="text-smoke">Found {row.first_found ?? age(row.pushed_at)}</span>
+        </div>
+      </SheetHeader>
+
+      <div className="mt-5 flex flex-wrap items-center gap-2">
+        {row.phone && (
+          <a href={`tel:${tel(row.phone)}`} className={cn(btnPrimary, "px-4 py-2")}>
+            <Phone className="size-4" /> {row.phone}
+          </a>
+        )}
+        {row.contact_phone && (
+          <a href={`tel:${tel(row.contact_phone)}`} className={cn(btnOutline, "px-4 py-2")}>
+            <Phone className="size-4" /> Best: {row.contact_phone}
+          </a>
+        )}
+        <select
+          className="rounded-full bg-white px-3 py-2 text-sm ring-1 ring-line"
+          value={row.status}
+          disabled={saving}
+          onChange={(e) => onStatus(e.target.value as EngineStatus)}
+          aria-label="Status"
+        >
+          {ENGINE_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {ENGINE_STATUS_LABEL[s]}
+            </option>
+          ))}
+        </select>
+        {isAdmin ? (
+          <select
+            className="rounded-full bg-white px-3 py-2 text-sm ring-1 ring-line"
+            value={row.rep_slug ?? ""}
+            disabled={saving}
+            onChange={(e) => onRep(e.target.value)}
+            aria-label="Rep"
+          >
+            <option value="">Unassigned</option>
+            {reps.map((p) => (
+              <option key={p.slug} value={p.slug}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        ) : (
+          repName && <span className="text-sm text-smoke">Rep: {repName}</span>
+        )}
+      </div>
+
+      <section className={cn(card, "mt-5 p-5")} data-lead-contact>
+        <h3 className="text-sm font-semibold">What you got on the call</h3>
+        <p className="mt-1 text-xs text-smoke">
+          Saved on this lead for you and your admins. The engine never overwrites it.
+        </p>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <label className="block text-sm sm:col-span-2">
+            <span className={label}>Who you spoke to</span>
+            <input
+              className={input}
+              value={name}
+              maxLength={120}
+              placeholder={why.owner ? `e.g. ${why.owner}` : "Owner or decision maker"}
+              onChange={(e) => setName(e.target.value)}
+              data-contact-name
+            />
+          </label>
+          <label className="block text-sm">
+            <span className={label}>Email for the application</span>
+            <input
+              className={input}
+              type="email"
+              inputMode="email"
+              autoComplete="off"
+              value={email}
+              maxLength={200}
+              placeholder="owner@business.com"
+              onChange={(e) => setEmail(e.target.value)}
+              data-contact-email
+            />
+          </label>
+          <label className="block text-sm">
+            <span className={label}>Best number to reach them</span>
+            <input
+              className={input}
+              type="tel"
+              inputMode="tel"
+              autoComplete="off"
+              value={phone}
+              maxLength={40}
+              placeholder="Their cell, if they gave it"
+              onChange={(e) => setPhone(e.target.value)}
+              data-contact-phone
+            />
+          </label>
+          <label className="block text-sm sm:col-span-2">
+            <span className={label}>Notes</span>
+            <textarea
+              className={textarea}
+              value={notes}
+              maxLength={2000}
+              placeholder="What they need, how much, how soon, when to call back"
+              onChange={(e) => setNotes(e.target.value)}
+              data-contact-notes
+            />
+          </label>
+        </div>
+        {problem && <p className="mt-3 text-sm text-destructive">{problem}</p>}
+        {msg && (
+          <p className={cn("mt-3 text-sm", msg.ok ? "text-forest" : "text-destructive")}>
+            {msg.text}
+          </p>
+        )}
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className={cn(btnPrimary, "px-5 py-2")}
+            disabled={busy || !changed || !!problem}
+            onClick={() => void save()}
+            data-contact-save
+          >
+            {busy ? <Loader2 className="size-4 animate-spin" /> : null} Save
+          </button>
+          {onSend && (
+            <button
+              type="button"
+              className={cn(btnOutline, "px-5 py-2")}
+              disabled={changed}
+              title={changed ? "Save first" : undefined}
+              onClick={onSend}
+              data-contact-send
+            >
+              <Send className="size-4" /> Send the application
+            </button>
+          )}
+          {row.contact_updated_at && (
+            <span className="text-xs text-smoke">
+              Contact updated {age(row.contact_updated_at)}
+            </span>
+          )}
+        </div>
+      </section>
+
+      <div className="mt-6">
+        <LeadDetail row={row} />
+      </div>
+    </div>
+  );
+}
+
 /** Everything the engine knows about one lead, laid out for the call. */
 function LeadDetail({ row }: { row: Row }) {
   const why = splitWhy(row.reason);
@@ -633,7 +917,7 @@ function LeadDetail({ row }: { row: Row }) {
   ];
   const head = "text-xs font-semibold uppercase tracking-wide text-smoke";
   return (
-    <div className="grid gap-5 text-sm md:grid-cols-2 xl:grid-cols-4" data-lead-detail={row.id}>
+    <div className="grid gap-6 text-sm sm:grid-cols-2" data-lead-detail={row.id}>
       <section>
         <h4 className={head}>Who to ask for</h4>
         {why.owner ? (

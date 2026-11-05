@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, Copy, Loader2, Mail, MessageSquare, Plus, Send, X } from "lucide-react";
-import { getSupabase } from "@/lib/supabase";
-import { logActivity } from "@/lib/track";
+import { postInvites } from "@/lib/post-invites";
 import { cn } from "@/lib/utils";
 import { SITE } from "@/lib/site";
 import { tel } from "@/lib/engine-leads";
@@ -80,25 +79,6 @@ function problem(r: Row): string | null {
   if (!r.first_name.trim() && !r.last_name.trim() && !r.business_name.trim())
     return "Add a name or a business, so you know who it's for.";
   return null;
-}
-
-/** POST /api/application-invites as the signed-in staff member. Throws with the server's words. */
-async function postInvites(body: SendRequest): Promise<SendResult[]> {
-  const sb = getSupabase();
-  const session = sb ? (await sb.auth.getSession()).data.session : null;
-  if (!session) throw new Error("Sign in again to send.");
-  const res = await fetch("/api/application-invites", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${session.access_token}`,
-    },
-    body: JSON.stringify(body),
-  });
-  const data = (await res.json().catch(() => ({}))) as { results?: SendResult[]; error?: string };
-  if (!res.ok) throw new Error(data.error || `The server answered ${res.status}.`);
-  void logActivity("send_application", { detail: `${(data.results ?? []).length} links` });
-  return data.results ?? [];
 }
 
 const origin = () => (typeof window === "undefined" ? SITE.url : window.location.origin);

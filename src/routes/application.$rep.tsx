@@ -7,8 +7,12 @@ import { LinkApplication } from "@/components/application/link-application";
 // rep sent (their details filled in, tracked as opened and started); getlamp.app/application/<rep>
 // is the rep's public link. Either way the signed file lands with that rep.
 export const Route = createFileRoute("/application/$rep")({
-  validateSearch: (s: Record<string, unknown>): { i?: string | undefined } => ({
+  // fill=rep: a rep filling it in with the merchant on the phone (Start application)
+  validateSearch: (
+    s: Record<string, unknown>,
+  ): { i?: string | undefined; fill?: "rep" | undefined } => ({
     i: isToken(s["i"]) ? s["i"] : undefined,
+    fill: s["fill"] === "rep" ? "rep" : undefined,
   }),
   head: ({ params }) => {
     const rep = findRep(params.rep);
@@ -25,6 +29,6 @@ export const Route = createFileRoute("/application/$rep")({
 
 function Application() {
   const { rep } = Route.useParams();
-  const { i } = Route.useSearch();
-  return <LinkApplication repSlug={rep.toLowerCase()} token={i ?? null} />;
+  const { i, fill } = Route.useSearch();
+  return <LinkApplication repSlug={rep.toLowerCase()} token={i ?? null} filling={fill === "rep"} />;
 }

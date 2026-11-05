@@ -63,7 +63,21 @@ export type OpenResponse = {
     email: string;
     phone: string;
   } | null;
+  /** Answers a rep filled in with the merchant on the phone (Start application), saved on the
+   *  invite without SSNs or dates of birth, and when; the page opens them in any browser. */
+  answers?: Record<string, unknown> | null;
+  answers_step?: number | null;
+  answers_saved_at?: string | null;
 };
+
+/**
+ * POST /api/application/draft, signed-in staff only, for a personal link they own: "save" keeps
+ * the answers typed with the merchant on the phone; "email" sends that same link to the merchant
+ * to check, add their SSN and date of birth, and sign.
+ */
+export type DraftRequest =
+  | { action: "save"; token: string; draft: Record<string, unknown>; step: number }
+  | { action: "email"; token: string; to?: string };
 
 export type SubmitResponse = {
   application_id: string;
@@ -135,16 +149,26 @@ export function inviteEmail(opts: {
   url: string;
   legalName: string;
   address: string;
+  /** Filled in with them on the phone: they only check it, add the private numbers and sign. */
+  filled?: boolean;
 }): { subject: string; text: string; html: string } {
   const hi = opts.firstName.trim() ? `Hi ${opts.firstName.trim()},` : "Hi,";
   const forBiz = opts.businessName.trim() ? ` for ${opts.businessName.trim()}` : "";
-  const subject = `Your Lamp application${forBiz}`;
+  const subject = opts.filled
+    ? `Your Lamp application${forBiz}: ready to sign`
+    : `Your Lamp application${forBiz}`;
   const note = opts.note.trim();
-  const body = [
-    note || `Here's your funding application${forBiz}, as we discussed.`,
-    "It takes about ten minutes. You sign it right on the page, on your phone or computer, and it comes straight to me.",
-    "If you have your last four months of business bank statements handy, you can add them at the end. If not, you can send them later.",
-  ];
+  const body = opts.filled
+    ? [
+        note || `Here's the application${forBiz} we filled in together on the phone.`,
+        "Open it, check everything over, and add your SSN and date of birth (we don't save those for you). Then sign right on the page, on your phone or computer, and it comes straight to me.",
+        "If you have your last four months of business bank statements handy, you can add them before you sign. If not, you can send them later.",
+      ]
+    : [
+        note || `Here's your funding application${forBiz}, as we discussed.`,
+        "It takes about ten minutes. You sign it right on the page, on your phone or computer, and it comes straight to me.",
+        "If you have your last four months of business bank statements handy, you can add them at the end. If not, you can send them later.",
+      ];
   const footer = [
     `You're getting this because you spoke with ${opts.repName} at Lamp. Not interested? Reply "stop" and we won't email you again.`,
     [opts.legalName, opts.address].filter(Boolean).join(" · "),
@@ -153,7 +177,7 @@ export function inviteEmail(opts: {
     hi,
     "",
     ...body.flatMap((p) => [p, ""]),
-    `Open your application: ${opts.url}`,
+    `${opts.filled ? "Check and sign your application" : "Open your application"}: ${opts.url}`,
     "",
     "Any questions, just reply to this email.",
     "",
@@ -177,7 +201,7 @@ export function inviteEmail(opts: {
 ${p(hi)}
 ${body.map(p).join("\n")}
 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 24px"><tr><td style="border-radius:999px;background:#4a985e">
-<a href="${esc(opts.url)}" style="display:inline-block;padding:15px 30px;font-size:16px;font-weight:700;color:#0f1f17;text-decoration:none;border-radius:999px">Open my application</a>
+<a href="${esc(opts.url)}" style="display:inline-block;padding:15px 30px;font-size:16px;font-weight:700;color:#0f1f17;text-decoration:none;border-radius:999px">${opts.filled ? "Check and sign" : "Open my application"}</a>
 </td></tr></table>
 ${p("Any questions, just reply to this email.")}
 <p style="margin:0 0 4px;font-size:16px;font-weight:700;color:#1f2a24">${esc(opts.repName)}</p>

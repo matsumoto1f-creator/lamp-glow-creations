@@ -110,6 +110,10 @@ export type Database = {
           application_id: string | null;
           business_name: string | null;
           cancelled_at: string | null;
+          draft: Json | null;
+          draft_by: string | null;
+          draft_saved_at: string | null;
+          draft_step: number | null;
           channel: string;
           created_at: string;
           email: string | null;
@@ -135,6 +139,10 @@ export type Database = {
           application_id?: string | null;
           business_name?: string | null;
           cancelled_at?: string | null;
+          draft?: Json | null;
+          draft_by?: string | null;
+          draft_saved_at?: string | null;
+          draft_step?: number | null;
           channel: string;
           created_at?: string;
           email?: string | null;
@@ -160,6 +168,10 @@ export type Database = {
           application_id?: string | null;
           business_name?: string | null;
           cancelled_at?: string | null;
+          draft?: Json | null;
+          draft_by?: string | null;
+          draft_saved_at?: string | null;
+          draft_step?: number | null;
           channel?: string;
           created_at?: string;
           email?: string | null;
@@ -595,6 +607,10 @@ export type Database = {
       engine_leads: {
         Row: {
           city: string | null;
+          contact_email: string | null;
+          contact_name: string | null;
+          contact_phone: string | null;
+          contact_updated_at: string | null;
           email: string | null;
           first_found: string | null;
           id: number;
@@ -616,6 +632,10 @@ export type Database = {
         };
         Insert: {
           city?: string | null;
+          contact_email?: string | null;
+          contact_name?: string | null;
+          contact_phone?: string | null;
+          contact_updated_at?: string | null;
           email?: string | null;
           first_found?: string | null;
           id?: number;
@@ -637,6 +657,10 @@ export type Database = {
         };
         Update: {
           city?: string | null;
+          contact_email?: string | null;
+          contact_name?: string | null;
+          contact_phone?: string | null;
+          contact_updated_at?: string | null;
           email?: string | null;
           first_found?: string | null;
           id?: number;

@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as AccountRouteImport } from './routes/account'
 import { Route as ApplyRouteImport } from './routes/apply'
+import { Route as DiscordLinkRouteImport } from './routes/discord-link'
 import { Route as FaqRouteImport } from './routes/faq'
 import { Route as HowItWorksRouteImport } from './routes/how-it-works'
 import { Route as LoginRouteImport } from './routes/login'
@@ -41,6 +42,9 @@ import { Route as ApiApplicationSubmitRouteImport } from './routes/api.applicati
 import { Route as ApiApplicationUploadRouteImport } from './routes/api.application.upload'
 import { Route as ApiBrainBriefRouteImport } from './routes/api.brain.brief'
 import { Route as ApiBrainDraftRouteImport } from './routes/api.brain.draft'
+import { Route as ApiDiscordInteractionsRouteImport } from './routes/api.discord.interactions'
+import { Route as ApiDiscordLinkRouteImport } from './routes/api.discord.link'
+import { Route as ApiDiscordSetupRouteImport } from './routes/api.discord.setup'
 import { Route as ApiDocumentsRequestRouteImport } from './routes/api.documents.request'
 import { Route as ApiDocumentsRequestUploadRouteImport } from './routes/api.documents.request-upload'
 import { Route as ApiDocumentsUploadRouteImport } from './routes/api.documents.upload'
@@ -48,9 +52,8 @@ import { Route as ApiEnginePushRouteImport } from './routes/api.engine.push'
 import { Route as ApiFundersSendRouteImport } from './routes/api.funders.send'
 import { Route as ApiGmailCallbackRouteImport } from './routes/api.gmail.callback'
 import { Route as ApiGmailConnectRouteImport } from './routes/api.gmail.connect'
-import { Route as ApiSlackCommandRouteImport } from './routes/api.slack.command'
-import { Route as ApiSlackRelayRouteImport } from './routes/api.slack.relay'
 import { Route as ApiStaffSignedRouteImport } from './routes/api.staff.signed'
+import { Route as ApiTeamRelayRouteImport } from './routes/api.team.relay'
 import { Route as ApplicationRepPdfRouteImport } from './routes/application.$rep_.pdf'
 
 const IndexRoute = IndexRouteImport.update({
@@ -71,6 +74,11 @@ const AccountRoute = AccountRouteImport.update({
 const ApplyRoute = ApplyRouteImport.update({
   id: '/apply',
   path: '/apply',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DiscordLinkRoute = DiscordLinkRouteImport.update({
+  id: '/discord-link',
+  path: '/discord-link',
   getParentRoute: () => rootRouteImport,
 } as any)
 const FaqRoute = FaqRouteImport.update({
@@ -213,6 +221,21 @@ const ApiBrainDraftRoute = ApiBrainDraftRouteImport.update({
   path: '/api/brain/draft',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiDiscordInteractionsRoute = ApiDiscordInteractionsRouteImport.update({
+  id: '/api/discord/interactions',
+  path: '/api/discord/interactions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDiscordLinkRoute = ApiDiscordLinkRouteImport.update({
+  id: '/api/discord/link',
+  path: '/api/discord/link',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDiscordSetupRoute = ApiDiscordSetupRouteImport.update({
+  id: '/api/discord/setup',
+  path: '/api/discord/setup',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiDocumentsRequestRoute = ApiDocumentsRequestRouteImport.update({
   id: '/request',
   path: '/request',
@@ -249,20 +272,15 @@ const ApiGmailConnectRoute = ApiGmailConnectRouteImport.update({
   path: '/api/gmail/connect',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiSlackCommandRoute = ApiSlackCommandRouteImport.update({
-  id: '/api/slack/command',
-  path: '/api/slack/command',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiSlackRelayRoute = ApiSlackRelayRouteImport.update({
-  id: '/api/slack/relay',
-  path: '/api/slack/relay',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiStaffSignedRoute = ApiStaffSignedRouteImport.update({
   id: '/api/staff/signed',
   path: '/api/staff/signed',
   getParentRoute: () => rootRouteImport,
+} as any)
+const ApiTeamRelayRoute = ApiTeamRelayRouteImport.update({
+  id: '/relay',
+  path: '/relay',
+  getParentRoute: () => ApiTeamRoute,
 } as any)
 const ApplicationRepPdfRoute = ApplicationRepPdfRouteImport.update({
   id: '/application/$rep_/pdf',
@@ -275,6 +293,7 @@ export interface FileRoutesByFullPath {
   '/about': typeof AboutRoute
   '/account': typeof AccountRoute
   '/apply': typeof ApplyRoute
+  '/discord-link': typeof DiscordLinkRoute
   '/faq': typeof FaqRoute
   '/how-it-works': typeof HowItWorksRoute
   '/login': typeof LoginRoute
@@ -289,7 +308,7 @@ export interface FileRoutesByFullPath {
   '/api/leads': typeof ApiLeadsRoute
   '/api/server-check': typeof ApiServerCheckRoute
   '/api/statements': typeof ApiStatementsRoute
-  '/api/team': typeof ApiTeamRoute
+  '/api/team': typeof ApiTeamRouteWithChildren
   '/api/track': typeof ApiTrackRoute
   '/application/$rep': typeof ApplicationRepRoute
   '/apply/$rep': typeof ApplyRepRoute
@@ -303,6 +322,9 @@ export interface FileRoutesByFullPath {
   '/api/application/upload': typeof ApiApplicationUploadRoute
   '/api/brain/brief': typeof ApiBrainBriefRoute
   '/api/brain/draft': typeof ApiBrainDraftRoute
+  '/api/discord/interactions': typeof ApiDiscordInteractionsRoute
+  '/api/discord/link': typeof ApiDiscordLinkRoute
+  '/api/discord/setup': typeof ApiDiscordSetupRoute
   '/api/documents/request': typeof ApiDocumentsRequestRoute
   '/api/documents/request-upload': typeof ApiDocumentsRequestUploadRoute
   '/api/documents/upload': typeof ApiDocumentsUploadRoute
@@ -310,9 +332,8 @@ export interface FileRoutesByFullPath {
   '/api/funders/send': typeof ApiFundersSendRoute
   '/api/gmail/callback': typeof ApiGmailCallbackRoute
   '/api/gmail/connect': typeof ApiGmailConnectRoute
-  '/api/slack/command': typeof ApiSlackCommandRoute
-  '/api/slack/relay': typeof ApiSlackRelayRoute
   '/api/staff/signed': typeof ApiStaffSignedRoute
+  '/api/team/relay': typeof ApiTeamRelayRoute
   '/application/$rep/pdf': typeof ApplicationRepPdfRoute
 }
 export interface FileRoutesByTo {
@@ -320,6 +341,7 @@ export interface FileRoutesByTo {
   '/about': typeof AboutRoute
   '/account': typeof AccountRoute
   '/apply': typeof ApplyRoute
+  '/discord-link': typeof DiscordLinkRoute
   '/faq': typeof FaqRoute
   '/how-it-works': typeof HowItWorksRoute
   '/login': typeof LoginRoute
@@ -334,7 +356,7 @@ export interface FileRoutesByTo {
   '/api/leads': typeof ApiLeadsRoute
   '/api/server-check': typeof ApiServerCheckRoute
   '/api/statements': typeof ApiStatementsRoute
-  '/api/team': typeof ApiTeamRoute
+  '/api/team': typeof ApiTeamRouteWithChildren
   '/api/track': typeof ApiTrackRoute
   '/application/$rep': typeof ApplicationRepRoute
   '/apply/$rep': typeof ApplyRepRoute
@@ -348,6 +370,9 @@ export interface FileRoutesByTo {
   '/api/application/upload': typeof ApiApplicationUploadRoute
   '/api/brain/brief': typeof ApiBrainBriefRoute
   '/api/brain/draft': typeof ApiBrainDraftRoute
+  '/api/discord/interactions': typeof ApiDiscordInteractionsRoute
+  '/api/discord/link': typeof ApiDiscordLinkRoute
+  '/api/discord/setup': typeof ApiDiscordSetupRoute
   '/api/documents/request': typeof ApiDocumentsRequestRoute
   '/api/documents/request-upload': typeof ApiDocumentsRequestUploadRoute
   '/api/documents/upload': typeof ApiDocumentsUploadRoute
@@ -355,9 +380,8 @@ export interface FileRoutesByTo {
   '/api/funders/send': typeof ApiFundersSendRoute
   '/api/gmail/callback': typeof ApiGmailCallbackRoute
   '/api/gmail/connect': typeof ApiGmailConnectRoute
-  '/api/slack/command': typeof ApiSlackCommandRoute
-  '/api/slack/relay': typeof ApiSlackRelayRoute
   '/api/staff/signed': typeof ApiStaffSignedRoute
+  '/api/team/relay': typeof ApiTeamRelayRoute
   '/application/$rep/pdf': typeof ApplicationRepPdfRoute
 }
 export interface FileRoutesById {
@@ -366,6 +390,7 @@ export interface FileRoutesById {
   '/about': typeof AboutRoute
   '/account': typeof AccountRoute
   '/apply': typeof ApplyRoute
+  '/discord-link': typeof DiscordLinkRoute
   '/faq': typeof FaqRoute
   '/how-it-works': typeof HowItWorksRoute
   '/login': typeof LoginRoute
@@ -380,7 +405,7 @@ export interface FileRoutesById {
   '/api/leads': typeof ApiLeadsRoute
   '/api/server-check': typeof ApiServerCheckRoute
   '/api/statements': typeof ApiStatementsRoute
-  '/api/team': typeof ApiTeamRoute
+  '/api/team': typeof ApiTeamRouteWithChildren
   '/api/track': typeof ApiTrackRoute
   '/application/$rep': typeof ApplicationRepRoute
   '/apply_/$rep': typeof ApplyRepRoute
@@ -394,6 +419,9 @@ export interface FileRoutesById {
   '/api/application/upload': typeof ApiApplicationUploadRoute
   '/api/brain/brief': typeof ApiBrainBriefRoute
   '/api/brain/draft': typeof ApiBrainDraftRoute
+  '/api/discord/interactions': typeof ApiDiscordInteractionsRoute
+  '/api/discord/link': typeof ApiDiscordLinkRoute
+  '/api/discord/setup': typeof ApiDiscordSetupRoute
   '/api/documents/request': typeof ApiDocumentsRequestRoute
   '/api/documents/request-upload': typeof ApiDocumentsRequestUploadRoute
   '/api/documents/upload': typeof ApiDocumentsUploadRoute
@@ -401,9 +429,8 @@ export interface FileRoutesById {
   '/api/funders/send': typeof ApiFundersSendRoute
   '/api/gmail/callback': typeof ApiGmailCallbackRoute
   '/api/gmail/connect': typeof ApiGmailConnectRoute
-  '/api/slack/command': typeof ApiSlackCommandRoute
-  '/api/slack/relay': typeof ApiSlackRelayRoute
   '/api/staff/signed': typeof ApiStaffSignedRoute
+  '/api/team/relay': typeof ApiTeamRelayRoute
   '/application/$rep_/pdf': typeof ApplicationRepPdfRoute
 }
 export interface FileRouteTypes {
@@ -413,6 +440,7 @@ export interface FileRouteTypes {
     | '/about'
     | '/account'
     | '/apply'
+    | '/discord-link'
     | '/faq'
     | '/how-it-works'
     | '/login'
@@ -441,6 +469,9 @@ export interface FileRouteTypes {
     | '/api/application/upload'
     | '/api/brain/brief'
     | '/api/brain/draft'
+    | '/api/discord/interactions'
+    | '/api/discord/link'
+    | '/api/discord/setup'
     | '/api/documents/request'
     | '/api/documents/request-upload'
     | '/api/documents/upload'
@@ -448,9 +479,8 @@ export interface FileRouteTypes {
     | '/api/funders/send'
     | '/api/gmail/callback'
     | '/api/gmail/connect'
-    | '/api/slack/command'
-    | '/api/slack/relay'
     | '/api/staff/signed'
+    | '/api/team/relay'
     | '/application/$rep/pdf'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -458,6 +488,7 @@ export interface FileRouteTypes {
     | '/about'
     | '/account'
     | '/apply'
+    | '/discord-link'
     | '/faq'
     | '/how-it-works'
     | '/login'
@@ -486,6 +517,9 @@ export interface FileRouteTypes {
     | '/api/application/upload'
     | '/api/brain/brief'
     | '/api/brain/draft'
+    | '/api/discord/interactions'
+    | '/api/discord/link'
+    | '/api/discord/setup'
     | '/api/documents/request'
     | '/api/documents/request-upload'
     | '/api/documents/upload'
@@ -493,9 +527,8 @@ export interface FileRouteTypes {
     | '/api/funders/send'
     | '/api/gmail/callback'
     | '/api/gmail/connect'
-    | '/api/slack/command'
-    | '/api/slack/relay'
     | '/api/staff/signed'
+    | '/api/team/relay'
     | '/application/$rep/pdf'
   id:
     | '__root__'
@@ -503,6 +536,7 @@ export interface FileRouteTypes {
     | '/about'
     | '/account'
     | '/apply'
+    | '/discord-link'
     | '/faq'
     | '/how-it-works'
     | '/login'
@@ -531,6 +565,9 @@ export interface FileRouteTypes {
     | '/api/application/upload'
     | '/api/brain/brief'
     | '/api/brain/draft'
+    | '/api/discord/interactions'
+    | '/api/discord/link'
+    | '/api/discord/setup'
     | '/api/documents/request'
     | '/api/documents/request-upload'
     | '/api/documents/upload'
@@ -538,9 +575,8 @@ export interface FileRouteTypes {
     | '/api/funders/send'
     | '/api/gmail/callback'
     | '/api/gmail/connect'
-    | '/api/slack/command'
-    | '/api/slack/relay'
     | '/api/staff/signed'
+    | '/api/team/relay'
     | '/application/$rep_/pdf'
   fileRoutesById: FileRoutesById
 }
@@ -549,6 +585,7 @@ export interface RootRouteChildren {
   AboutRoute: typeof AboutRoute
   AccountRoute: typeof AccountRoute
   ApplyRoute: typeof ApplyRoute
+  DiscordLinkRoute: typeof DiscordLinkRoute
   FaqRoute: typeof FaqRoute
   HowItWorksRoute: typeof HowItWorksRoute
   LoginRoute: typeof LoginRoute
@@ -563,7 +600,7 @@ export interface RootRouteChildren {
   ApiLeadsRoute: typeof ApiLeadsRoute
   ApiServerCheckRoute: typeof ApiServerCheckRoute
   ApiStatementsRoute: typeof ApiStatementsRoute
-  ApiTeamRoute: typeof ApiTeamRoute
+  ApiTeamRoute: typeof ApiTeamRouteWithChildren
   ApiTrackRoute: typeof ApiTrackRoute
   ApplicationRepRoute: typeof ApplicationRepRoute
   ApplyRepRoute: typeof ApplyRepRoute
@@ -577,12 +614,13 @@ export interface RootRouteChildren {
   ApiApplicationUploadRoute: typeof ApiApplicationUploadRoute
   ApiBrainBriefRoute: typeof ApiBrainBriefRoute
   ApiBrainDraftRoute: typeof ApiBrainDraftRoute
+  ApiDiscordInteractionsRoute: typeof ApiDiscordInteractionsRoute
+  ApiDiscordLinkRoute: typeof ApiDiscordLinkRoute
+  ApiDiscordSetupRoute: typeof ApiDiscordSetupRoute
   ApiEnginePushRoute: typeof ApiEnginePushRoute
   ApiFundersSendRoute: typeof ApiFundersSendRoute
   ApiGmailCallbackRoute: typeof ApiGmailCallbackRoute
   ApiGmailConnectRoute: typeof ApiGmailConnectRoute
-  ApiSlackCommandRoute: typeof ApiSlackCommandRoute
-  ApiSlackRelayRoute: typeof ApiSlackRelayRoute
   ApiStaffSignedRoute: typeof ApiStaffSignedRoute
   ApplicationRepPdfRoute: typeof ApplicationRepPdfRoute
 }
@@ -615,6 +653,13 @@ declare module '@tanstack/react-router' {
       path: '/apply'
       fullPath: '/apply'
       preLoaderRoute: typeof ApplyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/discord-link': {
+      id: '/discord-link'
+      path: '/discord-link'
+      fullPath: '/discord-link'
+      preLoaderRoute: typeof DiscordLinkRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/faq': {
@@ -813,6 +858,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiBrainDraftRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/discord/interactions': {
+      id: '/api/discord/interactions'
+      path: '/api/discord/interactions'
+      fullPath: '/api/discord/interactions'
+      preLoaderRoute: typeof ApiDiscordInteractionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/discord/link': {
+      id: '/api/discord/link'
+      path: '/api/discord/link'
+      fullPath: '/api/discord/link'
+      preLoaderRoute: typeof ApiDiscordLinkRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/discord/setup': {
+      id: '/api/discord/setup'
+      path: '/api/discord/setup'
+      fullPath: '/api/discord/setup'
+      preLoaderRoute: typeof ApiDiscordSetupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/documents/request': {
       id: '/api/documents/request'
       path: '/request'
@@ -862,26 +928,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiGmailConnectRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/slack/command': {
-      id: '/api/slack/command'
-      path: '/api/slack/command'
-      fullPath: '/api/slack/command'
-      preLoaderRoute: typeof ApiSlackCommandRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/slack/relay': {
-      id: '/api/slack/relay'
-      path: '/api/slack/relay'
-      fullPath: '/api/slack/relay'
-      preLoaderRoute: typeof ApiSlackRelayRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/staff/signed': {
       id: '/api/staff/signed'
       path: '/api/staff/signed'
       fullPath: '/api/staff/signed'
       preLoaderRoute: typeof ApiStaffSignedRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/api/team/relay': {
+      id: '/api/team/relay'
+      path: '/relay'
+      fullPath: '/api/team/relay'
+      preLoaderRoute: typeof ApiTeamRelayRouteImport
+      parentRoute: typeof ApiTeamRoute
     }
     '/application/$rep_/pdf': {
       id: '/application/$rep_/pdf'
@@ -909,11 +968,23 @@ const ApiDocumentsRouteWithChildren = ApiDocumentsRoute._addFileChildren(
   ApiDocumentsRouteChildren,
 )
 
+interface ApiTeamRouteChildren {
+  ApiTeamRelayRoute: typeof ApiTeamRelayRoute
+}
+
+const ApiTeamRouteChildren: ApiTeamRouteChildren = {
+  ApiTeamRelayRoute: ApiTeamRelayRoute,
+}
+
+const ApiTeamRouteWithChildren =
+  ApiTeamRoute._addFileChildren(ApiTeamRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AboutRoute: AboutRoute,
   AccountRoute: AccountRoute,
   ApplyRoute: ApplyRoute,
+  DiscordLinkRoute: DiscordLinkRoute,
   FaqRoute: FaqRoute,
   HowItWorksRoute: HowItWorksRoute,
   LoginRoute: LoginRoute,
@@ -928,7 +999,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiLeadsRoute: ApiLeadsRoute,
   ApiServerCheckRoute: ApiServerCheckRoute,
   ApiStatementsRoute: ApiStatementsRoute,
-  ApiTeamRoute: ApiTeamRoute,
+  ApiTeamRoute: ApiTeamRouteWithChildren,
   ApiTrackRoute: ApiTrackRoute,
   ApplicationRepRoute: ApplicationRepRoute,
   ApplyRepRoute: ApplyRepRoute,
@@ -942,12 +1013,13 @@ const rootRouteChildren: RootRouteChildren = {
   ApiApplicationUploadRoute: ApiApplicationUploadRoute,
   ApiBrainBriefRoute: ApiBrainBriefRoute,
   ApiBrainDraftRoute: ApiBrainDraftRoute,
+  ApiDiscordInteractionsRoute: ApiDiscordInteractionsRoute,
+  ApiDiscordLinkRoute: ApiDiscordLinkRoute,
+  ApiDiscordSetupRoute: ApiDiscordSetupRoute,
   ApiEnginePushRoute: ApiEnginePushRoute,
   ApiFundersSendRoute: ApiFundersSendRoute,
   ApiGmailCallbackRoute: ApiGmailCallbackRoute,
   ApiGmailConnectRoute: ApiGmailConnectRoute,
-  ApiSlackCommandRoute: ApiSlackCommandRoute,
-  ApiSlackRelayRoute: ApiSlackRelayRoute,
   ApiStaffSignedRoute: ApiStaffSignedRoute,
   ApplicationRepPdfRoute: ApplicationRepPdfRoute,
 }

@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { ChevronRight, Download, Loader2, Phone, Search, Send } from "lucide-react";
+import { ChevronRight, Download, FilePen, Loader2, Phone, Search, Send } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { age } from "@/lib/staff";
 import { btnOutline, btnPrimary, card } from "@/components/site/layout";
 import { input, textarea } from "@/components/staff/field-styles";
 import { SendApplications, type SendSeed } from "@/components/staff/send-applications";
+import { postInvites } from "@/lib/post-invites";
 import { EMAIL_RE, MAX_RECIPIENTS } from "@/lib/application-links";
 import {
   Sheet,
@@ -700,6 +701,7 @@ function LeadPage({
   onSave: (patch: ContactPatch) => Promise<string>;
   onSend?: (() => void) | undefined;
 }) {
+  const [starting, setStarting] = useState(false);
   const why = splitWhy(row.reason);
   const type = leadType(row.signals);
   const [name, setName] = useState(row.contact_name ?? "");
@@ -726,6 +728,40 @@ function LeadPage({
       : patch.contact_phone && !/^[0-9+()\s.\-x]{7,40}$/.test(patch.contact_phone)
         ? "Numbers only for the best number, like (718) 555-0142."
         : "";
+
+  /**
+   * Start application: save what's typed, make this merchant's personal link (no email goes
+   * out), and open it in a new tab for the rep to fill in with them on the phone.
+   */
+  async function startApplication() {
+    if (problem) return;
+    // opened now, while the click still counts, so the browser doesn't block it as a popup
+    const tab = window.open("about:blank", "_blank");
+    setStarting(true);
+    setMsg(null);
+    try {
+      if (changed) {
+        const err = await onSave(patch);
+        if (err) throw new Error(err);
+      }
+      const seed = sendSeed({ ...row, ...patch });
+      const [res] = await postInvites({
+        action: "send",
+        ...(isAdmin && row.rep_slug ? { rep_slug: row.rep_slug } : {}),
+        recipients: [{ ...seed, channel: "link" }],
+      });
+      if (!res?.url) throw new Error(res?.detail || "Couldn't make the application link.");
+      const url = `${res.url}${res.url.includes("?") ? "&" : "?"}fill=rep`;
+      if (tab) tab.location.href = url;
+      else window.location.href = url;
+      setMsg({ ok: true, text: "Application opened in a new tab. Fill it in with them." });
+    } catch (e) {
+      tab?.close();
+      setMsg({ ok: false, text: e instanceof Error ? e.message : "Couldn't start it. Try again." });
+    } finally {
+      setStarting(false);
+    }
+  }
 
   async function save() {
     if (problem || !changed) return;
@@ -809,7 +845,9 @@ function LeadPage({
       <section className={cn(card, "mt-5 p-5")} data-lead-contact>
         <h3 className="text-sm font-semibold">What you got on the call</h3>
         <p className="mt-1 text-xs text-smoke">
-          Saved on this lead for you and your admins. The engine never overwrites it.
+          Saved on this lead for you and your admins. The engine never overwrites it. Start
+          application opens their application to fill in together on the phone; they sign it from
+          the link you send at the end.
         </p>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <label className="block text-sm sm:col-span-2">
@@ -870,9 +908,25 @@ function LeadPage({
           </p>
         )}
         <div className="mt-4 flex flex-wrap items-center gap-2">
+          {onSend && (
+            <button
+              type="button"
+              className={cn(btnPrimary, "px-5 py-2")}
+              disabled={starting || busy || !!problem}
+              onClick={() => void startApplication()}
+              data-start-application
+            >
+              {starting ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <FilePen className="size-4" />
+              )}{" "}
+              Start application
+            </button>
+          )}
           <button
             type="button"
-            className={cn(btnPrimary, "px-5 py-2")}
+            className={cn(btnOutline, "px-5 py-2")}
             disabled={busy || !changed || !!problem}
             onClick={() => void save()}
             data-contact-save

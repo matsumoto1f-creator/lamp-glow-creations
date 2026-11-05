@@ -110,6 +110,10 @@ export type Database = {
           application_id: string | null;
           business_name: string | null;
           cancelled_at: string | null;
+          draft: Json | null;
+          draft_by: string | null;
+          draft_saved_at: string | null;
+          draft_step: number | null;
           channel: string;
           created_at: string;
           email: string | null;
@@ -135,6 +139,10 @@ export type Database = {
           application_id?: string | null;
           business_name?: string | null;
           cancelled_at?: string | null;
+          draft?: Json | null;
+          draft_by?: string | null;
+          draft_saved_at?: string | null;
+          draft_step?: number | null;
           channel: string;
           created_at?: string;
           email?: string | null;
@@ -160,6 +168,10 @@ export type Database = {
           application_id?: string | null;
           business_name?: string | null;
           cancelled_at?: string | null;
+          draft?: Json | null;
+          draft_by?: string | null;
+          draft_saved_at?: string | null;
+          draft_step?: number | null;
           channel?: string;
           created_at?: string;
           email?: string | null;

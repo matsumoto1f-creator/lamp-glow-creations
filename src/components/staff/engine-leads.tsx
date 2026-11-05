@@ -600,7 +600,9 @@ export function EngineLeads({
       <Sheet open={openRow != null} onOpenChange={(o) => !o && setOpenId(null)}>
         <SheetContent
           side="right"
-          className="w-full overflow-y-auto bg-paper sm:max-w-2xl"
+          // the sheet opens in a portal outside the staff page's themed wrapper, so it carries the
+          // same theme classes itself: dark by default, paper in light mode, like the page behind
+          className="ll-night ll-calm ll-member w-full overflow-y-auto border-l border-line bg-night text-paper sm:max-w-2xl"
           data-lead-page={openRow?.id}
         >
           {openRow && (

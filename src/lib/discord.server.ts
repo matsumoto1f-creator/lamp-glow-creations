@@ -1,7 +1,8 @@
 // Lamp in Discord, server side (setup: docs/discord.md). Reads from the server environment:
 //   DISCORD_BOT_TOKEN       the Lamp app's bot token (Developer Portal, Bot, Reset Token)
 //   DISCORD_PUBLIC_KEY      the app's public key (General Information), checks /lamp requests
-//   DISCORD_DEALS_WEBHOOK   the #deals channel's webhook URL (Edit Channel, Integrations), optional
+//   DISCORD_DEALS_CHANNEL   the #deals channel id: the bot posts there itself (not a secret)
+//   DISCORD_DEALS_WEBHOOK   or instead the #deals webhook URL (Edit Channel, Integrations); optional
 //   ENGINE_PUSH_SECRET      reused to guard /api/discord/setup (the War Room engine already has it)
 //   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY   (Lovable Cloud provides)
 //
@@ -143,8 +144,11 @@ export async function teamRelay(request: Request): Promise<Response> {
 
   // deal events to #deals, once per event though the rep and their admin both hear it
   const key = channelKey(n);
+  // the bot posts to the channel by id; a webhook URL also works if one is set instead
+  const dealsChannel = env("DISCORD_DEALS_CHANNEL");
   const hook = env("DISCORD_DEALS_WEBHOOK");
-  if (key && /^https:\/\/(discord|discordapp)\.com\/api\/webhooks\//.test(hook)) {
+  const viaBot = isDiscordId(dealsChannel);
+  if (key && (viaBot || /^https:\/\/(discord|discordapp)\.com\/api\/webhooks\//.test(hook))) {
     const claim = await svc
       .from("team_channel_posts" as never)
       .upsert({ key } as never, { onConflict: "key", ignoreDuplicates: true })
@@ -161,19 +165,24 @@ export async function teamRelay(request: Request): Promise<Response> {
         const rep = await svc.from("reps").select("name").eq("slug", slug).maybeSingle();
         repName = (rep.data as { name: string } | null)?.name ?? null;
       }
-      try {
-        const res = await fetch(hook, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            username: "Lamp",
-            content: channelText(n, site, repName),
-            allowed_mentions: NO_PINGS,
-          }),
+      const content = channelText(n, site, repName);
+      if (viaBot) {
+        const sent = await discord("POST", `/channels/${dealsChannel}/messages`, {
+          content,
+          allowed_mentions: NO_PINGS,
         });
-        out["channel"] = res.ok ? "posted" : `failed ${res.status}`;
-      } catch {
-        out["channel"] = "failed";
+        out["channel"] = sent.ok ? "posted" : `failed ${sent.status}`;
+      } else {
+        try {
+          const res = await fetch(hook, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username: "Lamp", content, allowed_mentions: NO_PINGS }),
+          });
+          out["channel"] = res.ok ? "posted" : `failed ${res.status}`;
+        } catch {
+          out["channel"] = "failed";
+        }
       }
     } else out["channel"] = claim.error ? "couldn't claim" : "already posted";
   }
@@ -371,6 +380,7 @@ export async function discordSetup(request: Request): Promise<Response> {
     registered: "/lamp",
     app_id: appId,
     public_key_set: !!env("DISCORD_PUBLIC_KEY"),
+    deals_channel_set: isDiscordId(env("DISCORD_DEALS_CHANNEL")),
     deals_webhook_set: /^https:\/\/(discord|discordapp)\.com\/api\/webhooks\//.test(
       env("DISCORD_DEALS_WEBHOOK"),
     ),

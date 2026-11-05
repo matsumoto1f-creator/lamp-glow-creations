@@ -48,6 +48,8 @@ import { Route as ApiEnginePushRouteImport } from './routes/api.engine.push'
 import { Route as ApiFundersSendRouteImport } from './routes/api.funders.send'
 import { Route as ApiGmailCallbackRouteImport } from './routes/api.gmail.callback'
 import { Route as ApiGmailConnectRouteImport } from './routes/api.gmail.connect'
+import { Route as ApiSlackCommandRouteImport } from './routes/api.slack.command'
+import { Route as ApiSlackRelayRouteImport } from './routes/api.slack.relay'
 import { Route as ApiStaffSignedRouteImport } from './routes/api.staff.signed'
 import { Route as ApplicationRepPdfRouteImport } from './routes/application.$rep_.pdf'
 
@@ -247,6 +249,16 @@ const ApiGmailConnectRoute = ApiGmailConnectRouteImport.update({
   path: '/api/gmail/connect',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiSlackCommandRoute = ApiSlackCommandRouteImport.update({
+  id: '/api/slack/command',
+  path: '/api/slack/command',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiSlackRelayRoute = ApiSlackRelayRouteImport.update({
+  id: '/api/slack/relay',
+  path: '/api/slack/relay',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiStaffSignedRoute = ApiStaffSignedRouteImport.update({
   id: '/api/staff/signed',
   path: '/api/staff/signed',
@@ -298,6 +310,8 @@ export interface FileRoutesByFullPath {
   '/api/funders/send': typeof ApiFundersSendRoute
   '/api/gmail/callback': typeof ApiGmailCallbackRoute
   '/api/gmail/connect': typeof ApiGmailConnectRoute
+  '/api/slack/command': typeof ApiSlackCommandRoute
+  '/api/slack/relay': typeof ApiSlackRelayRoute
   '/api/staff/signed': typeof ApiStaffSignedRoute
   '/application/$rep/pdf': typeof ApplicationRepPdfRoute
 }
@@ -341,6 +355,8 @@ export interface FileRoutesByTo {
   '/api/funders/send': typeof ApiFundersSendRoute
   '/api/gmail/callback': typeof ApiGmailCallbackRoute
   '/api/gmail/connect': typeof ApiGmailConnectRoute
+  '/api/slack/command': typeof ApiSlackCommandRoute
+  '/api/slack/relay': typeof ApiSlackRelayRoute
   '/api/staff/signed': typeof ApiStaffSignedRoute
   '/application/$rep/pdf': typeof ApplicationRepPdfRoute
 }
@@ -385,6 +401,8 @@ export interface FileRoutesById {
   '/api/funders/send': typeof ApiFundersSendRoute
   '/api/gmail/callback': typeof ApiGmailCallbackRoute
   '/api/gmail/connect': typeof ApiGmailConnectRoute
+  '/api/slack/command': typeof ApiSlackCommandRoute
+  '/api/slack/relay': typeof ApiSlackRelayRoute
   '/api/staff/signed': typeof ApiStaffSignedRoute
   '/application/$rep_/pdf': typeof ApplicationRepPdfRoute
 }
@@ -430,6 +448,8 @@ export interface FileRouteTypes {
     | '/api/funders/send'
     | '/api/gmail/callback'
     | '/api/gmail/connect'
+    | '/api/slack/command'
+    | '/api/slack/relay'
     | '/api/staff/signed'
     | '/application/$rep/pdf'
   fileRoutesByTo: FileRoutesByTo
@@ -473,6 +493,8 @@ export interface FileRouteTypes {
     | '/api/funders/send'
     | '/api/gmail/callback'
     | '/api/gmail/connect'
+    | '/api/slack/command'
+    | '/api/slack/relay'
     | '/api/staff/signed'
     | '/application/$rep/pdf'
   id:
@@ -516,6 +538,8 @@ export interface FileRouteTypes {
     | '/api/funders/send'
     | '/api/gmail/callback'
     | '/api/gmail/connect'
+    | '/api/slack/command'
+    | '/api/slack/relay'
     | '/api/staff/signed'
     | '/application/$rep_/pdf'
   fileRoutesById: FileRoutesById
@@ -557,6 +581,8 @@ export interface RootRouteChildren {
   ApiFundersSendRoute: typeof ApiFundersSendRoute
   ApiGmailCallbackRoute: typeof ApiGmailCallbackRoute
   ApiGmailConnectRoute: typeof ApiGmailConnectRoute
+  ApiSlackCommandRoute: typeof ApiSlackCommandRoute
+  ApiSlackRelayRoute: typeof ApiSlackRelayRoute
   ApiStaffSignedRoute: typeof ApiStaffSignedRoute
   ApplicationRepPdfRoute: typeof ApplicationRepPdfRoute
 }
@@ -836,6 +862,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiGmailConnectRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/slack/command': {
+      id: '/api/slack/command'
+      path: '/api/slack/command'
+      fullPath: '/api/slack/command'
+      preLoaderRoute: typeof ApiSlackCommandRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/slack/relay': {
+      id: '/api/slack/relay'
+      path: '/api/slack/relay'
+      fullPath: '/api/slack/relay'
+      preLoaderRoute: typeof ApiSlackRelayRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/staff/signed': {
       id: '/api/staff/signed'
       path: '/api/staff/signed'
@@ -906,6 +946,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiFundersSendRoute: ApiFundersSendRoute,
   ApiGmailCallbackRoute: ApiGmailCallbackRoute,
   ApiGmailConnectRoute: ApiGmailConnectRoute,
+  ApiSlackCommandRoute: ApiSlackCommandRoute,
+  ApiSlackRelayRoute: ApiSlackRelayRoute,
   ApiStaffSignedRoute: ApiStaffSignedRoute,
   ApplicationRepPdfRoute: ApplicationRepPdfRoute,
 }

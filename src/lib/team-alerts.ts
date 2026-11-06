@@ -188,6 +188,34 @@ export function leadsText(query: string, hits: LeadHit[], more: boolean): string
 export const isDiscordId = (s: unknown): s is string =>
   typeof s === "string" && /^\d{17,20}$/.test(s);
 
+/** Someone in the Lamp Discord server, as the Team tab's matcher shows them. */
+export type DiscordMember = { id: string; name: string; username: string };
+
+/**
+ * Discord's member list (GET /guilds/{id}/members) as the Team tab needs it: people only (bots
+ * left out), named the way the server shows them (server nickname, then display name, then
+ * username), each once, A to Z.
+ */
+export function memberRows(raw: unknown): DiscordMember[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Map<string, DiscordMember>();
+  for (const m of raw) {
+    const o = (m ?? {}) as { nick?: unknown; user?: unknown };
+    const u = (o.user ?? {}) as {
+      id?: unknown;
+      username?: unknown;
+      global_name?: unknown;
+      bot?: unknown;
+    };
+    if (u.bot === true || !isDiscordId(u.id) || typeof u.username !== "string") continue;
+    const pick = [o.nick, u.global_name, u.username].find(
+      (x): x is string => typeof x === "string" && x.trim() !== "",
+    )!;
+    seen.set(u.id, { id: u.id, name: pick.trim(), username: u.username });
+  }
+  return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
 /** The part of a link token that gets signed: who, and until when (ms). */
 export const linkPayload = (discordId: string, expiresMs: number) => `${discordId}.${expiresMs}`;
 

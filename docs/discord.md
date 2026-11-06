@@ -20,6 +20,8 @@ What it does once set up:
      Secrets) as `DISCORD_PUBLIC_KEY`.
    - **Bot:** Reset Token, copy it straight into Lovable as `DISCORD_BOT_TOKEN`. Don't paste it
      anywhere else.
+   - **Bot, Privileged Gateway Intents:** turn on Server Members Intent and Save, so the Team
+     tab can list who's in the server.
 3. **The #deals channel.** Add its channel id in Lovable as `DISCORD_DEALS_CHANNEL` (not a secret: in
    Discord, the number at the end of the channel's address on discord.com). The bot posts there
    itself; it needs Send Messages, which the invite link below grants. (A channel webhook URL in
@@ -34,8 +36,10 @@ What it does once set up:
    pick the Lamp server, Authorize.
 7. **Register /lamp.** Tell Claude; it calls `/api/discord/setup` once (guarded by the engine's
    push secret, which the War Room already holds).
-8. **Everyone connects once.** Each person types `/lamp link` in the Lamp server and opens the link
-   it gives them while signed in to Lamp. From then on their alerts come to their DMs.
+8. **Match the team.** On the staff page, Team, pick each rep's Discord account in the Discord
+   column (they need to have joined the server and signed in to Lamp once). From then on their
+   alerts come to their DMs and `/lamp` knows them. A rep can also do it themselves: `/lamp link`
+   in the server, then open the link while signed in to Lamp.
 
 ## How it fits together
 
@@ -45,6 +49,7 @@ What it does once set up:
   hears it once (the bot posts to `DISCORD_DEALS_CHANNEL`, or the webhook if that's set instead).
 - `/lamp` -> POST `/api/discord/interactions`, checked against `DISCORD_PUBLIC_KEY` (Ed25519) and
   refused if older than five minutes. `/lamp link` hands back a link signed with the Vault secret,
-  good for 30 minutes; `/discord-link` finishes it for the signed-in staff member.
+  good for 30 minutes; `/discord-link` finishes it for the signed-in staff member. Or an admin
+  matches them on the Team tab (`/api/team`, action `discord`), from the server's member list.
 - With `DISCORD_BOT_TOKEN` unset the relay does nothing. Turn it off: remove `DISCORD_BOT_TOKEN`.
   Remove it entirely: `drop trigger notifications_to_team on public.notifications;`

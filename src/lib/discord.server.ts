@@ -39,9 +39,11 @@ import {
   LAMP_COMMAND,
   leadsText,
   linkPayload,
+  memberRows,
   parseCommand,
   readLinkToken,
   todayText,
+  type DiscordMember,
   type TeamNotification,
 } from "@/lib/team-alerts";
 
@@ -347,19 +349,68 @@ export async function discordLink(request: Request): Promise<Response> {
   if (!secret || !sameSecret(t.sig, await hmac(secret, linkPayload(t.discordId, t.expires))))
     return json(400, { error: "That link isn't one Lamp made. Type /lamp link again." });
   // one Lamp login per Discord account: it moves to whoever links it last
-  const clear = await svc
-    .from("profiles")
-    .update({ discord_id: null } as never)
-    .eq("discord_id", t.discordId)
-    .neq("id", who.userId);
-  if (clear.error) return json(500, { error: "Couldn't connect. Try again." });
+  if (!(await setDiscordId(svc, who.userId, t.discordId)))
+    return json(500, { error: "Couldn't connect. Try again." });
+  return json(200, { linked: true });
+}
+
+// ---------- the Team tab's matcher ----------
+
+/**
+ * Everyone in the server(s) the Lamp bot is in, for an admin to match each rep to their Discord
+ * account on the Team tab. Needs "Server Members Intent" on in the Developer Portal (Bot page);
+ * without it Discord answers 403 and the error says so.
+ */
+export async function discordMembers(): Promise<{
+  members: DiscordMember[];
+  error: string | null;
+}> {
+  if (!env("DISCORD_BOT_TOKEN")) return { members: [], error: "Discord isn't set up yet." };
+  const guilds = await discord("GET", "/users/@me/guilds");
+  const list = Array.isArray(guilds.data) ? (guilds.data as unknown as { id?: unknown }[]) : [];
+  if (!guilds.ok) return { members: [], error: `Discord said ${guilds.status}.` };
+  if (!list.length) return { members: [], error: "The Lamp bot isn't in a Discord server." };
+  const all: unknown[] = [];
+  for (const g of list.slice(0, 3)) {
+    if (!isDiscordId(g.id)) continue;
+    const r = await discord("GET", `/guilds/${g.id}/members?limit=1000`);
+    if (!r.ok)
+      return {
+        members: [],
+        error:
+          r.status === 403
+            ? "Discord won't list the server's members until Server Members Intent is on for the Lamp bot."
+            : `Discord said ${r.status} listing the server's members.`,
+      };
+    if (Array.isArray(r.data)) all.push(...(r.data as unknown as unknown[]));
+  }
+  return { members: memberRows(all), error: null };
+}
+
+/**
+ * An admin matches a rep's Lamp login to a Discord account (or clears it), the same thing
+ * /lamp link does when the rep does it themselves. One Lamp login per Discord account: it
+ * moves off anyone who had it.
+ */
+export async function setDiscordId(
+  svc: Svc,
+  userId: string,
+  discordId: string | null,
+): Promise<boolean> {
+  if (discordId) {
+    const clear = await svc
+      .from("profiles")
+      .update({ discord_id: null } as never)
+      .eq("discord_id", discordId)
+      .neq("id", userId);
+    if (clear.error) return false;
+  }
   const set = await svc
     .from("profiles")
-    .update({ discord_id: t.discordId } as never)
-    .eq("id", who.userId)
+    .update({ discord_id: discordId } as never)
+    .eq("id", userId)
     .select("id");
-  if (set.error || !(set.data ?? []).length) return json(500, { error: "Couldn't connect." });
-  return json(200, { linked: true });
+  return !set.error && (set.data ?? []).length > 0;
 }
 
 // ---------- registering /lamp, once ----------

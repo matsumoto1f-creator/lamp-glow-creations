@@ -9,6 +9,7 @@ import {
   lampLink,
   leadsText,
   linkPayload,
+  memberRows,
   parseCommand,
   readLinkToken,
   todayText,
@@ -109,4 +110,22 @@ Deno.test("answers: today and lead hits read plainly", () => {
     "• **ISK CONSTRUCTION** (BRONX, NY) · ask for Gjovalin Celaj · 3473800756 · no answer\n_More match; add a word to narrow it._",
   );
   assertEquals(esc("a_b"), "a\\_b");
+});
+
+Deno.test("member list: people only, named as the server shows them, once, A to Z", () => {
+  const rows = memberRows([
+    { nick: null, user: { id: "111111111111111111", username: "zeus99", global_name: "Zeus" } },
+    { nick: "Stevie M", user: { id: "222222222222222222", username: "stevie", global_name: null } },
+    { user: { id: "333333333333333333", username: "lamp", bot: true } },
+    { user: { id: "444444444444444444", username: "darrell_x", global_name: "" } },
+    { user: { id: "111111111111111111", username: "zeus99", global_name: "Zeus" } },
+    { user: { id: "nope", username: "bad" } },
+    null,
+  ]);
+  assertEquals(rows, [
+    { id: "444444444444444444", name: "darrell_x", username: "darrell_x" },
+    { id: "222222222222222222", name: "Stevie M", username: "stevie" },
+    { id: "111111111111111111", name: "Zeus", username: "zeus99" },
+  ]);
+  assertEquals(memberRows({ message: "Missing Access" }), []);
 });

@@ -1,6 +1,7 @@
 import { cn } from "@/lib/utils";
 import { card } from "@/components/site/layout";
 import { clock, trainingFor, trainingSrc, type TrainingRole } from "@/lib/training";
+import { IntentPlaybook } from "@/components/staff/intent-playbook";
 
 /**
  * Training: the tutorial videos, by role. Reps get the rep series, admins get rep and admin, and
@@ -62,6 +63,7 @@ export function TrainingShelf({ role, heading = true }: { role: TrainingRole; he
 export function Training({ isAdmin }: { isAdmin: boolean }) {
   return (
     <div className="mt-2">
+      <IntentPlaybook />
       <TrainingShelf role="rep" />
       {isAdmin && <TrainingShelf role="admin" />}
       <TrainingShelf role="merchant" />

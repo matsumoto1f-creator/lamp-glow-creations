@@ -10,7 +10,7 @@ import { IntentPlaybook } from "@/components/staff/intent-playbook";
  */
 
 const HEAD: Record<TrainingRole, { title: string; note: string }> = {
-  rep: { title: "For reps", note: "Watch these in order. About twelve minutes in all." },
+  rep: { title: "For reps", note: "Watch these in order. About fourteen minutes in all." },
   admin: { title: "For admins", note: "Running the team, the board, funders and money." },
   merchant: {
     title: "For merchants",

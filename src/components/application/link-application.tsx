@@ -137,10 +137,10 @@ function saveDraft(key: string, d: Details, step: number) {
 }
 
 /** The SSN and date of birth: only the merchant types them, when they sign. */
-const PRIVATE_GAP = /SSN|date of birth/;
+export const PRIVATE_GAP = /SSN|date of birth/;
 
 /** POST /api/application/draft as the signed-in rep. Throws with the server's words. */
-async function postDraft(body: object): Promise<Record<string, unknown>> {
+export async function postDraft(body: object): Promise<Record<string, unknown>> {
   const sb = getSupabase();
   const session = sb ? (await sb.auth.getSession()).data.session : null;
   if (!session) throw new Error("Sign in to Lamp in this browser so this saves for them.");
@@ -1433,7 +1433,13 @@ export function DoneScreen({
   );
 }
 
-function ClosedLink({ state, repName }: { state: OpenResponse["state"]; repName: string | null }) {
+export function ClosedLink({
+  state,
+  repName,
+}: {
+  state: OpenResponse["state"];
+  repName: string | null;
+}) {
   const who = repName ?? "your Lamp rep";
   if (state === "signed") {
     return (
@@ -1480,7 +1486,7 @@ function Notice({ title, children }: { title: string; children: ReactNode }) {
 }
 
 /** On the phone: who this is for, that the rep doesn't sign, and whether it saved. */
-function PhoneBanner({
+export function PhoneBanner({
   synced,
   business,
 }: {
@@ -1517,16 +1523,19 @@ function PhoneBanner({
 }
 
 /** The last step on the phone: send the same link for the merchant to check and sign. */
-function HandOff({
+export function HandOff({
   d,
   token,
   gaps,
   repName,
+  form,
 }: {
   d: Details;
   token: string;
   gaps: string[];
   repName: string;
+  /** "pdf": the link they get opens the paper application */
+  form?: "pdf";
 }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -1546,7 +1555,7 @@ function HandOff({
     setBusy(true);
     setMsg(null);
     try {
-      const r = await postDraft({ action: "email", token, to });
+      const r = await postDraft({ action: "email", token, to, ...(form ? { form } : {}) });
       setMsg({
         ok: true,
         text: `Sent to ${String(r["sent_to"] ?? to)}. Stay on the line while they open it.`,

@@ -533,7 +533,13 @@ export function LinkApplication({
               firstName={d.owners[0]?.first ?? ""}
             />
 
-            {phoneMode && <PhoneBanner synced={synced} business={d.business.legal_name} />}
+            {phoneMode && token && (
+              <PhoneBanner
+                synced={synced}
+                business={d.business.legal_name}
+                onSend={() => saveAndSend(token, d, step)}
+              />
+            )}
 
             {!contactDone && quickStep < QUESTIONS.length ? (
               <QuickQuestions
@@ -1489,10 +1495,27 @@ function Notice({ title, children }: { title: string; children: ReactNode }) {
 export function PhoneBanner({
   synced,
   business,
+  onSend,
 }: {
   synced: { at: string } | { error: string } | null;
   business: string;
+  /** Saves what's typed and emails them this link to finish on their own; says what happened. */
+  onSend?: () => Promise<string>;
 }) {
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState<{ ok: boolean; text: string } | null>(null);
+  async function send() {
+    if (!onSend) return;
+    setSending(true);
+    setSent(null);
+    try {
+      setSent({ ok: true, text: await onSend() });
+    } catch (e) {
+      setSent({ ok: false, text: e instanceof Error ? e.message : "Couldn't send. Try again." });
+    } finally {
+      setSending(false);
+    }
+  }
   return (
     <div
       className="mt-6 flex flex-wrap items-start gap-3 rounded-2xl bg-leaf/15 p-4 text-sm ring-1 ring-leaf/40"
@@ -1504,8 +1527,8 @@ export function PhoneBanner({
           You&apos;re filling this in{business ? ` for ${business}` : ""} on the phone.
         </p>
         <p className="mt-0.5 text-smoke">
-          Skip the SSN and date of birth. At the end you email or text them this link, and they
-          check it, add those and sign. Never sign for them.
+          Skip the SSN and date of birth. At the end, or the moment they have to go, email them this
+          link, and they check it, add those and sign. Never sign for them.
         </p>
         {synced && (
           <p
@@ -1517,9 +1540,54 @@ export function PhoneBanner({
               : `Saved to Lamp ${new Date(synced.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`}
           </p>
         )}
+        {sent && (
+          <p
+            className={cn("mt-1 text-xs", sent.ok ? "text-forest" : "text-destructive")}
+            role="status"
+            data-phone-sent
+          >
+            {sent.text}
+          </p>
+        )}
       </div>
+      {onSend && (
+        <button
+          type="button"
+          className={cn(btnOutline, "shrink-0 px-4 py-2 text-sm")}
+          disabled={sending}
+          onClick={() => void send()}
+          title="They have to go? Lamp saves what you've filled in and emails them this link to finish."
+          data-phone-send-now
+        >
+          {sending ? <Loader2 className="size-4 animate-spin" /> : <Mail className="size-4" />}
+          Email it to them to finish
+        </button>
+      )}
     </div>
   );
+}
+
+/**
+ * They have to go mid-call: save what's typed to the link right now (not after the usual pause),
+ * then email them the same link to finish, to the owner's email on the form or, failing that, the
+ * one the link was made with. Returns the line to show the rep.
+ */
+export async function saveAndSend(
+  token: string,
+  d: Details,
+  step: number,
+  form?: "pdf",
+): Promise<string> {
+  const safe = { ...d, owners: d.owners.map((o) => ({ ...o, ssn: "", dob: "" })) };
+  await postDraft({ action: "save", token, draft: safe, step });
+  const typed = (d.owners[0]?.email || d.business.email || "").trim().toLowerCase();
+  const r = await postDraft({
+    action: "email",
+    token,
+    ...(EMAIL_RE.test(typed) ? { to: typed } : {}),
+    ...(form ? { form } : {}),
+  });
+  return `Emailed to ${String(r["sent_to"] ?? typed)} with everything you've filled in. They finish it and sign.`;
 }
 
 /** The last step on the phone: send the same link for the merchant to check and sign. */

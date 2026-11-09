@@ -594,6 +594,72 @@ export type Database = {
         }
         Relationships: []
       }
+      chat_members: {
+        Row: {
+          added_at: string;
+          added_by: string | null;
+          thread_id: string;
+          user_id: string;
+        };
+        Insert: Record<string, never>;
+        Update: Record<string, never>;
+        Relationships: [];
+      };
+      chat_messages: {
+        Row: {
+          author: string | null;
+          author_name: string | null;
+          author_role: string;
+          body: string;
+          created_at: string;
+          id: number;
+          kind: string;
+          redact_reason: string | null;
+          redacted_at: string | null;
+          redacted_by: string | null;
+          thread_id: string;
+        };
+        Insert: {
+          body: string;
+          thread_id: string;
+        };
+        Update: Record<string, never>;
+        Relationships: [
+          {
+            foreignKeyName: "chat_messages_thread_id_fkey";
+            columns: ["thread_id"];
+            isOneToOne: false;
+            referencedRelation: "chat_threads";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      chat_reads: {
+        Row: {
+          last_read_at: string | null;
+          thread_id: string;
+          user_id: string;
+        };
+        Insert: Record<string, never>;
+        Update: Record<string, never>;
+        Relationships: [];
+      };
+      chat_threads: {
+        Row: {
+          audience: string | null;
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          kind: string;
+          last_author: string | null;
+          last_message_at: string | null;
+          team_slug: string | null;
+          title: string | null;
+        };
+        Insert: Record<string, never>;
+        Update: Record<string, never>;
+        Relationships: [];
+      };
       commission_entries: {
         Row: {
           amount: number
@@ -2097,6 +2163,8 @@ export type Database = {
         }
         Returns: number
       }
+      chat_text_refused: { Args: { _body: string }; Returns: boolean };
+      create_room: { Args: { _title: string; _members: string[] }; Returns: string };
       can_see_application_details: {
         Args: { _application_id: string }
         Returns: boolean
@@ -2170,6 +2238,21 @@ export type Database = {
         }[]
       }
       rep_can_read_file: { Args: { _name: string }; Returns: boolean }
+      mark_thread_read: { Args: { _thread: string }; Returns: undefined };
+      my_chat_inbox: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          kind: string;
+          last_message_at: string | null;
+          preview: string | null;
+          subtitle: string;
+          thread_id: string;
+          title: string;
+          unread: boolean;
+        }[];
+      };
+      open_direct: { Args: { _other: string }; Returns: string };
+      redact_message: { Args: { _id: number; _reason: string }; Returns: undefined };
       rep_can_see_application: {
         Args: { _application_id: string }
         Returns: boolean

@@ -6,8 +6,6 @@ import { cn } from "@/lib/utils";
 import { age } from "@/lib/staff";
 import { btnOutline, btnPrimary, card } from "@/components/site/layout";
 import { input } from "@/components/staff/field-styles";
-import { SpeakButton } from "@/components/staff/speak-button";
-import { joinSpoken } from "@/lib/spoken-notes";
 
 /**
  * Notes & calls on a file (migration 20261029140000_file_notes_and_calls.sql): a running thread in
@@ -100,6 +98,30 @@ export function NotesCalls({
     void load();
   }, [load]);
 
+  // live once 20261110130000_chat_realtime.sql has run: a note or call added or finished by
+  // someone else shows at once (only rows this person may read arrive)
+  useEffect(() => {
+    const sb = getSupabase();
+    const key = leadId ?? fileId;
+    if (!sb || !key) return;
+    const channel = sb
+      .channel(`file_notes:${key}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "file_notes",
+          filter: `${leadId ? "lead_id" : "application_id"}=eq.${key}`,
+        },
+        () => void load(),
+      )
+      .subscribe();
+    return () => {
+      void sb.removeChannel(channel);
+    };
+  }, [fileId, leadId, load]);
+
   const repName = (slug: string | null) =>
     slug ? (reps.find((r) => r.slug === slug)?.name ?? slug) : "";
 
@@ -183,11 +205,6 @@ export function NotesCalls({
           }
           value={body}
           onChange={(e) => setBody(e.target.value)}
-        />
-        <SpeakButton
-          className="mb-2"
-          disabled={busy !== null}
-          onPhrase={(said) => setBody((b) => joinSpoken(b, said))}
         />
         <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-line pt-2">
           {isAdmin && (

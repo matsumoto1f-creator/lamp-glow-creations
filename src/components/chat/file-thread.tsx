@@ -68,8 +68,12 @@ export function FileThread({
     const newest = list[list.length - 1];
     if (newest && newest.id !== lastSeen.current) {
       lastSeen.current = newest.id;
-      // seen it: clears the unread mark and this thread's bell item
-      void sb.rpc("mark_thread_read", { _thread: thread });
+      // seen it: clears the unread mark and this thread's bell item. (A Supabase query only goes
+      // out once something awaits or .then()s it, so `void sb.rpc(...)` alone would send nothing.)
+      sb.rpc("mark_thread_read", { _thread: thread }).then(
+        () => undefined,
+        () => undefined,
+      );
     }
   }, []);
 

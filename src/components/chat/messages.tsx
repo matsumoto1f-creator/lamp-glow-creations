@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronLeft, Hash, Loader2, MessageSquarePlus, Plus, User } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { ChevronLeft, Hash, Loader2, MessageSquarePlus, Plus, User, Users } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { age } from "@/lib/staff";
@@ -11,14 +12,16 @@ import { ChatThread } from "@/components/chat/chat-thread";
 type Person = { user_id: string; name: string };
 
 const GROUPS: { kind: InboxRow["kind"]; label: string }[] = [
+  { kind: "merchant", label: "Merchants" },
   { kind: "room", label: "Rooms" },
   { kind: "direct", label: "Direct messages" },
 ];
 
 /**
- * Staff > Messages (20261110120000_chat_staff.sql): the team's group chat. Rooms (All staff, the
- * person's team room, rooms an admin made) and direct messages with anyone on staff, newest first
- * with unread marks, and the open conversation. Phone first: on a narrow screen it shows the list or
+ * Staff > Messages (20261110120000_chat_staff.sql, 20261110140000_chat_merchant.sql): the team's group
+ * chat and the merchants they work. Merchant conversations (the files they work), rooms (All staff,
+ * the person's team room, rooms an admin made) and direct messages, newest first with unread marks,
+ * and the open conversation. Phone first: on a narrow screen it shows the list or
  * one conversation, never both, with a back control from the conversation to the list.
  */
 export function Messages({
@@ -246,8 +249,10 @@ export function Messages({
                       >
                         {r.kind === "room" ? (
                           <Hash className="size-4 shrink-0 text-smoke" />
-                        ) : (
+                        ) : r.kind === "direct" ? (
                           <User className="size-4 shrink-0 text-smoke" />
+                        ) : (
+                          <Users className="size-4 shrink-0 text-smoke" />
                         )}
                         <span className="min-w-0 flex-1">
                           <span className={cn("block truncate", r.unread && "font-semibold")}>
@@ -305,15 +310,29 @@ export function Messages({
                 <h3 className="truncate font-display text-lg font-semibold">
                   {open?.title ?? "Conversation"}
                 </h3>
-                <p className="truncate text-xs text-smoke">{open?.subtitle ?? ""}</p>
+                <p className="truncate text-xs text-smoke">
+                  {open?.kind === "merchant" && open.application_id ? (
+                    <Link to="/staff" search={{ file: open.application_id }} className="underline">
+                      Open the file
+                    </Link>
+                  ) : (
+                    (open?.subtitle ?? "")
+                  )}
+                </p>
               </div>
+              {open?.kind === "merchant" && (
+                <span className="ml-auto shrink-0 rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-semibold text-amber-600">
+                  The merchant sees this
+                </span>
+              )}
             </div>
             <ChatThread
               key={thread}
               threadId={thread}
               userId={userId}
               isAdmin={isAdmin}
-              placeholder="Write a message"
+              placeholder={open?.kind === "merchant" ? "Write to the merchant" : "Write a message"}
+              warnLending={open?.kind === "merchant"}
               emptyText="No messages yet. Say hello."
               onRead={() => void load()}
             />

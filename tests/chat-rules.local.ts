@@ -23,7 +23,11 @@ const U = {
   other: "c4000000-0000-0000-0000-000000000004",
   exrep: "c5000000-0000-0000-0000-000000000005",
   mA: "ca000000-0000-0000-0000-00000000000a",
+  mB: "cb000000-0000-0000-0000-00000000000b",
 } as const;
+const FILE_A = "fa000000-0000-0000-0000-00000000000a"; // merchant A, rep "chatrep" (team "chatlead")
+const FILE_B = "fb000000-0000-0000-0000-00000000000b"; // merchant B, rep "chatother"
+const FILE_U = "fc000000-0000-0000-0000-00000000000c"; // merchant B, unassigned
 type Who = keyof typeof U | "anon" | "db";
 const IDS = Object.values(U)
   .map((u) => `'${u}'`)
@@ -88,6 +92,8 @@ const DM = `(select m1.thread_id from public.chat_members m1
   join public.chat_members m2 on m2.thread_id = m1.thread_id and m2.user_id = '${U.other}'
   join public.chat_threads t on t.id = m1.thread_id and t.kind = 'direct'
   where m1.user_id = '${U.rep}' limit 1)`;
+const FILE_T = (file: string) =>
+  `(select id from public.chat_threads where application_id = '${file}')`;
 const post = (t: string, body: string) =>
   `insert into public.chat_messages (thread_id, body) values (${t}, $b$${body}$b$) returning 1`;
 const seeMsgs = (t: string) => `select count(*) from public.chat_messages where thread_id = ${t}`;
@@ -100,7 +106,8 @@ select v.id::uuid, '00000000-0000-0000-0000-000000000000', 'authenticated', 'aut
 from (values
   ('${U.admin}', 'chat.admin@test.dev'), ('${U.lead}', 'chat.lead@test.dev'),
   ('${U.rep}', 'chat.rep@test.dev'), ('${U.other}', 'chat.other@test.dev'),
-  ('${U.exrep}', 'chat.exrep@test.dev'), ('${U.mA}', 'chat.ma@test.dev')) v(id, email);
+  ('${U.exrep}', 'chat.exrep@test.dev'), ('${U.mA}', 'chat.ma@test.dev'),
+  ('${U.mB}', 'chat.mb@test.dev')) v(id, email);
 insert into public.user_roles (user_id, role) values
   ('${U.admin}', 'admin'), ('${U.lead}', 'rep'), ('${U.rep}', 'rep'), ('${U.other}', 'rep');
 insert into public.reps (slug, name, user_id, active) values
@@ -111,6 +118,20 @@ insert into public.reps (slug, name, user_id, active) values
   ('chatadmin', 'Ada Admin', '${U.admin}', true)
 on conflict (slug) do nothing;
 update public.reps set admin_slug = 'chatlead' where slug = 'chatrep';
+insert into public.applications (id, user_id, status, business_name, first_name, email, rep_slug) values
+  ('${FILE_A}', '${U.mA}', 'reviewing', 'A Trucking', 'Maria', 'chat.ma@test.dev', 'chatrep'),
+  ('${FILE_B}', '${U.mB}', 'reviewing', 'B Bakery', 'Ben', 'chat.mb@test.dev', 'chatother'),
+  ('${FILE_U}', '${U.mB}', 'new', 'B Bakery 2', 'Ben', 'chat.mb@test.dev', null);
+update public.applications set rep_slug = 'chatrep' where id = '${FILE_A}';
+update public.applications set rep_slug = 'chatother' where id = '${FILE_B}';
+update public.applications set rep_slug = null where id = '${FILE_U}';
+commit;
+begin; ${as("mA")} select public.open_file_thread('${FILE_A}') \\g /dev/null
+${post(FILE_T(FILE_A), "Hi, when will I hear back?").replace(" returning 1", "")};
+commit;
+begin; ${as("mB")} select public.open_file_thread('${FILE_B}') \\g /dev/null
+select public.open_file_thread('${FILE_U}') \\g /dev/null
+${post(FILE_T(FILE_U), "Is anyone there?").replace(" returning 1", "")};
 commit;
 begin; ${as("rep")} select public.open_direct('${U.other}') \\g /dev/null
 ${post(DM, "first DM").replace(" returning 1", "")};
@@ -309,19 +330,19 @@ const CASES: Case[] = [
     "db",
     "0",
     "chat writes no notifications (so nothing reaches Discord or email)",
-    `select count(*) from public.notifications where user_id in (${IDS})`,
+    `create temp table n0 as select count(*) as n from public.notifications;\n${as("rep")}${post(ALL, "room note")} \\g /dev/null\n${post(TEAM, "team note")} \\g /dev/null\nreset role;\nselect (select count(*) from public.notifications) - (select n from n0)`,
   ],
   [
     "db",
     "0",
     "not even for a direct message",
-    `${as("other")}${post(DM, "reply")} \\g /dev/null\nreset role;\nselect count(*) from public.notifications where user_id in (${IDS})`,
+    `create temp table n0 as select count(*) as n from public.notifications;\n${as("other")}${post(DM, "reply")} \\g /dev/null\nreset role;\nselect (select count(*) from public.notifications) - (select n from n0)`,
   ],
   // the inbox
   [
     "rep",
-    "direct,room,room",
-    "a rep's inbox: All staff, their team room, their DM",
+    "direct,merchant,room,room",
+    "a rep's inbox: their merchant, All staff, their team room, their DM",
     `select string_agg(kind, ',' order by kind) from public.my_chat_inbox()`,
   ],
   [
@@ -332,8 +353,8 @@ const CASES: Case[] = [
   ],
   [
     "admin",
-    "room,room",
-    "an admin's lists rooms, not other people's DMs",
+    "merchant,room,room",
+    "an admin's lists rooms and the unassigned file, not other people's DMs",
     `select string_agg(kind, ',' order by kind) from public.my_chat_inbox()`,
   ],
   ["mA", "0", "a merchant's inbox is empty", `select count(*) from public.my_chat_inbox()`],
@@ -372,6 +393,173 @@ const CASES: Case[] = [
     "1",
     "people see only their own read marks",
     `select public.mark_thread_read(${ALL}) \\g /dev/null\nselect count(*) from public.chat_reads`,
+  ],
+  // ---------- merchant conversations (20261110140000_chat_merchant.sql) ----------
+  ["mA", "1", "merchant reads own file's conversation", seeMsgs(FILE_T(FILE_A))],
+  ["mB", "0", "another merchant can't", seeMsgs(FILE_T(FILE_A))],
+  [
+    "mB",
+    "refused",
+    "another merchant can't open it",
+    `select public.open_file_thread('${FILE_A}') is not null`,
+  ],
+  ["rep", "1", "the file's rep reads it", seeMsgs(FILE_T(FILE_A))],
+  ["lead", "1", "the rep's team lead reads it", seeMsgs(FILE_T(FILE_A))],
+  ["other", "0", "another rep can't", seeMsgs(FILE_T(FILE_A))],
+  ["admin", "1", "an admin can", seeMsgs(FILE_T(FILE_A))],
+  ["exrep", "0", "a rep seat without a staff role can't", seeMsgs(FILE_T(FILE_A))],
+  ["rep", "0", "a rep can't read an unassigned file's conversation", seeMsgs(FILE_T(FILE_U))],
+  ["rep", "refused", "nor open one", `select public.open_file_thread('${FILE_U}') is not null`],
+  ["admin", "1", "an admin reads the unassigned file's", seeMsgs(FILE_T(FILE_U))],
+  ["mA", "0", "a merchant still sees no rooms", seeThread(ALL)],
+  [
+    "db",
+    "0",
+    "after the file moves to another rep, the old rep reads nothing",
+    `update public.applications set rep_slug = 'chatother' where id = '${FILE_A}';\n${as("rep")}${seeMsgs(FILE_T(FILE_A))}`,
+  ],
+  [
+    "db",
+    "1",
+    "and the new rep reads it",
+    `update public.applications set rep_slug = 'chatother' where id = '${FILE_A}';\n${as("other")}${seeMsgs(FILE_T(FILE_A))}`,
+  ],
+  [
+    "mA",
+    "merchant|Maria|text",
+    "the database stamps a merchant's role and name",
+    post(FILE_T(FILE_A), "stamp me").replace(
+      "returning 1",
+      "returning author_role || '|' || author_name || '|' || kind",
+    ),
+  ],
+  ["rep", "1", "the file's rep writes to the merchant", post(FILE_T(FILE_A), "On it, Maria.")],
+  ["lead", "1", "so does the team lead", post(FILE_T(FILE_A), "Lena here too.")],
+  [
+    "db",
+    "refused",
+    "another rep can't write in it, even with its id",
+    `select id as tid from public.chat_threads where application_id = '${FILE_A}' \\gset\n${as("other")}insert into public.chat_messages (thread_id, body) values (:'tid', 'hi') returning 1`,
+  ],
+  [
+    "db",
+    "refused",
+    "another merchant can't either",
+    `select id as tid from public.chat_threads where application_id = '${FILE_A}' \\gset\n${as("mB")}insert into public.chat_messages (thread_id, body) values (:'tid', 'hi') returning 1`,
+  ],
+  [
+    "mA",
+    "refused",
+    "a merchant can't attach a document id",
+    `insert into public.chat_messages (thread_id, body, document_id) values (${FILE_T(FILE_A)}, 'x', gen_random_uuid()) returning 1`,
+  ],
+  ["mA", "refused", "a merchant's SSN is refused", post(FILE_T(FILE_A), "my ssn is 123-45-6789")],
+  ["mA", "1", "a merchant's amount passes", post(FILE_T(FILE_A), "I need $150,000 by Friday")],
+  [
+    "mA",
+    "refused",
+    "a merchant can't edit",
+    `update public.chat_messages set body = 'changed' where thread_id = ${FILE_T(FILE_A)} returning 1`,
+  ],
+  [
+    "db",
+    "document|merchant|Sent a business bank statement.",
+    "an upload adds a line with the kind, not the file name",
+    `insert into public.documents (application_id, user_id, storage_path, kind, original_name) values ('${FILE_A}', '${U.mA}', '${U.mA}/ssn-123-45-6789.pdf', 'bank_statement', 'ssn-123-45-6789.pdf');\n` +
+      `select kind || '|' || author_role || '|' || body from public.chat_messages where thread_id = ${FILE_T(FILE_A)} and kind = 'document'`,
+  ],
+  [
+    "db",
+    "1",
+    "an upload to a file with no conversation still saves",
+    `delete from public.chat_threads where application_id = '${FILE_B}';\ninsert into public.documents (application_id, user_id, storage_path, kind) values ('${FILE_B}', '${U.mB}', '${U.mB}/x.pdf', 'voided_check') returning 1`,
+  ],
+  [
+    "db",
+    "0",
+    "merchant messages write no notifications either",
+    `create temp table n0 as select count(*) as n from public.notifications;\n${as("mA")}${post(FILE_T(FILE_A), "any news?")} \\g /dev/null\n${as("rep")}${post(FILE_T(FILE_A), "yes")} \\g /dev/null\nreset role;\nselect (select count(*) from public.notifications) - (select n from n0)`,
+  ],
+  // the inbox
+  [
+    "rep",
+    "true|A Trucking",
+    "the merchant's message shows unread in the rep's list",
+    `select unread::text || '|' || title from public.my_chat_inbox() where kind = 'merchant'`,
+  ],
+  [
+    "lead",
+    "A Trucking",
+    "and in the team lead's",
+    `select title from public.my_chat_inbox() where kind = 'merchant'`,
+  ],
+  [
+    "other",
+    "0",
+    "not in another rep's",
+    `select count(*) from public.my_chat_inbox() where kind = 'merchant'`,
+  ],
+  [
+    "admin",
+    "B Bakery 2",
+    "an admin's list has the unassigned file, not every assigned one",
+    `select string_agg(title, ',') from public.my_chat_inbox() where kind = 'merchant'`,
+  ],
+  [
+    "admin",
+    "A Trucking,B Bakery 2",
+    "until they open one",
+    `select public.mark_thread_read(${FILE_T(FILE_A)}) \\g /dev/null\nselect string_agg(title, ',' order by title) from public.my_chat_inbox() where kind = 'merchant'`,
+  ],
+  ["mA", "0", "a merchant's list is empty", `select count(*) from public.my_chat_inbox()`],
+  // the nudge
+  [
+    "db",
+    "1",
+    "a staff reply unread for 15 minutes is due a nudge",
+    `${as("rep")}${post(FILE_T(FILE_A), "Can you send April?")} \\g /dev/null\nreset role;\nupdate public.chat_messages set created_at = now() - interval '20 minutes' where body = 'Can you send April?';\n` +
+      `select count(*) from public.chat_nudges_due() where user_id = '${U.mA}'`,
+  ],
+  [
+    "db",
+    "0",
+    "not before 15 minutes",
+    `${as("rep")}${post(FILE_T(FILE_A), "Can you send April?")} \\g /dev/null\nreset role;\nselect count(*) from public.chat_nudges_due() where user_id = '${U.mA}'`,
+  ],
+  [
+    "db",
+    "0",
+    "not again after a nudge",
+    `${as("rep")}${post(FILE_T(FILE_A), "Can you send April?")} \\g /dev/null\nreset role;\nupdate public.chat_messages set created_at = now() - interval '20 minutes' where body = 'Can you send April?';\n` +
+      `select public.chat_mark_nudged(${FILE_T(FILE_A)}, '${U.mA}') \\g /dev/null\nselect count(*) from public.chat_nudges_due() where user_id = '${U.mA}'`,
+  ],
+  [
+    "db",
+    "0",
+    "not once the merchant has read it",
+    `${as("rep")}${post(FILE_T(FILE_A), "Can you send April?")} \\g /dev/null\nreset role;\nupdate public.chat_messages set created_at = now() - interval '20 minutes' where body = 'Can you send April?';\n` +
+      `${as("mA")}select public.mark_thread_read(${FILE_T(FILE_A)}) \\g /dev/null\nreset role;\nselect count(*) from public.chat_nudges_due() where user_id = '${U.mA}'`,
+  ],
+  [
+    "db",
+    "0",
+    "never for the merchant's own messages",
+    `${as("mA")}${post(FILE_T(FILE_A), "just me")} \\g /dev/null\nreset role;\nupdate public.chat_messages set created_at = now() - interval '20 minutes' where body = 'just me';\nselect count(*) from public.chat_nudges_due() where user_id = '${U.mA}'`,
+  ],
+  ["rep", "refused", "staff can't list nudges", `select count(*) from public.chat_nudges_due()`],
+  [
+    "mA",
+    "refused",
+    "a merchant can't mark a nudge",
+    `select public.chat_mark_nudged(${FILE_T(FILE_A)}, '${U.mA}')`,
+  ],
+  ["rep", "refused", "staff can't read the nudge secret", `select public.chat_nudge_secret()`],
+  ["mA", "refused", "nor can a merchant", `select public.chat_nudge_secret()`],
+  [
+    "db",
+    "t",
+    "the nudge has its own Vault entries, not the Discord relay's",
+    `select (exists (select 1 from vault.secrets where name = 'chat_nudge_url') and exists (select 1 from vault.secrets where name = 'chat_nudge_secret'))::text::bool`,
   ],
 ];
 
@@ -435,6 +623,7 @@ await psql(`begin;
 delete from public.chat_threads where kind = 'direct' and id in (select thread_id from public.chat_members where user_id in (${IDS}));
 delete from public.chat_threads where title = 'Deals desk' or team_slug in ('chatlead', 'chatrep', 'chatother', 'chatex', 'chatadmin');
 delete from public.chat_messages where author in (${IDS});
+delete from public.applications where id in ('${FILE_A}', '${FILE_B}', '${FILE_U}');
 delete from public.reps where slug in ('chatlead', 'chatrep', 'chatother', 'chatex', 'chatadmin');
 delete from auth.users where id in (${IDS});
 commit;`);

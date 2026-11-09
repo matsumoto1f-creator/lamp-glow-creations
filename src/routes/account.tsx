@@ -22,6 +22,7 @@ import { seo } from "@/lib/site";
 import type { Database } from "@/integrations/supabase/types";
 import { btnOutline, btnPrimary, card, PageShell } from "@/components/site/layout";
 import { MyOffers } from "@/components/site/my-offers";
+import { MerchantMessages } from "@/components/site/merchant-messages";
 import { CompleteApplication } from "@/components/site/complete-application";
 import { TrainingShelf } from "@/components/staff/training";
 
@@ -523,12 +524,14 @@ function Dashboard({ app, userId }: { app: Application; userId: string }) {
           )}
         </section>
 
+        <MerchantMessages applicationId={app.id} userId={userId} />
+
         <CompleteApplication applicationId={app.id} userId={userId} />
 
         <MyOffers applicationId={app.id} />
 
         {(canUpload || docs.length > 0 || earlier.length > 0 || listError) && (
-          <section className={cn(card, "p-6")}>
+          <section className={cn(card, "p-6")} id="what-we-need">
             <h2 className="font-display text-lg font-semibold">
               {canUpload ? "What we need" : "Your documents"}
             </h2>

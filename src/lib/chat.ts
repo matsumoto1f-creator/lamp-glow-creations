@@ -1,5 +1,5 @@
-// The in-app chat (supabase/migrations/20261110120000_chat_staff.sql): wording and checks, with no
-// imports so the deno tests load this file directly.
+// The in-app chat (supabase/migrations/20261110120000_chat_staff.sql, 20261110140000_chat_merchant.sql):
+// wording and checks, with no imports so the deno tests load this file directly.
 
 /** How often an open conversation looks for new messages. */
 export const POLL_MS = 15_000;
@@ -21,10 +21,12 @@ export const MAX_LENGTH = 4000;
 /** One line of Staff > Messages (my_chat_inbox()). */
 export type InboxRow = {
   thread_id: string;
-  kind: "room" | "direct";
+  kind: "merchant" | "room" | "direct";
   title: string;
   subtitle: string;
   preview: string | null;
+  /** merchant conversations: the file */
+  application_id?: string | null;
   last_message_at: string | null;
   unread: boolean;
 };
@@ -35,16 +37,19 @@ export const unreadCount = (rows: Pick<InboxRow, "unread">[]) =>
 
 export type ChatMessage = {
   id: number;
-  kind: "text" | "system";
+  kind: "text" | "document" | "system";
   body: string;
   author: string | null;
-  author_role: "rep" | "admin" | "system";
+  author_role: "merchant" | "rep" | "admin" | "system";
   author_name: string | null;
   created_at: string;
   redacted_at: string | null;
 };
 
 export const MESSAGE_COLUMNS = "id,kind,body,author,author_role,author_name,created_at,redacted_at";
+
+/** Who is reading: staff (Staff > Messages, the file view) or the merchant (their account page). */
+export type Viewer = "staff" | "merchant";
 
 /**
  * The same numbers the database refuses (chat_text_refused): an SSN with dashes or spaces, an EIN,
@@ -73,14 +78,81 @@ export function chatRefusal(body: string): string | null {
 export const firstName = (name: string | null | undefined) =>
   (name ?? "").trim().split(/\s+/)[0] || "";
 
-/** The name over a message. */
+/** The name over a message, for whoever is reading. */
 export function authorLabel(
   m: Pick<ChatMessage, "author" | "author_role" | "author_name">,
   me: string,
+  viewer: Viewer = "staff",
 ): string {
   if (m.author && m.author === me) return "You";
   if (m.author_role === "system") return "Lamp";
+  if (viewer === "merchant") {
+    if (m.author_role === "merchant") return firstName(m.author_name) || "You";
+    return `${firstName(m.author_name) || "Lamp"} at Lamp`;
+  }
+  if (m.author_role === "merchant") return `${m.author_name || "Merchant"} (merchant)`;
   return m.author_name || "Lamp";
+}
+
+/**
+ * Words that describe a merchant cash advance as lending. Staff see a warning before sending one to
+ * a merchant; a merchant's own words are never checked.
+ */
+const LENDING = /\b(loans?|lend(?:er|ers|ing)?|borrow(?:er|ers|ing|ed)?|interest rates?|APR)\b/gi;
+
+/** The lending words in a staff message, each once, as typed. */
+export function lendingWords(body: string): string[] {
+  const seen = new Map<string, string>();
+  for (const m of body.matchAll(LENDING)) {
+    const k = m[0].toLowerCase();
+    if (!seen.has(k)) seen.set(k, m[0]);
+  }
+  return [...seen.values()];
+}
+
+type RepRow = { slug: string; name: string; admin_slug?: string | null };
+
+/**
+ * Who the merchant is talking to, as the application emails and the signed PDF already name them:
+ * the rep's team lead when the rep has one, otherwise the rep. An unassigned file: the Lamp team.
+ */
+export function contactName(repSlug: string | null | undefined, reps: RepRow[]): string {
+  if (!repSlug) return "the Lamp team";
+  const rep = reps.find((r) => r.slug === repSlug);
+  if (!rep) return "the Lamp team";
+  const lead = rep.admin_slug ? reps.find((r) => r.slug === rep.admin_slug) : undefined;
+  return firstName(lead?.name ?? rep.name) || "the Lamp team";
+}
+
+/**
+ * The email a merchant gets when a Lamp reply has waited unread (/api/chat/nudge): who wrote and a
+ * link to their account. Never the message itself: that stays in Lamp.
+ */
+export function nudgeEmail(n: { firstName: string | null; contact: string; site: string }): {
+  subject: string;
+  text: string;
+  html: string;
+} {
+  const link = `${n.site.replace(/\/$/, "")}/account#messages`;
+  const hi = n.firstName?.trim() ? `Hi ${n.firstName.trim()},` : "Hi,";
+  const who = n.contact.trim() || "Your Lamp rep";
+  const text = [
+    hi,
+    `${who} sent you a message about your Lamp file.`,
+    `Read it and reply on your account: ${link}`,
+    "Replies to this email aren't read; please answer in Lamp.",
+  ].join("\n\n");
+  const esc = (s: string) =>
+    s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+  const html = [
+    `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#17241d;max-width:520px">`,
+    `<p>${esc(hi)}</p>`,
+    `<p>${esc(who)} sent you a message about your Lamp file.</p>`,
+    `<p><a href="${esc(link)}" style="display:inline-block;background:#1d3a2e;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:999px;font-weight:bold">Read and reply</a></p>`,
+    `<p style="color:#56665d;font-size:13px">Replies to this email aren't read; please answer in Lamp.</p>`,
+    `</div>`,
+  ].join("");
+  return { subject: "New message about your Lamp file", text, html };
 }
 
 /** A short time for a message: "2:14 PM" today, "Nov 8, 2:14 PM" before. */

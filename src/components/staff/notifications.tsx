@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { CHAT_OPEN_EVENT } from "@/lib/chat-dock";
 import { Bell, Check } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
@@ -26,7 +27,7 @@ type Note = {
 const POLL_MS = 60_000;
 const SHOWN = 40;
 
-/** chatUnread: conversations in Staff > Messages with something new (chat writes no notifications). */
+/** chatUnread: conversations in the Messages side panel with something new (chat writes no notifications). */
 export function NotificationsBell({ chatUnread = 0 }: { chatUnread?: number }) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [open, setOpen] = useState(false);
@@ -136,7 +137,7 @@ export function NotificationsBell({ chatUnread = 0 }: { chatUnread?: number }) {
               className="flex w-full items-center gap-3 border-b border-line bg-leaf/10 px-4 py-3 text-left text-sm font-semibold transition hover:bg-sand"
               onClick={() => {
                 setOpen(false);
-                void navigate({ to: "/staff", search: { view: "messages" } as never });
+                window.dispatchEvent(new CustomEvent(CHAT_OPEN_EVENT));
               }}
               data-bell-messages
             >

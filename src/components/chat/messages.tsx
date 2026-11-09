@@ -23,17 +23,21 @@ const GROUPS: { kind: InboxRow["kind"]; label: string }[] = [
  * the person's team room, rooms an admin made) and direct messages, newest first with unread marks,
  * and the open conversation. Phone first: on a narrow screen it shows the list or
  * one conversation, never both, with a back control from the conversation to the list.
+ * compact (the Messages side panel, chat-dock.tsx): that one-or-the-other form at every width,
+ * filling the panel it sits in.
  */
 export function Messages({
   userId,
   isAdmin,
   thread,
   onThread,
+  compact = false,
 }: {
   userId: string;
   isAdmin: boolean;
   thread: string | undefined;
   onThread: (id: string | undefined) => void;
+  compact?: boolean;
 }) {
   const [rows, setRows] = useState<InboxRow[] | null>(null);
   const [state, setState] = useState<"ready" | "missing" | "error">("ready");
@@ -121,15 +125,24 @@ export function Messages({
 
   if (state === "missing")
     return (
-      <p className="mt-8 text-sm text-smoke">
+      <p className={cn("text-sm text-smoke", compact ? "p-4" : "mt-8")}>
         Messages aren't switched on yet: their database update still has to run.
       </p>
     );
 
   return (
-    <div className="mt-6 grid gap-5 lg:grid-cols-[340px_1fr]" data-staff-messages>
+    <div
+      className={
+        compact ? "flex min-h-0 flex-1 flex-col" : "mt-6 grid gap-5 lg:grid-cols-[340px_1fr]"
+      }
+      data-staff-messages
+    >
       <section
-        className={cn(card, "h-fit p-4", thread && "hidden lg:block")}
+        className={
+          compact
+            ? cn("min-h-0 flex-1 overflow-y-auto p-3", thread && "hidden")
+            : cn(card, "h-fit p-4", thread && "hidden lg:block")
+        }
         aria-label="Conversations"
         data-chat-inbox
       >
@@ -282,11 +295,15 @@ export function Messages({
       </section>
 
       <section
-        className={cn(
-          card,
-          "min-h-[calc(100dvh-13rem)] min-w-0 flex-col px-4 pt-4 lg:flex lg:h-[70vh] lg:min-h-0 lg:p-6",
-          thread ? "flex" : "hidden",
-        )}
+        className={
+          compact
+            ? cn("min-h-0 min-w-0 flex-1 flex-col px-3 pb-3 pt-3", thread ? "flex" : "hidden")
+            : cn(
+                card,
+                "min-h-[calc(100dvh-13rem)] min-w-0 flex-col px-4 pt-4 lg:flex lg:h-[70vh] lg:min-h-0 lg:p-6",
+                thread ? "flex" : "hidden",
+              )
+        }
         aria-label="Conversation"
         data-chat-pane
       >
@@ -299,7 +316,10 @@ export function Messages({
             <div className="flex items-center gap-2 border-b border-line pb-3">
               <button
                 type="button"
-                className="-ml-2 grid size-10 shrink-0 place-items-center rounded-full hover:bg-sand/60 lg:hidden"
+                className={cn(
+                  "-ml-2 grid size-10 shrink-0 place-items-center rounded-full hover:bg-sand/60",
+                  !compact && "lg:hidden",
+                )}
                 onClick={() => onThread(undefined)}
                 aria-label="Back to all messages"
                 data-chat-back
@@ -334,6 +354,7 @@ export function Messages({
               placeholder={open?.kind === "merchant" ? "Write to the merchant" : "Write a message"}
               warnLending={open?.kind === "merchant"}
               emptyText="No messages yet. Say hello."
+              layout={compact ? "dock" : "page"}
               onRead={() => void load()}
             />
           </>

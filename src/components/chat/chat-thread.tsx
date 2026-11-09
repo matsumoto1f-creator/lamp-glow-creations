@@ -27,6 +27,8 @@ import { btnOutline, btnPrimary } from "@/components/site/layout";
  * layout "page" (Staff > Messages), phone first: on a narrow screen the messages flow with the page
  * and the composer stays stuck to the bottom; on a wide one the messages scroll inside the panel.
  * layout "panel" (the account page, the file view): a box that scrolls itself, at any width.
+ * layout "dock" (the Messages side panel): fills the panel, the messages scroll inside it and the
+ * composer stays at the bottom, at any width.
  */
 export function ChatThread({
   threadId,
@@ -43,7 +45,7 @@ export function ChatThread({
   userId: string;
   /** who is reading: names show as they know them */
   viewer?: Viewer;
-  layout?: "page" | "panel";
+  layout?: "page" | "panel" | "dock";
   /** staff writing to a merchant: warn about words that call an MCA lending before sending */
   warnLending?: boolean;
   isAdmin?: boolean;
@@ -200,7 +202,9 @@ export function ChatThread({
         className={
           layout === "panel"
             ? "max-h-96 space-y-3 overflow-y-auto rounded-xl bg-sand/60 p-3 ring-1 ring-line"
-            : "min-h-0 flex-1 space-y-3 py-3 lg:overflow-y-auto lg:pr-1"
+            : layout === "dock"
+              ? "min-h-0 flex-1 space-y-3 overflow-y-auto py-3 pr-1"
+              : "min-h-0 flex-1 space-y-3 py-3 lg:overflow-y-auto lg:pr-1"
         }
         aria-live="polite"
       >
@@ -296,7 +300,9 @@ export function ChatThread({
         className={
           layout === "panel"
             ? "pt-3"
-            : "sticky bottom-0 -mx-4 rounded-b-2xl border-t border-line bg-white px-4 pt-3 lg:static lg:mx-0 lg:rounded-none lg:border-0 lg:bg-transparent lg:px-0"
+            : layout === "dock"
+              ? "border-t border-line pt-3"
+              : "sticky bottom-0 -mx-4 rounded-b-2xl border-t border-line bg-white px-4 pt-3 lg:static lg:mx-0 lg:rounded-none lg:border-0 lg:bg-transparent lg:px-0"
         }
         style={
           layout === "panel"

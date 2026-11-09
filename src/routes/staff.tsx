@@ -21,11 +21,13 @@ import { Team } from "@/components/staff/team";
 import { NotificationsBell } from "@/components/staff/notifications";
 import { AppLinks } from "@/components/staff/app-links";
 import { Training } from "@/components/staff/training";
-import { Messages } from "@/components/chat/messages";
+import { ChatDock, useChatDock } from "@/components/chat/chat-dock";
+import { CHAT_OPEN_EVENT } from "@/lib/chat-dock";
 import { useChatUnread } from "@/hooks/use-chat-unread";
 
 type StaffSearch = {
-  view?: View | undefined;
+  // "messages" was a tab before Messages became the side panel: an old link opens the panel
+  view?: View | "messages" | undefined;
   stage?: Stage | undefined;
   rep?: string | undefined;
   file?: string | undefined;
@@ -33,10 +35,8 @@ type StaffSearch = {
   thread?: string | undefined;
 };
 
-type View =
-  "messages" | "dashboard" | "engine" | "sent" | "funders" | "money" | "team" | "training";
+type View = "dashboard" | "engine" | "sent" | "funders" | "money" | "team" | "training";
 const VIEWS: readonly View[] = [
-  "messages",
   "dashboard",
   "engine",
   "sent",
@@ -48,7 +48,6 @@ const VIEWS: readonly View[] = [
 /** Tabs only admins see. */
 const ADMIN_VIEWS: readonly View[] = ["team"];
 const VIEW_TITLE: Record<View, string> = {
-  messages: "Messages",
   dashboard: "Dashboard",
   engine: "Engine leads",
   sent: "Applications",
@@ -63,7 +62,12 @@ const SLUG = /^[a-z0-9][a-z0-9-]{1,31}$/;
 
 export const Route = createFileRoute("/staff")({
   validateSearch: (s: Record<string, unknown>): StaffSearch => ({
-    view: VIEWS.includes(s["view"] as View) ? (s["view"] as View) : undefined,
+    view:
+      s["view"] === "messages"
+        ? "messages"
+        : VIEWS.includes(s["view"] as View)
+          ? (s["view"] as View)
+          : undefined,
     stage: isStage(s["stage"]) ? s["stage"] : undefined,
     rep:
       typeof s["rep"] === "string" && (s["rep"] === "unassigned" || SLUG.test(s["rep"]))
@@ -93,6 +97,19 @@ function Staff() {
 
   const isStaff = access.state === "staff";
   const chatUnread = useChatUnread(isStaff);
+  const dock = useChatDock();
+  // an old Staff > Messages link: open the side panel (on its conversation), then drop it from the address
+  const oldMessagesLink = search.view === "messages";
+  const oldThread = search.thread;
+  useEffect(() => {
+    if (!oldMessagesLink || !dock.ready) return;
+    window.dispatchEvent(new CustomEvent(CHAT_OPEN_EVENT, { detail: { thread: oldThread } }));
+    void navigate({
+      search: (s) => ({ ...s, view: undefined, thread: undefined }),
+      replace: true,
+    });
+  }, [oldMessagesLink, oldThread, dock.ready, navigate]);
+  const view: View | undefined = search.view === "messages" ? undefined : search.view;
   useEffect(() => {
     // staff browsing the site shouldn't count as visitors
     if (isStaff) markStaffBrowser();
@@ -136,7 +153,12 @@ function Staff() {
 
   return (
     <PageShell member wide footer={false} tone="night">
-      <div className="w-full px-5 pb-24 pt-10 sm:px-8 sm:pt-14">
+      <div
+        className={
+          // a wide screen makes room for the Messages panel while it is open
+          "w-full px-5 pb-24 pt-10 sm:px-8 sm:pt-14" + (dock.state.open ? " lg:pr-[26rem]" : "")
+        }
+      >
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="text-sm text-smoke">
@@ -144,7 +166,7 @@ function Staff() {
               {access.repSlug && ` · /${access.repSlug}`}
             </p>
             <h1 className="mt-1 font-display text-3xl font-bold tracking-tight sm:text-4xl">
-              {search.lead ? "Lead" : search.view ? VIEW_TITLE[search.view] : "Files"}
+              {search.lead ? "Lead" : view ? VIEW_TITLE[view] : "Files"}
             </h1>
           </div>
           <NotificationsBell chatUnread={chatUnread} />
@@ -152,13 +174,12 @@ function Staff() {
         {!search.file && !search.lead && (
           <nav
             className={
-              // on a phone one row that scrolls sideways; hidden while a conversation is open
-              "-mx-5 mt-4 flex gap-2 overflow-x-auto px-5 pb-1 text-sm [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0" +
-              (search.thread ? " max-lg:hidden" : "")
+              // on a phone one row that scrolls sideways
+              "-mx-5 mt-4 flex gap-2 overflow-x-auto px-5 pb-1 text-sm [scrollbar-width:none] sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0"
             }
             aria-label="Staff views"
           >
-            <Link to="/staff" search={{}} className={viewTab(!search.view)} data-staff-view="files">
+            <Link to="/staff" search={{}} className={viewTab(!view)} data-staff-view="files">
               Files
             </Link>
             {VIEWS.filter((v) => access.isAdmin || !ADMIN_VIEWS.includes(v)).map((v) => (
@@ -166,23 +187,15 @@ function Staff() {
                 key={v}
                 to="/staff"
                 search={{ view: v }}
-                className={viewTab(search.view === v)}
+                className={viewTab(view === v)}
                 data-staff-view={v}
               >
                 {VIEW_TITLE[v]}
-                {v === "messages" && chatUnread > 0 && (
-                  <span
-                    className="ml-1.5 rounded-full bg-leaf px-1.5 text-xs text-ink"
-                    aria-label={`${chatUnread} unread`}
-                  >
-                    {chatUnread}
-                  </span>
-                )}
               </Link>
             ))}
           </nav>
         )}
-        {!search.file && !search.lead && !search.view && (
+        {!search.file && !search.lead && !view && (
           <AppLinks isAdmin={access.isAdmin} repSlug={access.repSlug} reps={reps} />
         )}
         {search.lead ? (
@@ -200,26 +213,19 @@ function Staff() {
             repSlug={access.repSlug}
             reps={reps}
           />
-        ) : search.view === "messages" ? (
-          <Messages
-            userId={access.userId}
-            isAdmin={access.isAdmin}
-            thread={search.thread}
-            onThread={(thread) => navigate({ search: (s) => ({ ...s, thread }) })}
-          />
-        ) : search.view === "dashboard" ? (
+        ) : view === "dashboard" ? (
           <Dashboard isAdmin={access.isAdmin} repSlug={access.repSlug} />
-        ) : search.view === "engine" ? (
+        ) : view === "engine" ? (
           <EngineLeads isAdmin={access.isAdmin} repSlug={access.repSlug} reps={reps} />
-        ) : search.view === "sent" ? (
+        ) : view === "sent" ? (
           <SentApplications isAdmin={access.isAdmin} repSlug={access.repSlug} reps={reps} />
-        ) : search.view === "funders" ? (
+        ) : view === "funders" ? (
           <Funders isAdmin={access.isAdmin} />
-        ) : search.view === "money" ? (
+        ) : view === "money" ? (
           <Money isAdmin={access.isAdmin} userId={access.userId} reps={reps} />
-        ) : search.view === "training" ? (
+        ) : view === "training" ? (
           <Training isAdmin={access.isAdmin} />
-        ) : search.view === "team" ? (
+        ) : view === "team" ? (
           access.isAdmin ? (
             <Team onChanged={() => setRepsTick((t) => t + 1)} />
           ) : (
@@ -243,6 +249,15 @@ function Staff() {
           </>
         )}
       </div>
+      {dock.ready && (
+        <ChatDock
+          userId={access.userId}
+          isAdmin={access.isAdmin}
+          unread={chatUnread}
+          state={dock.state}
+          set={dock.set}
+        />
+      )}
     </PageShell>
   );
 }

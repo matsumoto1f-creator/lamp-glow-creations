@@ -1,10 +1,21 @@
 import { useEffect, useState } from "react";
-import { ChevronRight, Download, FilePen, Loader2, Phone, Search, Send } from "lucide-react";
+import {
+  ChevronRight,
+  Copy,
+  Download,
+  FilePen,
+  Loader2,
+  Phone,
+  Search,
+  Send,
+  Sparkles,
+} from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { age } from "@/lib/staff";
 import { btnOutline, btnPrimary, card } from "@/components/site/layout";
-import { input, textarea } from "@/components/staff/field-styles";
+import { chip, input, textarea } from "@/components/staff/field-styles";
+import { smartLead } from "@/lib/smart-lead";
 import { SpeakButton } from "@/components/staff/speak-button";
 import { fitTo, joinSpoken, paperLink } from "@/lib/spoken-notes";
 import { SendApplications, type SendSeed } from "@/components/staff/send-applications";
@@ -985,6 +996,8 @@ function LeadDetail({ row }: { row: Row }) {
   const head = "text-xs font-semibold uppercase tracking-wide text-smoke";
   return (
     <div className="grid gap-6 text-sm sm:grid-cols-2" data-lead-detail={row.id}>
+      <SmartLeadCard row={row} owner={why.owner} type={type} approach={approach} />
+
       <section>
         <h4 className={head}>Who to ask for</h4>
         {why.owner ? (
@@ -1061,23 +1074,140 @@ function LeadDetail({ row }: { row: Row }) {
           <p className="mt-2 text-smoke">No records came with this lead.</p>
         )}
       </section>
-
-      <section>
-        <h4 className={head}>How to open the call</h4>
-        {approach.length ? (
-          approach.map((a) => (
-            <div key={a.ask} className="mt-2">
-              <p className="text-smoke">{a.why}</p>
-              <p className="mt-1.5 font-medium">{a.ask}</p>
-            </div>
-          ))
-        ) : (
-          <p className="mt-2 text-smoke">
-            Ask what they'd do with extra working capital this month, and how fast they'd need it.
-          </p>
-        )}
-      </section>
     </div>
+  );
+}
+
+/**
+ * Smart lead: the cheat sheet for this call. What's going on in their trade this month, why this
+ * lead now, an opener, who they are, how they'd use the money, their words, what they'll push back
+ * with, and where they start on the 5 levels. Built from written playbooks (src/lib/smart-lead.ts)
+ * and the lead's own records, so it's the same every time and costs nothing.
+ */
+function SmartLeadCard({
+  row,
+  owner,
+  type,
+  approach,
+}: {
+  row: Row;
+  owner: string | null;
+  type: LeadType | null;
+  approach: { why: string; ask: string }[];
+}) {
+  const s = smartLead(
+    { industry: row.industry, city: row.city, state: row.state, signals: row.signals, owner },
+    type,
+    new Date(),
+  );
+  const [copied, setCopied] = useState(false);
+  const head = "text-xs font-semibold uppercase tracking-wide text-smoke";
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(s.opener);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard blocked: the text is on screen */
+    }
+  }
+  return (
+    <section
+      className="rounded-2xl bg-sand/60 p-4 ring-1 ring-line sm:col-span-2 sm:p-5"
+      data-smart-lead={s.book.key}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <h4 className="flex items-center gap-1.5 font-display text-base font-semibold">
+          <Sparkles className="size-4 text-forest" /> Smart lead
+        </h4>
+        <span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-semibold ring-1 ring-line">
+          {s.book.label.replace(/^an? /, "")} · {s.month}
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-5 lg:grid-cols-2">
+        <div>
+          <p className={head}>Their world in {s.month}</p>
+          <p className="mt-1.5">{s.now.now}</p>
+          <p className="mt-1.5 text-smoke">
+            <span className="font-semibold text-ink">So the money is for: </span>
+            {s.now.use}
+          </p>
+        </div>
+        <div>
+          <p className={head}>Why this lead, why now</p>
+          <ul className="mt-1.5 space-y-1.5">
+            {s.timing.map((t) => (
+              <li key={t}>{t}</li>
+            ))}
+            {approach.map((a) => (
+              <li key={a.ask} className="text-smoke">
+                {a.why} <span className="font-medium text-ink">{a.ask}</span>
+              </li>
+            ))}
+            {!s.timing.length && !approach.length && (
+              <li className="text-smoke">
+                No timing in its records: lead with the season, and ask what's coming up for them.
+              </li>
+            )}
+          </ul>
+        </div>
+      </div>
+
+      <div className="mt-5">
+        <div className="flex items-center justify-between gap-2">
+          <p className={head}>Open with</p>
+          <button type="button" className={chip} onClick={() => void copy()} data-smart-copy>
+            <Copy className="size-3.5" /> {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+        <p
+          className="mt-1.5 rounded-xl bg-white p-3 leading-relaxed ring-1 ring-line"
+          data-smart-opener
+        >
+          &ldquo;{s.opener}&rdquo;
+        </p>
+        <p className="mt-1.5 text-xs text-smoke">
+          They start around{" "}
+          <span className="font-semibold">
+            level {s.level.n}, {s.level.name}
+          </span>
+          . {s.level.move}
+        </p>
+      </div>
+
+      <div className="mt-5 grid gap-5 lg:grid-cols-2">
+        <div>
+          <p className={head}>Who they are</p>
+          <p className="mt-1.5">{s.book.who}</p>
+          <p className={cn(head, "mt-4")}>How they&apos;d use it</p>
+          <ul className="mt-1.5 list-disc space-y-1 pl-5">
+            {s.book.uses.map((u) => (
+              <li key={u}>{u}</li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <p className={head}>Talk their language</p>
+          <ul className="mt-1.5 flex flex-wrap gap-1.5">
+            {s.book.language.map((w) => (
+              <li key={w} className="rounded-full bg-white px-2.5 py-1 text-xs ring-1 ring-line">
+                {w}
+              </li>
+            ))}
+          </ul>
+          <p className={cn(head, "mt-4")}>If they say</p>
+          <ul className="mt-1.5 space-y-2.5">
+            {s.book.pushback.map((p) => (
+              <li key={p.they}>
+                <span className="font-medium">&ldquo;{p.they}&rdquo;</span>
+                <span className="block text-smoke">{p.you}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </section>
   );
 }
 

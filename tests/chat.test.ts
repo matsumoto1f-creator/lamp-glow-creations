@@ -5,8 +5,11 @@ import {
   chatError,
   chatMissing,
   chatRefusal,
+  contactName,
   firstName,
+  lendingWords,
   MAX_LENGTH,
+  nudgeEmail,
   REFUSED_TEXT,
   unreadCount,
 } from "../src/lib/chat.ts";
@@ -87,4 +90,70 @@ Deno.test("the Messages tab hides itself until its SQL has run", () => {
 Deno.test("the tab and the bell count conversations with something new", () => {
   assertEquals(unreadCount([{ unread: true }, { unread: false }, { unread: true }]), 2);
   assertEquals(unreadCount([]), 0);
+});
+
+Deno.test(
+  "staff are warned about lending words before writing to a merchant, once each, as typed",
+  () => {
+    assertEquals(lendingWords("Your Loan is approved, the loan amount and lender"), [
+      "Loan",
+      "lender",
+    ]);
+    assertEquals(lendingWords("We're not lending, no APR, no interest rate"), [
+      "lending",
+      "APR",
+      "interest rate",
+    ]);
+    assertEquals(lendingWords("Your advance is approved: $50,000, 120 daily payments"), []);
+    assertEquals(lendingWords("Blending the statements"), []);
+    assertEquals(lendingWords(REFUSED_TEXT), []);
+  },
+);
+
+Deno.test("the merchant sees the same contact the application emails name", () => {
+  const reps = [
+    { slug: "darrell", name: "Darrell Jones", admin_slug: "zeus" },
+    { slug: "zeus", name: "Zeus Smith", admin_slug: null },
+    { slug: "solo", name: "Sam Solo", admin_slug: null },
+  ];
+  assertEquals(contactName("darrell", reps), "Zeus");
+  assertEquals(contactName("solo", reps), "Sam");
+  assertEquals(contactName(null, reps), "the Lamp team");
+  assertEquals(contactName("gone", reps), "the Lamp team");
+  assertEquals(contactName("darrell", [reps[0]!]), "Darrell");
+});
+
+Deno.test("merchant conversations name people as each side knows them", () => {
+  const me = "u-me";
+  const rep = { author: "u-rep", author_role: "rep" as const, author_name: "Darrell Jones" };
+  const merchant = { author: "u-m", author_role: "merchant" as const, author_name: "Maria" };
+  assertEquals(authorLabel(rep, me, "merchant"), "Darrell at Lamp");
+  assertEquals(authorLabel(merchant, me, "staff"), "Maria (merchant)");
+  assertEquals(authorLabel({ ...merchant, author: me }, me, "merchant"), "You");
+  assertEquals(authorLabel(rep, me), "Darrell Jones");
+});
+
+Deno.test("the nudge email names who wrote and links to the account, never the message", () => {
+  const m = nudgeEmail({ firstName: "Maria", contact: "Zeus Smith", site: "https://getlamp.app/" });
+  assertEquals(m.subject, "New message about your Lamp file");
+  assert(m.text.startsWith("Hi Maria,"));
+  assert(m.text.includes("Zeus Smith sent you a message about your Lamp file."));
+  assert(m.text.includes("https://getlamp.app/account#messages"));
+  assert(m.html.includes('href="https://getlamp.app/account#messages"'));
+  assert(m.text.includes("please answer in Lamp"));
+  assertEquals(lendingWords(`${m.subject} ${m.text} ${m.html}`), []);
+});
+
+Deno.test("the nudge email copes with no name and escapes what it's given", () => {
+  const m = nudgeEmail({ firstName: "  ", contact: "", site: "https://getlamp.app" });
+  assert(m.text.startsWith("Hi,"));
+  assert(m.text.includes("Your Lamp rep sent you a message"));
+  const x = nudgeEmail({
+    firstName: "<b>Al</b>",
+    contact: 'Ray "R" & Co',
+    site: "https://getlamp.app",
+  });
+  assert(x.html.includes("Hi &lt;b&gt;Al&lt;/b&gt;,"));
+  assert(x.html.includes("Ray &quot;R&quot; &amp; Co"));
+  assert(!x.html.includes("<b>Al</b>"));
 });

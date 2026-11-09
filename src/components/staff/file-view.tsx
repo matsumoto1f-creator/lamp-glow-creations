@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import { ArrowLeft, Check, ExternalLink, Loader2, Paperclip, X } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
 import { NotesCalls } from "@/components/staff/notes-calls";
+import { FileThread } from "@/components/chat/file-thread";
 import { DocRequests, type RequestLabel } from "@/components/staff/doc-requests";
 import { NextStep } from "@/components/staff/today";
 import { logActivity } from "@/lib/track";
@@ -115,6 +116,9 @@ export function FileView({
   // document id → the documents request it answered (20261030090000)
   const [reqLabels, setReqLabels] = useState<Map<string, RequestLabel>>(new Map());
   const useOldNotes = useCallback(() => setNotesFallback(true), []);
+  // the merchant conversation (20261110140000); hidden until its SQL runs
+  const [chatOff, setChatOff] = useState(false);
+  const hideChat = useCallback(() => setChatOff(true), []);
   // Bumped after a send so the funders-and-offers panel reloads its "Sent to" list.
   const [sentTick, setSentTick] = useState(0);
 
@@ -542,6 +546,31 @@ export function FileView({
               </>
             )}
           </section>
+
+          {!chatOff && (
+            <section className={cn(card, "p-6")} data-file-chat>
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="font-display text-lg font-semibold">Messages with the merchant</h3>
+                <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-xs font-semibold text-amber-600">
+                  The merchant sees this
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-smoke">
+                {file.user_id
+                  ? "They read and answer on their account page. Notes & calls above stay team-only."
+                  : "They haven't signed in yet; they'll see these on their account page once they do. Notes & calls above stay team-only."}
+              </p>
+              <FileThread
+                applicationId={fileId}
+                viewer="staff"
+                userId={userId}
+                isAdmin={isAdmin}
+                placeholder="Write to the merchant"
+                emptyText="No messages yet. Anything you write here, the merchant reads."
+                onUnavailable={hideChat}
+              />
+            </section>
+          )}
 
           <section className={cn(card, "p-6")}>
             <h3 className="font-display text-lg font-semibold">Documents</h3>

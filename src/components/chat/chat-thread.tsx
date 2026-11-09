@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Send } from "lucide-react";
+import { Loader2, Paperclip, Send } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import {
@@ -7,6 +7,7 @@ import {
   CHAT_READ_EVENT,
   chatError,
   chatRefusal,
+  lendingWords,
   LIVE_POLL_MS,
   MAX_LENGTH,
   MESSAGE_COLUMNS,
@@ -14,15 +15,18 @@ import {
   PAGE,
   POLL_MS,
   type ChatMessage,
+  type Viewer,
 } from "@/lib/chat";
 import { btnOutline, btnPrimary } from "@/components/site/layout";
 
 /**
- * One conversation (20261110120000_chat_staff.sql). The database decides who may read and write and
- * stamps who wrote each message; this only shows and sends. It looks for new messages every 15
- * seconds; once 20261110130000_chat_realtime.sql has run they arrive at once, with a slower look as a
- * backstop. Phone first: on a narrow screen the messages flow with the page and the composer stays
- * stuck to the bottom; on a wide one the messages scroll inside the panel.
+ * One conversation (20261110120000_chat_staff.sql, 20261110140000_chat_merchant.sql). The database
+ * decides who may read and write and stamps who wrote each message; this only shows and sends. It
+ * looks for new messages every 15 seconds; once 20261110130000_chat_realtime.sql has run they arrive
+ * at once, with a slower look as a backstop.
+ * layout "page" (Staff > Messages), phone first: on a narrow screen the messages flow with the page
+ * and the composer stays stuck to the bottom; on a wide one the messages scroll inside the panel.
+ * layout "panel" (the account page, the file view): a box that scrolls itself, at any width.
  */
 export function ChatThread({
   threadId,
@@ -31,9 +35,17 @@ export function ChatThread({
   placeholder,
   emptyText,
   onRead,
+  viewer = "staff",
+  layout = "page",
+  warnLending = false,
 }: {
   threadId: string;
   userId: string;
+  /** who is reading: names show as they know them */
+  viewer?: Viewer;
+  layout?: "page" | "panel";
+  /** staff writing to a merchant: warn about words that call an MCA lending before sending */
+  warnLending?: boolean;
   isAdmin?: boolean;
   placeholder: string;
   emptyText: string;
@@ -45,6 +57,8 @@ export function ChatThread({
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   const [redacting, setRedacting] = useState<{ id: number; reason: string } | null>(null);
+  // the lending words in the draft someone was warned about; sending again sends it as written
+  const [warned, setWarned] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const lastSeen = useRef<number>(0);
@@ -134,7 +148,7 @@ export function ChatThread({
     else endRef.current?.scrollIntoView({ block: "end" });
   }, [count]);
 
-  async function send() {
+  async function send(force = false) {
     const sb = getSupabase();
     if (!sb || sending) return;
     const refusal = chatRefusal(body);
@@ -142,8 +156,16 @@ export function ChatThread({
       setError(refusal);
       return;
     }
+    if (warnLending && viewer === "staff" && !force) {
+      const words = lendingWords(body);
+      if (words.length) {
+        setWarned(words.join(", "));
+        return;
+      }
+    }
     setSending(true);
     setError("");
+    setWarned(null);
     const { error: err } = await sb
       .from("chat_messages")
       .insert({ thread_id: threadId, body: body.trim() });
@@ -175,7 +197,11 @@ export function ChatThread({
     <div className="flex min-h-0 flex-1 flex-col" data-chat-thread={threadId}>
       <div
         ref={listRef}
-        className="min-h-0 flex-1 space-y-3 py-3 lg:overflow-y-auto lg:pr-1"
+        className={
+          layout === "panel"
+            ? "max-h-96 space-y-3 overflow-y-auto rounded-xl bg-sand/60 p-3 ring-1 ring-line"
+            : "min-h-0 flex-1 space-y-3 py-3 lg:overflow-y-auto lg:pr-1"
+        }
         aria-live="polite"
       >
         {messages === null ? (
@@ -189,7 +215,12 @@ export function ChatThread({
             const mine = !!m.author && m.author === userId;
             if (m.kind !== "text")
               return (
-                <p key={m.id} className="text-center text-xs text-smoke">
+                <p
+                  key={m.id}
+                  className="flex items-center justify-center gap-1.5 text-center text-xs text-smoke"
+                >
+                  {m.kind === "document" && <Paperclip className="size-3.5 shrink-0" />}
+                  {m.kind === "document" && `${authorLabel(m, userId, viewer)}: `}
                   {m.body} · {messageTime(m.created_at)}
                 </p>
               );
@@ -202,7 +233,7 @@ export function ChatThread({
                   )}
                 >
                   <p className={cn("text-xs", mine ? "text-white/75" : "text-smoke")}>
-                    {authorLabel(m, userId)} · {messageTime(m.created_at)}
+                    {authorLabel(m, userId, viewer)} · {messageTime(m.created_at)}
                   </p>
                   <p
                     className={cn(
@@ -212,7 +243,7 @@ export function ChatThread({
                   >
                     {m.body}
                   </p>
-                  {isAdmin && !m.redacted_at && (
+                  {isAdmin && viewer === "staff" && !m.redacted_at && (
                     <button
                       type="button"
                       className={cn(
@@ -262,8 +293,16 @@ export function ChatThread({
       </div>
 
       <div
-        className="sticky bottom-0 -mx-4 rounded-b-2xl border-t border-line bg-white px-4 pt-3 lg:static lg:mx-0 lg:rounded-none lg:border-0 lg:bg-transparent lg:px-0"
-        style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+        className={
+          layout === "panel"
+            ? "pt-3"
+            : "sticky bottom-0 -mx-4 rounded-b-2xl border-t border-line bg-white px-4 pt-3 lg:static lg:mx-0 lg:rounded-none lg:border-0 lg:bg-transparent lg:px-0"
+        }
+        style={
+          layout === "panel"
+            ? undefined
+            : { paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }
+        }
         data-chat-composer
       >
         <div className="flex items-end gap-2">
@@ -276,6 +315,7 @@ export function ChatThread({
             value={body}
             onChange={(e) => {
               setBody(e.target.value);
+              setWarned(null);
               if (error) setError("");
             }}
             onKeyDown={(e) => {
@@ -295,6 +335,15 @@ export function ChatThread({
             {sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
           </button>
         </div>
+        {warned && (
+          <div className="mt-2 rounded-xl bg-amber-500/10 px-3 py-2 text-xs ring-1 ring-amber-500/40">
+            This message says “{warned}”. Lamp arranges merchant cash advances, a purchase of future
+            receivables, so reword it before it goes to the merchant.{" "}
+            <button type="button" className="underline" onClick={() => void send(true)}>
+              Send as written
+            </button>
+          </div>
+        )}
         {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
       </div>
     </div>

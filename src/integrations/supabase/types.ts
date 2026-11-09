@@ -412,6 +412,7 @@ export type Database = {
           author_role: string;
           body: string;
           created_at: string;
+          document_id: string | null;
           id: number;
           kind: string;
           redact_reason: string | null;
@@ -436,6 +437,7 @@ export type Database = {
       };
       chat_reads: {
         Row: {
+          last_nudged_at: string | null;
           last_read_at: string | null;
           thread_id: string;
           user_id: string;
@@ -446,6 +448,7 @@ export type Database = {
       };
       chat_threads: {
         Row: {
+          application_id: string | null;
           audience: string | null;
           created_at: string;
           created_by: string | null;
@@ -1569,6 +1572,7 @@ export type Database = {
       my_chat_inbox: {
         Args: Record<PropertyKey, never>;
         Returns: {
+          application_id: string | null;
           kind: string;
           last_message_at: string | null;
           preview: string | null;
@@ -1579,6 +1583,7 @@ export type Database = {
         }[];
       };
       open_direct: { Args: { _other: string }; Returns: string };
+      open_file_thread: { Args: { _application_id: string }; Returns: string };
       redact_message: { Args: { _id: number; _reason: string }; Returns: undefined };
       rep_can_see_application: {
         Args: { _application_id: string };

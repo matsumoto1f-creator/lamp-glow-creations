@@ -59,12 +59,15 @@ const deal = (id: string, funded_on: string, amount: number, over = {}) => ({
   ...over,
 });
 
-Deno.test("plain dates count as local midnight, so a deal funded on the 1st lands in that month", () => {
-  assertEquals(toTime("2026-10-01"), new Date(2026, 9, 1).getTime());
-  const p = periodRange("month", NOW);
-  assertEquals(within("2026-10-01", p.from, p.to), true);
-  assertEquals(within("2026-09-30", p.from, p.to), false);
-});
+Deno.test(
+  "plain dates count as local midnight, so a deal funded on the 1st lands in that month",
+  () => {
+    assertEquals(toTime("2026-10-01"), new Date(2026, 9, 1).getTime());
+    const p = periodRange("month", NOW);
+    assertEquals(within("2026-10-01", p.from, p.to), true);
+    assertEquals(within("2026-09-30", p.from, p.to), false);
+  },
+);
 
 Deno.test("this month compares with the same number of days last month", () => {
   const p = periodRange("month", NOW);
@@ -118,23 +121,30 @@ Deno.test("a deal with points but no saved amount still counts its commission", 
   assertEquals(b.money.clawbackAmount, 2000);
 });
 
-Deno.test("commission earned is paid minus clawed back; still to collect matches the Money tab", () => {
-  const d = empty();
-  d.ledger = [
-    { deal_id: "1", kind: "owed", amount: 2500, entry_date: "2026-10-05" },
-    { deal_id: "1", kind: "paid", amount: 2500, entry_date: "2026-10-10" },
-    { deal_id: "2", kind: "owed", amount: 1000, entry_date: "2026-10-06" },
-    { deal_id: "2", kind: "clawback", amount: 500, entry_date: "2026-10-12" },
-  ];
-  const b = buildDashboard(d, periodRange("month", NOW), { repSlug: null, now: NOW });
-  assertEquals(b.northStar.earned.now, 2000);
-  assertEquals(b.money.toCollect, 500);
-  assertEquals(b.funnel.find((s) => s.key === "paid")!.count, 1);
-});
+Deno.test(
+  "commission earned is paid minus clawed back; still to collect matches the Money tab",
+  () => {
+    const d = empty();
+    d.ledger = [
+      { deal_id: "1", kind: "owed", amount: 2500, entry_date: "2026-10-05" },
+      { deal_id: "1", kind: "paid", amount: 2500, entry_date: "2026-10-10" },
+      { deal_id: "2", kind: "owed", amount: 1000, entry_date: "2026-10-06" },
+      { deal_id: "2", kind: "clawback", amount: 500, entry_date: "2026-10-12" },
+    ];
+    const b = buildDashboard(d, periodRange("month", NOW), { repSlug: null, now: NOW });
+    assertEquals(b.northStar.earned.now, 2000);
+    assertEquals(b.money.toCollect, 500);
+    assertEquals(b.funnel.find((s) => s.key === "paid")!.count, 1);
+  },
+);
 
 Deno.test("monthly bars cover the last 12 months, oldest first, ending this month", () => {
   const d = empty();
-  d.deals = [deal("1", "2026-10-05", 50000), deal("2", "2025-11-30", 7000), deal("3", "2025-10-31", 9)];
+  d.deals = [
+    deal("1", "2026-10-05", 50000),
+    deal("2", "2025-11-30", 7000),
+    deal("3", "2025-10-31", 9),
+  ];
   const b = buildDashboard(d, periodRange("7d", NOW), { repSlug: null, now: NOW });
   assertEquals(b.monthly.length, 12);
   assertEquals(b.monthly[0]!.key, "2025-11");
@@ -159,7 +169,10 @@ Deno.test("funnel counts distinct files at each step inside the period", () => {
 
 Deno.test("speed: median days between steps, from files that made both", () => {
   const d = empty();
-  d.files = [file("a", { created_at: "2026-10-01T00:00:00" }), file("b", { created_at: "2026-10-01T00:00:00" })];
+  d.files = [
+    file("a", { created_at: "2026-10-01T00:00:00" }),
+    file("b", { created_at: "2026-10-01T00:00:00" }),
+  ];
   d.submissions = [
     { id: "s1", application_id: "a", funder_id: "f1", submitted_at: "2026-10-03T00:00:00" },
     { id: "s2", application_id: "b", funder_id: "f1", submitted_at: "2026-10-05T00:00:00" },
@@ -169,25 +182,28 @@ Deno.test("speed: median days between steps, from files that made both", () => {
   assertEquals(b.speed[1]!.n, 0);
 });
 
-Deno.test("stuck: open files with no movement for 3+ days, oldest first; finished files never", () => {
-  const d = empty();
-  d.files = [
-    file("fresh", { last_activity_at: "2026-10-26T12:00:00" }),
-    file("old", { last_activity_at: "2026-10-20T12:00:00" }),
-    file("older", { status: "reviewing", updated_at: "2026-10-10T12:00:00" }),
-    file("done", { status: "funded", updated_at: "2026-09-01T12:00:00" }),
-  ];
-  const b = buildDashboard(d, periodRange("7d", NOW), { repSlug: null, now: NOW });
-  assertEquals(
-    b.pipeline.stuck.map((s) => [s.id, s.idleDays]),
-    [
-      ["older", 17],
-      ["old", 7],
-    ],
-  );
-  assertEquals(b.pipeline.open, 3);
-  assertEquals(b.pipeline.byStage.find((s) => s.stage === "new")!.count, 2);
-});
+Deno.test(
+  "stuck: open files with no movement for 3+ days, oldest first; finished files never",
+  () => {
+    const d = empty();
+    d.files = [
+      file("fresh", { last_activity_at: "2026-10-26T12:00:00" }),
+      file("old", { last_activity_at: "2026-10-20T12:00:00" }),
+      file("older", { status: "reviewing", updated_at: "2026-10-10T12:00:00" }),
+      file("done", { status: "funded", updated_at: "2026-09-01T12:00:00" }),
+    ];
+    const b = buildDashboard(d, periodRange("7d", NOW), { repSlug: null, now: NOW });
+    assertEquals(
+      b.pipeline.stuck.map((s) => [s.id, s.idleDays]),
+      [
+        ["older", 17],
+        ["old", 7],
+      ],
+    );
+    assertEquals(b.pipeline.open, 3);
+    assertEquals(b.pipeline.byStage.find((s) => s.stage === "new")!.count, 2);
+  },
+);
 
 Deno.test("a rep sees only their own leads, engine leads, links and touches", () => {
   const d = empty();
@@ -196,8 +212,24 @@ Deno.test("a rep sees only their own leads, engine leads, links and touches", ()
     { created_at: "2026-10-26T00:00:00", rep_slug: "zeus" },
   ];
   d.engine = [
-    { id: "e1", source: "ucc", tier: "A", rep_slug: "stevie", first_found: "2026-10-25", worked_at: null, has_phone: true },
-    { id: "e2", source: "ucc", tier: "A", rep_slug: "zeus", first_found: "2026-10-25", worked_at: null, has_phone: true },
+    {
+      id: "e1",
+      source: "ucc",
+      tier: "A",
+      rep_slug: "stevie",
+      first_found: "2026-10-25",
+      worked_at: null,
+      has_phone: true,
+    },
+    {
+      id: "e2",
+      source: "ucc",
+      tier: "A",
+      rep_slug: "zeus",
+      first_found: "2026-10-25",
+      worked_at: null,
+      has_phone: true,
+    },
   ];
   d.events = [
     { kind: "call", actor_user_id: "u-stevie", occurred_at: "2026-10-26T10:00:00" },
@@ -207,7 +239,10 @@ Deno.test("a rep sees only their own leads, engine leads, links and touches", ()
   const b = buildDashboard(d, periodRange("7d", NOW), { repSlug: "stevie", now: NOW });
   assertEquals(b.funnel[0]!.count, 1);
   assertEquals(b.engine.total, 1);
-  assertEquals(b.reps.map((r) => [r.slug, r.touches]), [["stevie", 1]]);
+  assertEquals(
+    b.reps.map((r) => [r.slug, r.touches]),
+    [["stevie", 1]],
+  );
 });
 
 Deno.test("funders: offer rate, hours to offer, average factor and what they funded", () => {
@@ -238,8 +273,24 @@ Deno.test("funders: offer rate, hours to offer, average factor and what they fun
 Deno.test("lead engine: by source, how many applied through a sent link", () => {
   const d = empty();
   d.engine = [
-    { id: "e1", source: "ucc", tier: "A", rep_slug: null, first_found: "2026-10-25", worked_at: "2026-10-26T00:00:00", has_phone: true },
-    { id: "e2", source: "permits", tier: "B", rep_slug: null, first_found: "2026-01-01", worked_at: null, has_phone: false },
+    {
+      id: "e1",
+      source: "ucc",
+      tier: "A",
+      rep_slug: null,
+      first_found: "2026-10-25",
+      worked_at: "2026-10-26T00:00:00",
+      has_phone: true,
+    },
+    {
+      id: "e2",
+      source: "permits",
+      tier: "B",
+      rep_slug: null,
+      first_found: "2026-01-01",
+      worked_at: null,
+      has_phone: false,
+    },
   ];
   d.invites = [
     {
@@ -254,7 +305,10 @@ Deno.test("lead engine: by source, how many applied through a sent link", () => 
     },
   ];
   const b = buildDashboard(d, periodRange("7d", NOW), { repSlug: null, now: NOW });
-  assertEquals([b.engine.total, b.engine.withPhone, b.engine.newInPeriod, b.engine.workedInPeriod], [2, 1, 1, 1]);
+  assertEquals(
+    [b.engine.total, b.engine.withPhone, b.engine.newInPeriod, b.engine.workedInPeriod],
+    [2, 1, 1, 1],
+  );
   assertEquals(b.engine.bySource.find((s) => s.source === "ucc")!.applied, 1);
   assertEquals(b.reps[0]!.signed, 1);
 });

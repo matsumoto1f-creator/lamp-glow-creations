@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1794261708460,
+      "tag": "0000_drop_open_leads_insert_policy",
+      "breakpoints": true
+    }
+  ]
+}

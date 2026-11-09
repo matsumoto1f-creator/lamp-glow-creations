@@ -31,8 +31,9 @@ export const TRAINING: readonly TrainingVideo[] = [
     role: "rep",
     part: 2,
     title: "Engine leads",
-    about: "Where your calls come from, how to work them, and how to get their email.",
-    sec: 200,
+    about:
+      "Your leads, the Smart lead cheat sheet, speaking your notes, and starting an application.",
+    sec: 172,
   },
   {
     slug: "rep-3-files-and-stages",
@@ -65,6 +66,14 @@ export const TRAINING: readonly TrainingVideo[] = [
     title: "Your numbers",
     about: "Your dashboard and your money.",
     sec: 84,
+  },
+  {
+    slug: "rep-7-five-levels",
+    role: "rep",
+    part: 7,
+    title: "The 5 levels and the lead clock",
+    about: "Find the owner's level, move them up one, and call each lead in its window.",
+    sec: 113,
   },
   {
     slug: "admin-1-team",

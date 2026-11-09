@@ -21,6 +21,8 @@ import { Team } from "@/components/staff/team";
 import { NotificationsBell } from "@/components/staff/notifications";
 import { AppLinks } from "@/components/staff/app-links";
 import { Training } from "@/components/staff/training";
+import { Messages } from "@/components/chat/messages";
+import { useChatUnread } from "@/hooks/use-chat-unread";
 
 type StaffSearch = {
   view?: View | undefined;
@@ -28,10 +30,13 @@ type StaffSearch = {
   rep?: string | undefined;
   file?: string | undefined;
   lead?: string | undefined;
+  thread?: string | undefined;
 };
 
-type View = "dashboard" | "engine" | "sent" | "funders" | "money" | "team" | "training";
+type View =
+  "messages" | "dashboard" | "engine" | "sent" | "funders" | "money" | "team" | "training";
 const VIEWS: readonly View[] = [
+  "messages",
   "dashboard",
   "engine",
   "sent",
@@ -43,6 +48,7 @@ const VIEWS: readonly View[] = [
 /** Tabs only admins see. */
 const ADMIN_VIEWS: readonly View[] = ["team"];
 const VIEW_TITLE: Record<View, string> = {
+  messages: "Messages",
   dashboard: "Dashboard",
   engine: "Engine leads",
   sent: "Applications",
@@ -65,6 +71,7 @@ export const Route = createFileRoute("/staff")({
         : undefined,
     file: typeof s["file"] === "string" && UUID.test(s["file"]) ? s["file"] : undefined,
     lead: typeof s["lead"] === "string" && UUID.test(s["lead"]) ? s["lead"] : undefined,
+    thread: typeof s["thread"] === "string" && UUID.test(s["thread"]) ? s["thread"] : undefined,
   }),
   head: () =>
     seo({
@@ -85,6 +92,7 @@ function Staff() {
   const [repsTick, setRepsTick] = useState(0);
 
   const isStaff = access.state === "staff";
+  const unread = useChatUnread(isStaff);
   useEffect(() => {
     // staff browsing the site shouldn't count as visitors
     if (isStaff) markStaffBrowser();
@@ -155,6 +163,11 @@ function Staff() {
                 data-staff-view={v}
               >
                 {VIEW_TITLE[v]}
+                {v === "messages" && unread > 0 && (
+                  <span className="ml-1.5 rounded-full bg-leaf px-1.5 text-xs text-ink">
+                    {unread}
+                  </span>
+                )}
               </Link>
             ))}
           </nav>
@@ -176,6 +189,13 @@ function Staff() {
             isAdmin={access.isAdmin}
             repSlug={access.repSlug}
             reps={reps}
+          />
+        ) : search.view === "messages" ? (
+          <Messages
+            userId={access.userId}
+            isAdmin={access.isAdmin}
+            thread={search.thread}
+            onThread={(thread) => navigate({ search: (s) => ({ ...s, thread }) })}
           />
         ) : search.view === "dashboard" ? (
           <Dashboard isAdmin={access.isAdmin} repSlug={access.repSlug} />

@@ -98,6 +98,30 @@ export function NotesCalls({
     void load();
   }, [load]);
 
+  // live once 20261109140000_chat_realtime.sql has run: a note or call added or finished by
+  // someone else shows at once (only rows this person may read arrive)
+  useEffect(() => {
+    const sb = getSupabase();
+    const key = leadId ?? fileId;
+    if (!sb || !key) return;
+    const channel = sb
+      .channel(`file_notes:${key}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "file_notes",
+          filter: `${leadId ? "lead_id" : "application_id"}=eq.${key}`,
+        },
+        () => void load(),
+      )
+      .subscribe();
+    return () => {
+      void sb.removeChannel(channel);
+    };
+  }, [fileId, leadId, load]);
+
   const repName = (slug: string | null) =>
     slug ? (reps.find((r) => r.slug === slug)?.name ?? slug) : "";
 

@@ -42,6 +42,7 @@ import { Route as ApiApplicationSubmitRouteImport } from './routes/api.applicati
 import { Route as ApiApplicationUploadRouteImport } from './routes/api.application.upload'
 import { Route as ApiBrainBriefRouteImport } from './routes/api.brain.brief'
 import { Route as ApiBrainDraftRouteImport } from './routes/api.brain.draft'
+import { Route as ApiChatNudgeRouteImport } from './routes/api.chat.nudge'
 import { Route as ApiDiscordInteractionsRouteImport } from './routes/api.discord.interactions'
 import { Route as ApiDiscordLinkRouteImport } from './routes/api.discord.link'
 import { Route as ApiDiscordSetupRouteImport } from './routes/api.discord.setup'
@@ -221,6 +222,11 @@ const ApiBrainDraftRoute = ApiBrainDraftRouteImport.update({
   path: '/api/brain/draft',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiChatNudgeRoute = ApiChatNudgeRouteImport.update({
+  id: '/api/chat/nudge',
+  path: '/api/chat/nudge',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiDiscordInteractionsRoute = ApiDiscordInteractionsRouteImport.update({
   id: '/api/discord/interactions',
   path: '/api/discord/interactions',
@@ -322,6 +328,7 @@ export interface FileRoutesByFullPath {
   '/api/application/upload': typeof ApiApplicationUploadRoute
   '/api/brain/brief': typeof ApiBrainBriefRoute
   '/api/brain/draft': typeof ApiBrainDraftRoute
+  '/api/chat/nudge': typeof ApiChatNudgeRoute
   '/api/discord/interactions': typeof ApiDiscordInteractionsRoute
   '/api/discord/link': typeof ApiDiscordLinkRoute
   '/api/discord/setup': typeof ApiDiscordSetupRoute
@@ -370,6 +377,7 @@ export interface FileRoutesByTo {
   '/api/application/upload': typeof ApiApplicationUploadRoute
   '/api/brain/brief': typeof ApiBrainBriefRoute
   '/api/brain/draft': typeof ApiBrainDraftRoute
+  '/api/chat/nudge': typeof ApiChatNudgeRoute
   '/api/discord/interactions': typeof ApiDiscordInteractionsRoute
   '/api/discord/link': typeof ApiDiscordLinkRoute
   '/api/discord/setup': typeof ApiDiscordSetupRoute
@@ -419,6 +427,7 @@ export interface FileRoutesById {
   '/api/application/upload': typeof ApiApplicationUploadRoute
   '/api/brain/brief': typeof ApiBrainBriefRoute
   '/api/brain/draft': typeof ApiBrainDraftRoute
+  '/api/chat/nudge': typeof ApiChatNudgeRoute
   '/api/discord/interactions': typeof ApiDiscordInteractionsRoute
   '/api/discord/link': typeof ApiDiscordLinkRoute
   '/api/discord/setup': typeof ApiDiscordSetupRoute
@@ -469,6 +478,7 @@ export interface FileRouteTypes {
     | '/api/application/upload'
     | '/api/brain/brief'
     | '/api/brain/draft'
+    | '/api/chat/nudge'
     | '/api/discord/interactions'
     | '/api/discord/link'
     | '/api/discord/setup'
@@ -517,6 +527,7 @@ export interface FileRouteTypes {
     | '/api/application/upload'
     | '/api/brain/brief'
     | '/api/brain/draft'
+    | '/api/chat/nudge'
     | '/api/discord/interactions'
     | '/api/discord/link'
     | '/api/discord/setup'
@@ -565,6 +576,7 @@ export interface FileRouteTypes {
     | '/api/application/upload'
     | '/api/brain/brief'
     | '/api/brain/draft'
+    | '/api/chat/nudge'
     | '/api/discord/interactions'
     | '/api/discord/link'
     | '/api/discord/setup'
@@ -614,6 +626,7 @@ export interface RootRouteChildren {
   ApiApplicationUploadRoute: typeof ApiApplicationUploadRoute
   ApiBrainBriefRoute: typeof ApiBrainBriefRoute
   ApiBrainDraftRoute: typeof ApiBrainDraftRoute
+  ApiChatNudgeRoute: typeof ApiChatNudgeRoute
   ApiDiscordInteractionsRoute: typeof ApiDiscordInteractionsRoute
   ApiDiscordLinkRoute: typeof ApiDiscordLinkRoute
   ApiDiscordSetupRoute: typeof ApiDiscordSetupRoute
@@ -858,6 +871,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiBrainDraftRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/chat/nudge': {
+      id: '/api/chat/nudge'
+      path: '/api/chat/nudge'
+      fullPath: '/api/chat/nudge'
+      preLoaderRoute: typeof ApiChatNudgeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/discord/interactions': {
       id: '/api/discord/interactions'
       path: '/api/discord/interactions'
@@ -1013,6 +1033,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiApplicationUploadRoute: ApiApplicationUploadRoute,
   ApiBrainBriefRoute: ApiBrainBriefRoute,
   ApiBrainDraftRoute: ApiBrainDraftRoute,
+  ApiChatNudgeRoute: ApiChatNudgeRoute,
   ApiDiscordInteractionsRoute: ApiDiscordInteractionsRoute,
   ApiDiscordLinkRoute: ApiDiscordLinkRoute,
   ApiDiscordSetupRoute: ApiDiscordSetupRoute,

@@ -77,7 +77,7 @@ const NO_PINGS = { parse: [] as string[] };
 let teamSecret: { value: string; at: number } | null = null;
 
 /** The relay secret, read from the database's Vault (cached for ten minutes). */
-async function vaultSecret(svc: Svc): Promise<string> {
+export async function vaultSecret(svc: Svc): Promise<string> {
   if (teamSecret && Date.now() - teamSecret.at < 600_000) return teamSecret.value;
   const r = await svc.rpc("team_relay_secret" as never);
   const value = typeof r.data === "string" ? r.data : "";

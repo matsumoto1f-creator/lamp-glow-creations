@@ -12,34 +12,44 @@ import {
   MESSAGE_COLUMNS,
   messageTime,
   PAGE,
+  LIVE_POLL_MS,
   POLL_MS,
   type ChatMessage,
 } from "@/lib/chat";
 import { btnOutline, btnPrimary } from "@/components/site/layout";
 
 /**
- * A file's conversation with its merchant (20261109120000_chat_merchant_threads.sql). The same
- * component on both sides: the merchant on /account, staff in the file view. The database decides
- * who may read and write it and stamps who wrote each message; this only shows and sends.
- * Renders nothing when the conversation's SQL hasn't run yet, so publishing first is harmless.
+ * One conversation (20261109120000_chat_merchant_threads.sql, 20261109130000_chat_staff_messages.sql):
+ * a file's conversation with its merchant (by applicationId: the merchant on /account, staff in the
+ * file view), or a staff room or direct message (by threadId, in the Messages tab). The database
+ * decides who may read and write and stamps who wrote each message; this only shows and sends.
+ * New messages arrive live once 20261109140000_chat_realtime.sql has run; until then, and as a
+ * backstop, it looks every 15 seconds. Renders nothing when the conversation's SQL hasn't run yet.
  */
-export function FileThread({
+export function ChatThread({
   applicationId,
+  threadId: givenThread,
   viewer,
   userId,
   isAdmin = false,
   placeholder,
   emptyText,
   onUnavailable,
+  onRead,
 }: {
-  applicationId: string;
+  applicationId?: string | undefined;
+  threadId?: string | undefined;
   viewer: "merchant" | "staff";
   userId: string;
   isAdmin?: boolean;
   placeholder: string;
   emptyText: string;
   onUnavailable?: () => void;
+  /** after the conversation is marked read (the Messages tab refreshes its unread marks) */
+  onRead?: () => void;
 }) {
+  const onReadRef = useRef(onRead);
+  onReadRef.current = onRead;
   const [threadId, setThreadId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[] | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "missing" | "error">("loading");
@@ -71,7 +81,7 @@ export function FileThread({
       // seen it: clears the unread mark and this thread's bell item. (A Supabase query only goes
       // out once something awaits or .then()s it, so `void sb.rpc(...)` alone would send nothing.)
       sb.rpc("mark_thread_read", { _thread: thread }).then(
-        () => undefined,
+        () => onReadRef.current?.(),
         () => undefined,
       );
     }
@@ -85,7 +95,9 @@ export function FileThread({
     setMessages(null);
     lastSeen.current = 0;
     (async () => {
-      const t = await sb.rpc("open_file_thread", { _application_id: applicationId });
+      const t = givenThread
+        ? { data: givenThread, error: null }
+        : await sb.rpc("open_file_thread", { _application_id: applicationId ?? "" });
       if (!live) return;
       if (t.error || !t.data) {
         if (chatMissing(t.error)) {
@@ -101,21 +113,45 @@ export function FileThread({
     return () => {
       live = false;
     };
-  }, [applicationId, load, onUnavailable]);
+  }, [applicationId, givenThread, load, onUnavailable]);
 
-  // look for new messages while the page is in front
+  // live: a new row in this conversation reloads it (only rows this person may read arrive)
+  const [streaming, setStreaming] = useState(false);
+  useEffect(() => {
+    const sb = getSupabase();
+    if (!sb || !threadId) return;
+    const channel = sb
+      .channel(`chat:${threadId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "chat_messages",
+          filter: `thread_id=eq.${threadId}`,
+        },
+        () => void load(threadId),
+      )
+      .subscribe((status) => setStreaming(status === "SUBSCRIBED"));
+    return () => {
+      setStreaming(false);
+      void sb.removeChannel(channel);
+    };
+  }, [threadId, load]);
+
+  // and a look every so often while the page is in front: often until live updates are on
   useEffect(() => {
     if (!threadId) return;
     const tick = () => {
       if (document.visibilityState === "visible") void load(threadId);
     };
-    const t = window.setInterval(tick, POLL_MS);
+    const t = window.setInterval(tick, streaming ? LIVE_POLL_MS : POLL_MS);
     document.addEventListener("visibilitychange", tick);
     return () => {
       window.clearInterval(t);
       document.removeEventListener("visibilitychange", tick);
     };
-  }, [threadId, load]);
+  }, [threadId, load, streaming]);
 
   // keep the newest message in view
   const count = messages?.length ?? 0;
@@ -132,7 +168,8 @@ export function FileThread({
       setError(refusal);
       return;
     }
-    if (viewer === "staff" && !force) {
+    // staff writing to a merchant: warn about lending words first
+    if (viewer === "staff" && applicationId && !force) {
       const words = lendingWords(body);
       if (words.length) {
         setWarned(words.join(", "));
@@ -313,3 +350,6 @@ export function FileThread({
     </div>
   );
 }
+
+/** A file's conversation with its merchant. */
+export const FileThread = ChatThread;

@@ -9,7 +9,9 @@ import {
   firstName,
   lendingWords,
   MAX_LENGTH,
+  nudgeEmail,
   REFUSED_TEXT,
+  unreadCount,
 } from "../src/lib/chat.ts";
 
 Deno.test("numbers that belong in the secure application are refused", () => {
@@ -108,4 +110,44 @@ Deno.test("the conversation hides itself until its SQL has run", () => {
 
 Deno.test("the refusal itself never calls an MCA lending", () => {
   assertEquals(lendingWords(REFUSED_TEXT), []);
+});
+
+Deno.test("the nudge email names who wrote and links to the account, never the message", () => {
+  const m = nudgeEmail({ firstName: "Maria", contact: "Zeus Smith", site: "https://getlamp.app/" });
+  assertEquals(m.subject, "New message about your Lamp file");
+  assert(m.text.startsWith("Hi Maria,"));
+  assert(m.text.includes("Zeus Smith sent you a message about your Lamp file."));
+  assert(m.text.includes("https://getlamp.app/account#messages"));
+  assert(m.html.includes('href="https://getlamp.app/account#messages"'));
+  assert(m.text.includes("please answer in Lamp"));
+  assertEquals(lendingWords(`${m.subject} ${m.text} ${m.html}`), []);
+});
+
+Deno.test("the nudge email copes with no name and escapes what it's given", () => {
+  const m = nudgeEmail({ firstName: "  ", contact: "", site: "https://getlamp.app" });
+  assert(m.text.startsWith("Hi,"));
+  assert(m.text.includes("Your Lamp rep sent you a message"));
+  const x = nudgeEmail({
+    firstName: "<b>Al</b>",
+    contact: 'Ray "R" & Co',
+    site: "https://getlamp.app",
+  });
+  assert(x.html.includes("Hi &lt;b&gt;Al&lt;/b&gt;,"));
+  assert(x.html.includes("Ray &quot;R&quot; &amp; Co"));
+  assert(!x.html.includes("<b>Al</b>"));
+});
+
+Deno.test("the Messages tab counts conversations with something new", () => {
+  assertEquals(unreadCount([{ unread: true }, { unread: false }, { unread: true }]), 2);
+  assertEquals(unreadCount([]), 0);
+});
+
+Deno.test("reading a conversation you can't write in says so plainly", () => {
+  assertEquals(
+    chatError({
+      code: "42501",
+      message: 'new row violates row-level security policy for table "chat_messages"',
+    }),
+    "You can read this conversation but can't write in it.",
+  );
 });

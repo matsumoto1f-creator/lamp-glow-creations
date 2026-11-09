@@ -93,6 +93,9 @@ const seeMsgs = (file: string) =>
 const seeThread = (file: string) =>
   `select count(*) from public.chat_threads where application_id = '${file}'`;
 
+const postTo0 = (body: string) =>
+  `insert into public.chat_messages (thread_id, body) select m1.thread_id, $b$${body}$b$ from public.chat_members m1 join public.chat_members m2 on m2.thread_id = m1.thread_id and m2.user_id = '${U.other}' where m1.user_id = '${U.rep}' limit 1`;
+
 const FIXTURE = `
 begin;
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, created_at, updated_at)
@@ -130,6 +133,7 @@ begin; ${as("mA")} ${post(FILE_A, "Hi, when will I hear back?")};
 commit;
 begin; ${as("mB")} ${post(FILE_U, "Is anyone there?")};
 commit;
+${PHASE2 ? `begin; ${as("rep")} select public.open_direct('${U.other}') \\g /dev/null\n${postTo0("first DM")};\ncommit;\n` : ""}
 `;
 
 type Case = [who: Who, expect: string, label: string, sql: string];
@@ -351,7 +355,209 @@ const CASES: Case[] = [
   ],
 ];
 
-const CASES_2: Case[] = [];
+// Phase 2 (20261109130000_chat_staff_messages.sql): rooms, direct messages, the inbox, the nudge.
+const ALL = `(select id from public.chat_threads where audience = 'all')`;
+const TEAM = `(select id from public.chat_threads where team_slug = 'chatlead')`;
+const DM = `(select m1.thread_id from public.chat_members m1
+  join public.chat_members m2 on m2.thread_id = m1.thread_id and m2.user_id = '${U.other}'
+  join public.chat_threads t on t.id = m1.thread_id and t.kind = 'direct'
+  where m1.user_id = '${U.rep}' limit 1)`;
+const postTo = (t: string, body: string) =>
+  `insert into public.chat_messages (thread_id, body) values (${t}, $b$${body}$b$) returning 1`;
+const seeIn = (t: string) => `select count(*) from public.chat_messages where thread_id = ${t}`;
+const seeT = (t: string) => `select count(*) from public.chat_threads where id = ${t}`;
+
+const CASES_2: Case[] = [
+  // All staff
+  ["rep", "1", "a rep sees the All staff room", seeT(ALL)],
+  ["admin", "1", "an admin sees the All staff room", seeT(ALL)],
+  ["mA", "0", "a merchant can't see the All staff room", seeT(ALL)],
+  ["exrep", "0", "a rep seat without a staff role can't see it", seeT(ALL)],
+  ["rep", "1", "a rep writes in All staff", postTo(ALL, "Morning all")],
+  ["mA", "refused", "a merchant can't write in All staff", postTo(ALL, "hello")],
+  ["rep", "refused", "the number guard holds in rooms", postTo(ALL, "acct 000123456789")],
+  // a team room, made by the database for the team lead
+  [
+    "db",
+    "Lena Lead's team|team",
+    "the database made the team lead's room",
+    `select title || '|' || audience from public.chat_threads where team_slug = 'chatlead'`,
+  ],
+  ["rep", "1", "a rep on the team sees the team room", seeT(TEAM)],
+  ["lead", "1", "the team lead sees the team room", seeT(TEAM)],
+  ["other", "0", "a rep on no team can't see it", seeT(TEAM)],
+  ["admin", "1", "an admin sees the team room", seeT(TEAM)],
+  ["other", "refused", "a rep on no team can't write in it", postTo(TEAM, "hi")],
+  ["lead", "1", "the team lead writes in it", postTo(TEAM, "Calls by noon")],
+  [
+    "db",
+    "0",
+    "room messages ping nobody",
+    `delete from public.notifications where kind = 'message';\n${as("lead")}${postTo(TEAM, "ping?")} \\g /dev/null\nreset role;\nselect count(*) from public.notifications where kind = 'message' and link like '%view=messages%'`,
+  ],
+  // direct messages
+  ["rep", "1", "a rep reads their direct message", seeIn(DM)],
+  ["other", "1", "the other person reads it", seeIn(DM)],
+  ["lead", "0", "a third person can't", seeIn(DM)],
+  [
+    "admin",
+    "1",
+    "an admin can read it (decision 4)",
+    `select count(*) from public.chat_messages m join public.chat_members a on a.thread_id = m.thread_id and a.user_id = '${U.rep}' join public.chat_members b on b.thread_id = m.thread_id and b.user_id = '${U.other}'`,
+  ],
+  [
+    "admin",
+    "refused",
+    "an admin can't post into someone else's direct message",
+    `insert into public.chat_messages (thread_id, body) select m.thread_id, 'hi' from public.chat_members m join public.chat_members b on b.thread_id = m.thread_id and b.user_id = '${U.other}' where m.user_id = '${U.rep}' returning 1`,
+  ],
+  [
+    "mA",
+    "0",
+    "a merchant can't read it",
+    `select count(*) from public.chat_messages m join public.chat_threads t on t.id = m.thread_id and t.kind = 'direct'`,
+  ],
+  [
+    "rep",
+    "true",
+    "opening the same pair again gives the same conversation",
+    `select (public.open_direct('${U.other}') = ${DM})::text`,
+  ],
+  [
+    "other",
+    "true",
+    "from either side",
+    `select (public.open_direct('${U.rep}') = (select m1.thread_id from public.chat_members m1 join public.chat_members m2 on m2.thread_id = m1.thread_id and m2.user_id = '${U.rep}' where m1.user_id = '${U.other}' limit 1))::text`,
+  ],
+  [
+    "mA",
+    "refused",
+    "a merchant can't open a direct message",
+    `select public.open_direct('${U.rep}')`,
+  ],
+  [
+    "rep",
+    "refused",
+    "a rep can't direct-message a merchant",
+    `select public.open_direct('${U.mA}')`,
+  ],
+  ["rep", "refused", "nor themselves", `select public.open_direct('${U.rep}')`],
+  [
+    "db",
+    "Message from Ray Rep|Short note",
+    "a direct message notifies the other person with a preview",
+    `delete from public.notifications where kind = 'message';\n${as("rep")}${postTo(DM, "Short note")} \\g /dev/null\nreset role;\nselect title || '|' || body from public.notifications where user_id = '${U.other}' and kind = 'message'`,
+  ],
+  [
+    "db",
+    "100",
+    "the preview is cut to 100 characters",
+    `delete from public.notifications where kind = 'message';\n${as("rep")}${postTo(DM, "x".repeat(300))} \\g /dev/null\nreset role;\nselect char_length(body) from public.notifications where user_id = '${U.other}' and kind = 'message'`,
+  ],
+  [
+    "db",
+    "0",
+    "the sender isn't notified of their own message",
+    `${as("rep")}${postTo(DM, "me?")} \\g /dev/null\nreset role;\nselect count(*) from public.notifications where user_id = '${U.rep}' and kind = 'message' and link like '%view=messages%'`,
+  ],
+  // rooms admins make
+  [
+    "rep",
+    "refused",
+    "a rep can't make a room",
+    `select public.create_room('Deals desk', array['${U.other}'::uuid])`,
+  ],
+  [
+    "db",
+    "admin,rep|0",
+    "an admin's room holds the admin and the people chosen; others can't see it",
+    `${as("admin")}select public.create_room('Deals desk', array['${U.rep}'::uuid, '${U.mA}'::uuid]) \\g /dev/null\nreset role;\n` +
+      `select (select string_agg(x.who, ',' order by x.who) from (select case m.user_id when '${U.admin}' then 'admin' when '${U.rep}' then 'rep' else 'other' end as who from public.chat_members m join public.chat_threads t on t.id = m.thread_id where t.title = 'Deals desk') x) || '|' ||\n` +
+      `(select count(*) from public.chat_threads t where t.title = 'Deals desk' and public.chat_can_read(t.id, '${U.other}'))::text`,
+  ],
+  [
+    "db",
+    "0",
+    "a merchant chosen for a room isn't added",
+    `${as("admin")}select public.create_room('Deals desk', array['${U.mA}'::uuid]) \\g /dev/null\nreset role;\nselect count(*) from public.chat_members m join public.chat_threads t on t.id = m.thread_id where t.title = 'Deals desk' and m.user_id = '${U.mA}'`,
+  ],
+  // the inbox
+  [
+    "rep",
+    "direct,merchant,room,room",
+    "a rep's inbox: their merchant, All staff, their team room, their DM",
+    `select string_agg(kind, ',' order by kind) from public.my_chat_inbox()`,
+  ],
+  [
+    "other",
+    "direct,room",
+    "another rep's inbox: All staff and the DM (no team, no merchant messages yet)",
+    `select string_agg(kind, ',' order by kind) from public.my_chat_inbox()`,
+  ],
+  ["mA", "0", "a merchant's inbox is empty", `select count(*) from public.my_chat_inbox()`],
+  [
+    "rep",
+    "true",
+    "a merchant's new message shows unread for the rep",
+    `select unread::text from public.my_chat_inbox() where application_id = '${FILE_A}'`,
+  ],
+  [
+    "rep",
+    "false",
+    "and read once they open it",
+    `select public.mark_thread_read(${thread(FILE_A)}) \\g /dev/null\nselect unread::text from public.my_chat_inbox() where application_id = '${FILE_A}'`,
+  ],
+  [
+    "rep",
+    "false",
+    "their own message doesn't count as unread",
+    `${postTo(ALL, "mine")} \\g /dev/null\nselect unread::text from public.my_chat_inbox() where kind = 'room' and title = 'All staff'`,
+  ],
+  // the nudge
+  [
+    "db",
+    "1",
+    "a staff reply unread for 15 minutes is due a nudge",
+    `${as("rep")}${post(FILE_A, "Can you send April?")} \\g /dev/null\nreset role;\nupdate public.chat_messages set created_at = now() - interval '20 minutes' where body = 'Can you send April?';\n` +
+      `select count(*) from public.chat_nudges_due() where user_id = '${U.mA}'`,
+  ],
+  [
+    "db",
+    "0",
+    "not before 15 minutes",
+    `${as("rep")}${post(FILE_A, "Can you send April?")} \\g /dev/null\nreset role;\nselect count(*) from public.chat_nudges_due() where user_id = '${U.mA}'`,
+  ],
+  [
+    "db",
+    "0",
+    "not again after a nudge",
+    `${as("rep")}${post(FILE_A, "Can you send April?")} \\g /dev/null\nreset role;\nupdate public.chat_messages set created_at = now() - interval '20 minutes' where body = 'Can you send April?';\n` +
+      `select public.chat_mark_nudged(${thread(FILE_A)}, '${U.mA}') \\g /dev/null\nselect count(*) from public.chat_nudges_due() where user_id = '${U.mA}'`,
+  ],
+  [
+    "db",
+    "0",
+    "not once the merchant has read it",
+    `${as("rep")}${post(FILE_A, "Can you send April?")} \\g /dev/null\nreset role;\nupdate public.chat_messages set created_at = now() - interval '20 minutes' where body = 'Can you send April?';\n` +
+      `${as("mA")}select public.mark_thread_read(${thread(FILE_A)}) \\g /dev/null\nreset role;\nselect count(*) from public.chat_nudges_due() where user_id = '${U.mA}'`,
+  ],
+  [
+    "db",
+    "0",
+    "a merchant's own messages never trigger one",
+    `${as("mA")}${post(FILE_A, "just me")} \\g /dev/null\nreset role;\nupdate public.chat_messages set created_at = now() - interval '20 minutes' where body = 'just me';\nselect count(*) from public.chat_nudges_due() where user_id = '${U.mA}'`,
+  ],
+  ["rep", "refused", "staff can't list nudges", `select count(*) from public.chat_nudges_due()`],
+  [
+    "mA",
+    "refused",
+    "a merchant can't mark a nudge",
+    `select public.chat_mark_nudged(${thread(FILE_A)}, '${U.mA}')`,
+  ],
+  // phase 1 still holds with phase 2 in place
+  ["other", "0", "another rep still can't read merchant A", seeMsgs(FILE_A)],
+  ["mB", "0", "another merchant still can't read merchant A", seeMsgs(FILE_A)],
+];
 
 let bad = 0;
 const fx = await psql(FIXTURE);
@@ -409,6 +615,13 @@ for (const text of SAMPLES) {
 
 // leave the container as it was
 await psql(`begin;
+delete from public.chat_threads where kind <> 'merchant' and audience is distinct from 'all'
+  and (id in (select thread_id from public.chat_members where user_id in (${Object.values(U)
+    .map((u) => `'${u}'`)
+    .join(",")})) or team_slug in ('chatlead', 'chatrep', 'chatother', 'chatex', 'chatadmin'));
+delete from public.chat_messages where author in (${Object.values(U)
+  .map((u) => `'${u}'`)
+  .join(",")});
 delete from public.applications where id in ('${FILE_A}', '${FILE_B}', '${FILE_U}');
 delete from public.notifications where user_id in (${Object.values(U)
   .map((u) => `'${u}'`)

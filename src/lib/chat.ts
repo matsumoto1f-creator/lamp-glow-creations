@@ -4,6 +4,27 @@
 /** How often an open conversation looks for new messages. */
 export const POLL_MS = 15_000;
 
+/** With live updates on, a slower look as a backstop. */
+export const LIVE_POLL_MS = 60_000;
+
+/** How often the Messages tab and its unread count look again. */
+export const INBOX_POLL_MS = 30_000;
+
+/** One line of Staff > Messages (my_chat_inbox()). */
+export type InboxRow = {
+  thread_id: string;
+  kind: "merchant" | "room" | "direct";
+  title: string;
+  subtitle: string;
+  application_id: string | null;
+  last_message_at: string | null;
+  unread: boolean;
+};
+
+/** How many conversations have something new, for the Messages tab. */
+export const unreadCount = (rows: Pick<InboxRow, "unread">[]) =>
+  rows.filter((r) => r.unread).length;
+
 /** The most messages a conversation loads at once (newest kept). */
 export const PAGE = 200;
 
@@ -109,6 +130,9 @@ export function messageTime(iso: string, now = new Date()): string {
 /** What to show when the database refused a message. Its own words for the refusals it explains. */
 export function chatError(err: { code?: string; message?: string } | null | undefined): string {
   if (!err) return "";
+  // a row rule said no: someone reading a conversation they aren't in (an admin on a direct message)
+  if (err.code === "42501" && /row-level security/i.test(err.message ?? ""))
+    return "You can read this conversation but can't write in it.";
   if ((err.code === "22023" || err.code === "42501") && err.message) return err.message;
   return "That didn't send. Check your connection and try again.";
 }
@@ -116,3 +140,34 @@ export function chatError(err: { code?: string; message?: string } | null | unde
 /** The conversation's tables or functions aren't in this database yet (their SQL hasn't run). */
 export const chatMissing = (err: { code?: string } | null | undefined) =>
   !!err && ["PGRST202", "PGRST205", "42P01", "42883"].includes(err.code ?? "");
+
+/**
+ * The email a merchant gets when a Lamp reply has waited unread (/api/chat/nudge): who wrote and a
+ * link to their account. Never the message itself: that stays in Lamp.
+ */
+export function nudgeEmail(n: { firstName: string | null; contact: string; site: string }): {
+  subject: string;
+  text: string;
+  html: string;
+} {
+  const link = `${n.site.replace(/\/$/, "")}/account#messages`;
+  const hi = n.firstName?.trim() ? `Hi ${n.firstName.trim()},` : "Hi,";
+  const who = n.contact.trim() || "Your Lamp rep";
+  const lines = [
+    hi,
+    `${who} sent you a message about your Lamp file.`,
+    `Read it and reply on your account: ${link}`,
+    "Replies to this email aren't read; please answer in Lamp.",
+  ];
+  const esc = (s: string) =>
+    s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
+  const html = [
+    `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.5;color:#17241d;max-width:520px">`,
+    `<p>${esc(hi)}</p>`,
+    `<p>${esc(who)} sent you a message about your Lamp file.</p>`,
+    `<p><a href="${esc(link)}" style="display:inline-block;background:#1d3a2e;color:#ffffff;text-decoration:none;padding:10px 18px;border-radius:999px;font-weight:bold">Read and reply</a></p>`,
+    `<p style="color:#56665d;font-size:13px">Replies to this email aren't read; please answer in Lamp.</p>`,
+    `</div>`,
+  ].join("");
+  return { subject: "New message about your Lamp file", text: lines.join("\n\n"), html };
+}

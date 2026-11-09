@@ -424,10 +424,21 @@ export type Database = {
           },
         ];
       };
+      chat_members: {
+        Row: {
+          added_at: string;
+          added_by: string | null;
+          thread_id: string;
+          user_id: string;
+        };
+        Insert: Record<string, never>;
+        Update: Record<string, never>;
+        Relationships: [];
+      };
       chat_reads: {
         Row: {
           last_nudged_at: string | null;
-          last_read_at: string;
+          last_read_at: string | null;
           thread_id: string;
           user_id: string;
         };
@@ -440,9 +451,13 @@ export type Database = {
           application_id: string | null;
           created_at: string;
           created_by: string | null;
+          audience: string | null;
           id: string;
           kind: string;
+          last_author: string | null;
           last_message_at: string | null;
+          team_slug: string | null;
+          title: string | null;
         };
         Insert: Record<string, never>;
         Update: Record<string, never>;
@@ -1512,6 +1527,7 @@ export type Database = {
       accept_offer: { Args: { _offer_id: string }; Returns: Json };
       claim_applications: { Args: { _tokens?: string[] }; Returns: number };
       chat_text_refused: { Args: { _body: string }; Returns: boolean };
+      create_room: { Args: { _title: string; _members: string[] }; Returns: string };
       can_see_application_details: {
         Args: { _application_id: string };
         Returns: boolean;
@@ -1553,6 +1569,19 @@ export type Database = {
       offer_funder_name: { Args: { _offer_id: string }; Returns: string };
       rep_can_read_file: { Args: { _name: string }; Returns: boolean };
       mark_thread_read: { Args: { _thread: string }; Returns: undefined };
+      my_chat_inbox: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          application_id: string | null;
+          kind: string;
+          last_message_at: string | null;
+          subtitle: string;
+          thread_id: string;
+          title: string;
+          unread: boolean;
+        }[];
+      };
+      open_direct: { Args: { _other: string }; Returns: string };
       open_file_thread: { Args: { _application_id: string }; Returns: string };
       redact_message: { Args: { _id: number; _reason: string }; Returns: undefined };
       rep_can_see_application: {

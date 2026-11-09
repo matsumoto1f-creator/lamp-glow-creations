@@ -394,6 +394,60 @@ export type Database = {
         };
         Relationships: [];
       };
+      chat_messages: {
+        Row: {
+          author: string | null;
+          author_name: string | null;
+          author_role: string;
+          body: string;
+          created_at: string;
+          document_id: string | null;
+          id: number;
+          kind: string;
+          redact_reason: string | null;
+          redacted_at: string | null;
+          redacted_by: string | null;
+          thread_id: string;
+        };
+        Insert: {
+          body: string;
+          thread_id: string;
+        };
+        Update: Record<string, never>;
+        Relationships: [
+          {
+            foreignKeyName: "chat_messages_thread_id_fkey";
+            columns: ["thread_id"];
+            isOneToOne: false;
+            referencedRelation: "chat_threads";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      chat_reads: {
+        Row: {
+          last_nudged_at: string | null;
+          last_read_at: string;
+          thread_id: string;
+          user_id: string;
+        };
+        Insert: Record<string, never>;
+        Update: Record<string, never>;
+        Relationships: [];
+      };
+      chat_threads: {
+        Row: {
+          application_id: string | null;
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          kind: string;
+          last_message_at: string | null;
+        };
+        Insert: Record<string, never>;
+        Update: Record<string, never>;
+        Relationships: [];
+      };
       commission_entries: {
         Row: {
           amount: number;
@@ -1457,6 +1511,7 @@ export type Database = {
       _num: { Args: { _t: string }; Returns: number };
       accept_offer: { Args: { _offer_id: string }; Returns: Json };
       claim_applications: { Args: { _tokens?: string[] }; Returns: number };
+      chat_text_refused: { Args: { _body: string }; Returns: boolean };
       can_see_application_details: {
         Args: { _application_id: string };
         Returns: boolean;
@@ -1497,6 +1552,9 @@ export type Database = {
       mask_owner: { Args: { _owner: Json }; Returns: Json };
       offer_funder_name: { Args: { _offer_id: string }; Returns: string };
       rep_can_read_file: { Args: { _name: string }; Returns: boolean };
+      mark_thread_read: { Args: { _thread: string }; Returns: undefined };
+      open_file_thread: { Args: { _application_id: string }; Returns: string };
+      redact_message: { Args: { _id: number; _reason: string }; Returns: undefined };
       rep_can_see_application: {
         Args: { _application_id: string };
         Returns: boolean;

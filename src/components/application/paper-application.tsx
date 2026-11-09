@@ -51,6 +51,7 @@ import {
   DoneScreen,
   HandOff,
   PhoneBanner,
+  saveAndSend,
   postDraft,
   PRIVATE_GAP,
   Statements,
@@ -503,7 +504,13 @@ export function PaperApplication({
               </p>
             </div>
 
-            {phoneMode && <PhoneBanner synced={synced} business={d.business.legal_name.trim()} />}
+            {phoneMode && token && (
+              <PhoneBanner
+                synced={synced}
+                business={d.business.legal_name.trim()}
+                onSend={() => saveAndSend(token, d, 0, "pdf")}
+              />
+            )}
 
             <PaperPage
               d={d}

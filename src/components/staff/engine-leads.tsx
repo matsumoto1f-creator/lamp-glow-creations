@@ -16,6 +16,7 @@ import { age } from "@/lib/staff";
 import { btnOutline, btnPrimary, card } from "@/components/site/layout";
 import { chip, input, textarea } from "@/components/staff/field-styles";
 import { smartLead } from "@/lib/smart-lead";
+import { LEAD_WORKED_EVENT } from "@/lib/focus";
 import { SpeakButton } from "@/components/staff/speak-button";
 import { fitTo, joinSpoken, paperLink } from "@/lib/spoken-notes";
 import { SendApplications, type SendSeed } from "@/components/staff/send-applications";
@@ -167,6 +168,7 @@ export function EngineLeads({
       return;
     }
     if (next === "do_not_call") pick(row.id, false);
+    window.dispatchEvent(new Event(LEAD_WORKED_EVENT));
     setRows((rs) =>
       rs
         ? rs.map((r) =>
@@ -224,6 +226,7 @@ export function EngineLeads({
       .maybeSingle();
     if (err) return `Couldn't save: ${err.message}`;
     if (!data) return "Couldn't save: this lead isn't yours to change.";
+    window.dispatchEvent(new Event(LEAD_WORKED_EVENT));
     setRows((rs) =>
       rs
         ? rs.map((r) =>

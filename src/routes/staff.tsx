@@ -24,6 +24,8 @@ import { Training } from "@/components/staff/training";
 import { ChatDock, useChatDock } from "@/components/chat/chat-dock";
 import { CHAT_OPEN_EVENT } from "@/lib/chat-dock";
 import { useChatUnread } from "@/hooks/use-chat-unread";
+import { FocusRing } from "@/components/staff/focus-ring";
+import { inFocusPilot } from "@/lib/focus";
 
 type StaffSearch = {
   // "messages" was a tab before Messages became the side panel: an old link opens the panel
@@ -169,7 +171,12 @@ function Staff() {
               {search.lead ? "Lead" : view ? VIEW_TITLE[view] : "Files"}
             </h1>
           </div>
-          <NotificationsBell chatUnread={chatUnread} />
+          <div className="flex shrink-0 items-center gap-2">
+            {access.repSlug && inFocusPilot(access.repSlug) && (
+              <FocusRing repSlug={access.repSlug} />
+            )}
+            <NotificationsBell chatUnread={chatUnread} />
+          </div>
         </div>
         {!search.file && !search.lead && (
           <nav

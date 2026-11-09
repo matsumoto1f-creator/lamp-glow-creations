@@ -46,7 +46,16 @@ import { PageShell } from "@/components/site/layout";
 import { SignBlock } from "@/components/application/sign-block";
 import { emptySigning, YES_NO, type Signing } from "@/components/application/form-kit";
 import { Choice, F, inputCls, Select } from "@/components/application/fields";
-import { DoneScreen, Statements, type Done } from "@/components/application/link-application";
+import {
+  ClosedLink,
+  DoneScreen,
+  HandOff,
+  PhoneBanner,
+  postDraft,
+  PRIVATE_GAP,
+  Statements,
+  type Done,
+} from "@/components/application/link-application";
 
 /**
  * The paper application on the page (getlamp.app/application/<rep>/pdf): the printed form with a
@@ -54,42 +63,77 @@ import { DoneScreen, Statements, type Done } from "@/components/application/link
  * the same signing step as the online application. On a wide screen the boxes are typed into in
  * place; on a phone a tap opens the box in a large editor at the top, with Next through the form.
  * Signing sends it the way the online link does (form "pdf"), so it lands in the rep's files.
+ *
+ * With a token it's a merchant's personal link (getlamp.app/application/<rep>/pdf?i=<token>): it
+ * opens with what the rep already knows, or what the rep filled in on the call. With fill=rep as
+ * well, it's Start application: the rep fills it in with the merchant on the phone, every change
+ * saves to the link on Lamp's server, and the end sends the link to the merchant to sign instead
+ * of signing.
  */
 
 /** Below this width (CSS px) the page's boxes are too small to type into: tap to edit. */
 const TAP_MODE_WIDTH = 640;
 /** Typing pauses this long before the contact boxes are sent or a section counts as done. */
 const SETTLE_MS = 2500;
-/** Saved in this browser while they fill it in; never the SSN or date of birth. */
-const draftKey = (rep: string) => `lamp.paper.v1.${rep}`;
+/**
+ * Saved in this browser while they fill it in; never the SSN or date of birth. A personal link
+ * keys it by the invite (the same across a resent link), the rep's public link by the rep.
+ */
+const draftKey = (rep: string, invite?: string | null) =>
+  invite ? `lamp.paper.v1.invite.${invite}` : `lamp.paper.v1.${rep}`;
 
-function loadDraft(rep: string): Details | null {
+const withoutPrivate = (d: Details): Details => ({
+  ...d,
+  owners: d.owners.map((o) => ({ ...o, ssn: "", dob: "" })),
+});
+
+function loadDraft(key: string): { d: Details; savedAt: number } | null {
   try {
-    const raw = window.localStorage.getItem(draftKey(rep));
-    return raw ? fromRow(JSON.parse(raw) as Record<string, unknown>) : null;
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as Record<string, unknown>;
+    // { d, savedAt } since personal links; plain answers before that
+    if (v["d"] && typeof v["d"] === "object")
+      return {
+        d: fromRow(v["d"] as Record<string, unknown>),
+        savedAt: typeof v["savedAt"] === "number" ? v["savedAt"] : 0,
+      };
+    return { d: fromRow(v), savedAt: 0 };
   } catch {
     return null;
   }
 }
 
-function saveDraft(rep: string, d: Details) {
+function saveDraft(key: string, d: Details) {
   try {
-    const safe = { ...d, owners: d.owners.map((o) => ({ ...o, ssn: "", dob: "" })) };
-    window.localStorage.setItem(draftKey(rep), JSON.stringify(safe));
+    window.localStorage.setItem(key, JSON.stringify({ d: withoutPrivate(d), savedAt: Date.now() }));
   } catch {
     /* private mode or full storage: they just won't get it back after a reload */
   }
 }
 
-function clearDraft(rep: string) {
+function clearDraft(key: string) {
   try {
-    window.localStorage.removeItem(draftKey(rep));
+    window.localStorage.removeItem(key);
   } catch {
     /* nothing saved */
   }
 }
 
-export function PaperApplication({ repSlug }: { repSlug: string }) {
+export function PaperApplication({
+  repSlug,
+  token = null,
+  filling = false,
+}: {
+  repSlug: string;
+  /** a merchant's personal link */
+  token?: string | null;
+  /** a rep filling it in with the merchant on the phone (Start application) */
+  filling?: boolean;
+}) {
+  // only a personal link can be filled in for someone
+  const phoneMode = filling && Boolean(token);
+  const [synced, setSynced] = useState<{ at: string } | { error: string } | null>(null);
   const [open, setOpen] = useState<OpenResponse | "error" | null>(null);
   const [d, setD] = useState<Details>(emptyDetails);
   const [sig, setSig] = useState<Signing>(emptySigning);
@@ -104,6 +148,8 @@ export function PaperApplication({ repSlug }: { repSlug: string }) {
   } | null>(null);
   const honeypot = useRef<HTMLInputElement | null>(null);
   const signRef = useRef<HTMLDivElement | null>(null);
+  const started = useRef(false);
+  const key = draftKey(repSlug, open && open !== "error" ? open.draft : null);
 
   // the application is always the light look, like the online one
   useEffect(() => {
@@ -117,14 +163,39 @@ export function PaperApplication({ repSlug }: { repSlug: string }) {
         const res = await fetch("/api/application/open", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ rep: repSlug }),
+          body: JSON.stringify(token ? { token } : { rep: repSlug }),
         });
         const o = (await res.json().catch(() => null)) as OpenResponse | null;
         if (!live) return;
         if (!res.ok || !o || typeof o.state !== "string") return setOpen("error");
         setOpen(o);
-        const saved = o.state === "open" ? loadDraft(repSlug) : null;
-        if (saved) setD(saved);
+        if (o.state !== "open") return;
+        const local = loadDraft(draftKey(repSlug, o.draft));
+        // answers a rep filled in on the phone, when they're newer than this browser's own
+        const serverAt = o.answers_saved_at ? Date.parse(o.answers_saved_at) : 0;
+        if (o.answers && serverAt > (local?.savedAt ?? 0)) return setD(fromRow(o.answers));
+        if (local) return setD(local.d);
+        const p = o.prefill;
+        if (p)
+          setD((x) => ({
+            ...x,
+            business: {
+              ...x.business,
+              legal_name: p.business_name,
+              phone: p.phone,
+              email: p.email,
+            },
+            owners: [
+              {
+                ...x.owners[0]!,
+                first: p.first_name,
+                last: p.last_name,
+                email: p.email,
+                mobile: p.phone,
+              },
+              ...x.owners.slice(1),
+            ],
+          }));
       } catch {
         if (live) setOpen("error");
       }
@@ -132,12 +203,34 @@ export function PaperApplication({ repSlug }: { repSlug: string }) {
     return () => {
       live = false;
     };
-  }, [repSlug]);
+  }, [repSlug, token]);
 
   const update = (next: Details) => {
     setD(next);
-    saveDraft(repSlug, next);
+    saveDraft(key, next);
+    // a personal link counts as started at the first answer, like the online one
+    if (token && !started.current) {
+      started.current = true;
+      void fetch("/api/application/open", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, event: "start" }),
+      }).catch(() => undefined);
+    }
   };
+
+  // on the phone, every change saves to the link on Lamp's server, a moment after typing stops
+  useEffect(() => {
+    if (!phoneMode || !token || !open || open === "error" || open.state !== "open") return;
+    const t = window.setTimeout(() => {
+      postDraft({ action: "save", token, draft: withoutPrivate(d), step: 0 })
+        .then((r) => setSynced({ at: String(r["saved_at"] ?? new Date().toISOString()) }))
+        .catch((e: unknown) =>
+          setSynced({ error: e instanceof Error ? e.message : "Couldn't save to Lamp." }),
+        );
+    }, 1200);
+    return () => window.clearTimeout(t);
+  }, [d, phoneMode, token, open]);
 
   const tidy = useMemo(() => tidyPaper(d), [d]);
 
@@ -161,7 +254,8 @@ export function PaperApplication({ repSlug }: { repSlug: string }) {
   const captured = useRef(false);
   const [tokenReady, setTokenReady] = useState(false);
   useEffect(() => {
-    if (!contactKey || captured.current || open === null || open === "error") return;
+    // a personal link already knows who it's for, and its opens and starts are counted on it
+    if (token || !contactKey || captured.current || open === null || open === "error") return;
     if (progressToken(repSlug)) {
       captured.current = true;
       setTokenReady(true);
@@ -203,7 +297,7 @@ export function PaperApplication({ repSlug }: { repSlug: string }) {
         });
     }, SETTLE_MS);
     return () => window.clearTimeout(t);
-  }, [contactKey, open, repSlug]);
+  }, [contactKey, open, repSlug, token]);
 
   const stage = useMemo(() => paperStage(tidy), [tidy]);
   const reported = useRef<Stage | null>(null);
@@ -261,8 +355,8 @@ export function PaperApplication({ repSlug }: { repSlug: string }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          token: null,
-          rep: repSlug,
+          token: token ?? null,
+          rep: token ? undefined : repSlug,
           form: "pdf",
           details: clean,
           signature: {
@@ -292,7 +386,7 @@ export function PaperApplication({ repSlug }: { repSlug: string }) {
       );
     }
     saveClaim(out.claim_token);
-    clearDraft(repSlug);
+    clearDraft(key);
 
     // the signed PDF, with what the database stamped, goes with the file for funders; if this
     // fails staff build the same PDF from the saved answers
@@ -361,6 +455,10 @@ export function PaperApplication({ repSlug }: { repSlug: string }) {
           <div className="grid place-items-center py-40">
             <Loader2 className="size-6 animate-spin text-smoke" />
           </div>
+        ) : token && open !== "error" && open.state !== "open" ? (
+          <div className="mx-auto max-w-xl py-16">
+            <ClosedLink state={open.state} repName={open.rep?.name ?? null} />
+          </div>
         ) : open === "error" || open.state !== "open" ? (
           <div className="mx-auto max-w-xl py-24 text-center">
             <h1 className="font-display text-2xl font-bold">
@@ -389,8 +487,10 @@ export function PaperApplication({ repSlug }: { repSlug: string }) {
                 Fill it in, then sign at the bottom.
               </h1>
               <p className="mt-2 text-sm text-smoke">
-                Tap any box on the form to fill it in. Your name and number go to {repFirst} once
-                you enter them, so they can help if you get stuck. Prefer paper?{" "}
+                Tap any box on the form to fill it in.
+                {!token &&
+                  ` Your name and number go to ${repFirst} once you enter them, so they can help if you get stuck.`}{" "}
+                Prefer paper?{" "}
                 <a
                   className="font-semibold text-forest underline underline-offset-2"
                   href={BLANK_APPLICATION_PDF}
@@ -402,6 +502,8 @@ export function PaperApplication({ repSlug }: { repSlug: string }) {
                 .
               </p>
             </div>
+
+            {phoneMode && <PhoneBanner synced={synced} business={d.business.legal_name.trim()} />}
 
             <PaperPage
               d={d}
@@ -472,7 +574,14 @@ export function PaperApplication({ repSlug }: { repSlug: string }) {
                 Bank statements <span className="text-sm font-normal text-smoke">optional</span>
               </h2>
               <div className="mt-3">
-                <Statements files={files} setFiles={setFiles} />
+                {phoneMode ? (
+                  <p className="rounded-2xl bg-sand p-4 text-sm ring-1 ring-line">
+                    Bank statements go up from the merchant&apos;s side: they add them when they
+                    open the link to sign, or send them to you later.
+                  </p>
+                ) : (
+                  <Statements files={files} setFiles={setFiles} />
+                )}
               </div>
             </section>
 
@@ -480,16 +589,26 @@ export function PaperApplication({ repSlug }: { repSlug: string }) {
               ref={signRef}
               className="mt-6 scroll-mt-24 rounded-[1.5rem] bg-white p-5 ring-1 ring-line sm:p-7"
             >
-              <SignBlock
-                d={tidy}
-                s={sig}
-                set={(patch) => setSig((x) => ({ ...x, ...patch }))}
-                todo={todo}
-                error={error}
-                busy={busy}
-                onSign={() => void submit()}
-                cta={`Sign and send to ${repFirst}`}
-              />
+              {phoneMode && token ? (
+                <HandOff
+                  d={tidy}
+                  token={token}
+                  gaps={todo.filter((m) => !PRIVATE_GAP.test(m))}
+                  repName={repName}
+                  form="pdf"
+                />
+              ) : (
+                <SignBlock
+                  d={tidy}
+                  s={sig}
+                  set={(patch) => setSig((x) => ({ ...x, ...patch }))}
+                  todo={todo}
+                  error={error}
+                  busy={busy}
+                  onSign={() => void submit()}
+                  cta={`Sign and send to ${repFirst}`}
+                />
+              )}
             </div>
             <input
               ref={honeypot}

@@ -30,6 +30,7 @@ import {
   missing,
   signatureMatches,
 } from "@/lib/application-details";
+import { paperLink } from "@/lib/spoken-notes";
 import {
   applicationUrl,
   buildAltMime,
@@ -813,6 +814,7 @@ export async function applicationDraft(request: Request): Promise<Response> {
     draft?: unknown;
     step?: unknown;
     to?: unknown;
+    form?: unknown;
   }>(request, MAX_DRAFT_BYTES + 4096);
   if (body instanceof Response) return body;
   if (!isToken(body.token)) return json(400, { error: "That isn't an application link." });
@@ -877,7 +879,11 @@ export async function applicationDraft(request: Request): Promise<Response> {
       businessName: inv.business_name ?? "",
       repName: facing(rep).name,
       note: "",
-      url: applicationUrl(SITE_URL(), rep.slug, body.token),
+      // Start application opens the paper form, so the merchant gets the same paper form
+      url:
+        body.form === "pdf"
+          ? paperLink(applicationUrl(SITE_URL(), rep.slug, body.token))
+          : applicationUrl(SITE_URL(), rep.slug, body.token),
       legalName: SITE.legalName,
       address: SITE.address,
       filled: true,

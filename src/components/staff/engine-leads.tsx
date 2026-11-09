@@ -5,6 +5,8 @@ import { cn } from "@/lib/utils";
 import { age } from "@/lib/staff";
 import { btnOutline, btnPrimary, card } from "@/components/site/layout";
 import { input, textarea } from "@/components/staff/field-styles";
+import { SpeakButton } from "@/components/staff/speak-button";
+import { fitTo, joinSpoken, paperLink } from "@/lib/spoken-notes";
 import { SendApplications, type SendSeed } from "@/components/staff/send-applications";
 import { postInvites } from "@/lib/post-invites";
 import { EMAIL_RE, MAX_RECIPIENTS } from "@/lib/application-links";
@@ -733,7 +735,8 @@ function LeadPage({
 
   /**
    * Start application: save what's typed, make this merchant's personal link (no email goes
-   * out), and open it in a new tab for the rep to fill in with them on the phone.
+   * out), and open its paper application in a new tab for the rep to fill in with them on the
+   * phone.
    */
   async function startApplication() {
     if (problem) return;
@@ -753,10 +756,12 @@ function LeadPage({
         recipients: [{ ...seed, channel: "link" }],
       });
       if (!res?.url) throw new Error(res?.detail || "Couldn't make the application link.");
-      const url = `${res.url}${res.url.includes("?") ? "&" : "?"}fill=rep`;
+      // the paper application, the one-page form Stevie prefers, in the rep's fill-in mode
+      const paper = paperLink(res.url);
+      const url = `${paper}${paper.includes("?") ? "&" : "?"}fill=rep`;
       if (tab) tab.location.href = url;
       else window.location.href = url;
-      setMsg({ ok: true, text: "Application opened in a new tab. Fill it in with them." });
+      setMsg({ ok: true, text: "Paper application opened in a new tab. Fill it in with them." });
     } catch (e) {
       tab?.close();
       setMsg({ ok: false, text: e instanceof Error ? e.message : "Couldn't start it. Try again." });
@@ -891,17 +896,23 @@ function LeadPage({
               data-contact-phone
             />
           </label>
-          <label className="block text-sm sm:col-span-2">
-            <span className={label}>Notes</span>
-            <textarea
-              className={textarea}
-              value={notes}
-              maxLength={2000}
-              placeholder="What they need, how much, how soon, when to call back"
-              onChange={(e) => setNotes(e.target.value)}
-              data-contact-notes
+          <div className="text-sm sm:col-span-2">
+            <label className="block">
+              <span className={label}>Notes</span>
+              <textarea
+                className={textarea}
+                value={notes}
+                maxLength={2000}
+                placeholder="What they need, how much, how soon, when to call back"
+                onChange={(e) => setNotes(e.target.value)}
+                data-contact-notes
+              />
+            </label>
+            <SpeakButton
+              className="mt-2"
+              onPhrase={(said) => setNotes((n) => fitTo(joinSpoken(n, said), 2000))}
             />
-          </label>
+          </div>
         </div>
         {problem && <p className="mt-3 text-sm text-destructive">{problem}</p>}
         {msg && (

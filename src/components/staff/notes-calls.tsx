@@ -6,6 +6,8 @@ import { cn } from "@/lib/utils";
 import { age } from "@/lib/staff";
 import { btnOutline, btnPrimary, card } from "@/components/site/layout";
 import { input } from "@/components/staff/field-styles";
+import { SpeakButton } from "@/components/staff/speak-button";
+import { joinSpoken } from "@/lib/spoken-notes";
 
 /**
  * Notes & calls on a file (migration 20261029140000_file_notes_and_calls.sql): a running thread in
@@ -181,6 +183,11 @@ export function NotesCalls({
           }
           value={body}
           onChange={(e) => setBody(e.target.value)}
+        />
+        <SpeakButton
+          className="mb-2"
+          disabled={busy !== null}
+          onPhrase={(said) => setBody((b) => joinSpoken(b, said))}
         />
         <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-line pt-2">
           {isAdmin && (

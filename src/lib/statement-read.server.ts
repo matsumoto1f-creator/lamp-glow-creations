@@ -10,13 +10,14 @@
 // (open_document). One statement per request, so a slow read never holds the page past a
 // gateway's timeout; the browser asks for the next one. The model only reads: every number a
 // funder decides on is worked out in statement-read.ts, and a statement that doesn't add up gives
-// no verified numbers. Runs only with ANTHROPIC_API_KEY set (and LAMP_STATEMENTS not "off"), and
+// no verified numbers. Runs only when Lamp has an Anthropic key (and LAMP_STATEMENTS not "off"), and
 // stops for the month at STATEMENT_MONTHLY_CAP_USD (50 by default).
 
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import * as z from "zod/v4";
 import { caller, env, json, service, SERVICE_KEY, SUPABASE_URL } from "@/lib/funder-send.server";
+import { anthropicKey } from "@/lib/ai-key.server";
 import { readJson } from "@/lib/application-links.server";
 import { staff, why } from "@/lib/brain.server";
 import { figures, type Figures, type StatementRead } from "@/lib/statement-read";
@@ -29,8 +30,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_BYTES = 22 * 1024 * 1024;
 const IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
 
-export const on = () =>
-  !!env("ANTHROPIC_API_KEY") && env("LAMP_STATEMENTS").toLowerCase() !== "off";
+export const on = async () =>
+  env("LAMP_STATEMENTS").toLowerCase() !== "off" && !!(await anthropicKey()).key;
 export const cap = () => {
   const v = Number(env("STATEMENT_MONTHLY_CAP_USD"));
   return Number.isFinite(v) && v >= 0 && env("STATEMENT_MONTHLY_CAP_USD") !== "" ? v : 50;
@@ -182,9 +183,10 @@ async function state(who: Who, svc: Svc, id: string) {
       readable: readableType(d.mime_type, d.original_name ?? d.storage_path) !== null,
     };
   });
+  const isOn = await on();
   return {
-    on: on(),
-    paused: on() && used >= cap(),
+    on: isOn,
+    paused: isOn && used >= cap(),
     statements,
     report: (report.data as Record<string, unknown> | null) ?? null,
   };
@@ -207,7 +209,7 @@ function readableType(
 }
 
 async function readOne(who: Who, svc: Svc, id: string, docId: string): Promise<Response> {
-  if (!on())
+  if (!(await on()))
     return json(503, { error: "The statement reader is off: Lamp's Anthropic key isn't set." });
   if ((await spent(svc)) >= cap())
     return json(503, { error: "The statement reader has reached this month's spending cap." });
@@ -281,7 +283,7 @@ async function readOne(who: Who, svc: Svc, id: string, docId: string): Promise<R
 /** One statement to Claude; the parsed read and what it cost. */
 async function ask(bytes: Uint8Array, type: ReturnType<typeof readableType> & string) {
   const client = new Anthropic({
-    apiKey: env("ANTHROPIC_API_KEY"),
+    apiKey: (await anthropicKey()).key,
     timeout: 240_000,
     maxRetries: 1,
   });

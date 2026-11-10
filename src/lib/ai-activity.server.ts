@@ -11,6 +11,8 @@
 import { caller, env, json, service, SERVICE_KEY, SUPABASE_URL } from "@/lib/funder-send.server";
 import { cap as brainCap, staff } from "@/lib/brain.server";
 import { cap as statementCap } from "@/lib/statement-read.server";
+import { keyInfo } from "@/lib/ai-key.server";
+import type { KeyInfo } from "@/lib/ai-key";
 import {
   type AiResult,
   type AiUse,
@@ -40,6 +42,8 @@ const short = (v: unknown, max: number) => {
 };
 
 export type AiActivity = {
+  /** where the Anthropic key in use comes from, and who saved it; never the key */
+  key: KeyInfo;
   budgets: { key: BudgetKey; cap: number; spent: number; off: OffReason | null }[];
   month: ReturnType<typeof summarize>;
   uses: AiUse[];
@@ -193,8 +197,10 @@ export async function aiActivity(request: Request): Promise<Response> {
   ];
 
   const month = summarize(uses, now);
-  const hasKey = !!env("ANTHROPIC_API_KEY");
+  const key = await keyInfo();
+  const hasKey = key.source !== null;
   const body: AiActivity = {
+    key,
     budgets: [
       {
         key: "statements",

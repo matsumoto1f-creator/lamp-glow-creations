@@ -34,6 +34,7 @@ import { Route as ApplicationRepRouteImport } from './routes/application.$rep'
 import { Route as ApplyRepRouteImport } from './routes/apply_.$rep'
 import { Route as UploadTokenRouteImport } from './routes/upload.$token'
 import { Route as ApiAiActivityRouteImport } from './routes/api.ai.activity'
+import { Route as ApiAiKeyRouteImport } from './routes/api.ai.key'
 import { Route as ApiApplicationDraftRouteImport } from './routes/api.application.draft'
 import { Route as ApiApplicationNotifyRouteImport } from './routes/api.application.notify'
 import { Route as ApiApplicationOpenRouteImport } from './routes/api.application.open'
@@ -183,6 +184,11 @@ const ApiAiActivityRoute = ApiAiActivityRouteImport.update({
   path: '/api/ai/activity',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAiKeyRoute = ApiAiKeyRouteImport.update({
+  id: '/api/ai/key',
+  path: '/api/ai/key',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiApplicationDraftRoute = ApiApplicationDraftRouteImport.update({
   id: '/api/application/draft',
   path: '/api/application/draft',
@@ -326,6 +332,7 @@ export interface FileRoutesByFullPath {
   '/apply/$rep': typeof ApplyRepRoute
   '/upload/$token': typeof UploadTokenRoute
   '/api/ai/activity': typeof ApiAiActivityRoute
+  '/api/ai/key': typeof ApiAiKeyRoute
   '/api/application/draft': typeof ApiApplicationDraftRoute
   '/api/application/notify': typeof ApiApplicationNotifyRoute
   '/api/application/open': typeof ApiApplicationOpenRoute
@@ -376,6 +383,7 @@ export interface FileRoutesByTo {
   '/apply/$rep': typeof ApplyRepRoute
   '/upload/$token': typeof UploadTokenRoute
   '/api/ai/activity': typeof ApiAiActivityRoute
+  '/api/ai/key': typeof ApiAiKeyRoute
   '/api/application/draft': typeof ApiApplicationDraftRoute
   '/api/application/notify': typeof ApiApplicationNotifyRoute
   '/api/application/open': typeof ApiApplicationOpenRoute
@@ -427,6 +435,7 @@ export interface FileRoutesById {
   '/apply_/$rep': typeof ApplyRepRoute
   '/upload/$token': typeof UploadTokenRoute
   '/api/ai/activity': typeof ApiAiActivityRoute
+  '/api/ai/key': typeof ApiAiKeyRoute
   '/api/application/draft': typeof ApiApplicationDraftRoute
   '/api/application/notify': typeof ApiApplicationNotifyRoute
   '/api/application/open': typeof ApiApplicationOpenRoute
@@ -479,6 +488,7 @@ export interface FileRouteTypes {
     | '/apply/$rep'
     | '/upload/$token'
     | '/api/ai/activity'
+    | '/api/ai/key'
     | '/api/application/draft'
     | '/api/application/notify'
     | '/api/application/open'
@@ -529,6 +539,7 @@ export interface FileRouteTypes {
     | '/apply/$rep'
     | '/upload/$token'
     | '/api/ai/activity'
+    | '/api/ai/key'
     | '/api/application/draft'
     | '/api/application/notify'
     | '/api/application/open'
@@ -579,6 +590,7 @@ export interface FileRouteTypes {
     | '/apply_/$rep'
     | '/upload/$token'
     | '/api/ai/activity'
+    | '/api/ai/key'
     | '/api/application/draft'
     | '/api/application/notify'
     | '/api/application/open'
@@ -630,6 +642,7 @@ export interface RootRouteChildren {
   ApplyRepRoute: typeof ApplyRepRoute
   UploadTokenRoute: typeof UploadTokenRoute
   ApiAiActivityRoute: typeof ApiAiActivityRoute
+  ApiAiKeyRoute: typeof ApiAiKeyRoute
   ApiApplicationDraftRoute: typeof ApiApplicationDraftRoute
   ApiApplicationNotifyRoute: typeof ApiApplicationNotifyRoute
   ApiApplicationOpenRoute: typeof ApiApplicationOpenRoute
@@ -826,6 +839,13 @@ declare module '@tanstack/react-router' {
       path: '/api/ai/activity'
       fullPath: '/api/ai/activity'
       preLoaderRoute: typeof ApiAiActivityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/ai/key': {
+      id: '/api/ai/key'
+      path: '/api/ai/key'
+      fullPath: '/api/ai/key'
+      preLoaderRoute: typeof ApiAiKeyRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/application/draft': {
@@ -1045,6 +1065,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApplyRepRoute: ApplyRepRoute,
   UploadTokenRoute: UploadTokenRoute,
   ApiAiActivityRoute: ApiAiActivityRoute,
+  ApiAiKeyRoute: ApiAiKeyRoute,
   ApiApplicationDraftRoute: ApiApplicationDraftRoute,
   ApiApplicationNotifyRoute: ApiApplicationNotifyRoute,
   ApiApplicationOpenRoute: ApiApplicationOpenRoute,

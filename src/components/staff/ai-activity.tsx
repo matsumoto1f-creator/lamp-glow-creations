@@ -5,6 +5,7 @@ import { getSupabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { card } from "@/components/site/layout";
 import { chip } from "@/components/staff/field-styles";
+import { AiKeyCard } from "@/components/staff/ai-key-card";
 import {
   AI_KIND_COUNT_LABEL,
   AI_KIND_LABEL,
@@ -111,7 +112,15 @@ export function AiActivity() {
 
       {data && (
         <>
-          <div className="mt-5 grid gap-4 md:grid-cols-2">
+          <AiKeyCard
+            info={data.key}
+            onChanged={(key) => {
+              setData((d) => (d ? { ...d, key } : d));
+              // the two cards below say On or Off from the same key
+              void refresh();
+            }}
+          />
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
             {data.budgets.map((b) => {
               const v = budgetView(b.spent, b.cap);
               return (

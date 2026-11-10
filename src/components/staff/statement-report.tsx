@@ -136,8 +136,8 @@ export function StatementReport({ fileId }: { fileId: string }) {
         <p className="mt-2 text-sm text-smoke">No bank statements on this file yet.</p>
       ) : !s.on ? (
         <p className="mt-2 text-sm text-smoke">
-          The statement reader is off until Lamp's Anthropic key is set. {s.statements.length}{" "}
-          statement
+          The statement reader is off until an admin adds Lamp&apos;s Anthropic key in Staff, AI
+          activity. {s.statements.length} statement
           {s.statements.length === 1 ? "" : "s"} waiting.
         </p>
       ) : (

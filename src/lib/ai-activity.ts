@@ -53,7 +53,7 @@ export const BUDGET_LABEL: Record<BudgetKey, string> = {
 /** Why a job isn't running, or null when it is. */
 export type OffReason = "no_key" | "switched_off";
 export const OFF_LINE: Record<OffReason, string> = {
-  no_key: "Off: Lamp's Anthropic key isn't set in the server's secrets.",
+  no_key: "Off: Lamp has no Anthropic key yet. An admin can add one on this page.",
   switched_off: "Off: switched off in the server's settings.",
 };
 export const offReason = (hasKey: boolean, switchValue: string): OffReason | null =>

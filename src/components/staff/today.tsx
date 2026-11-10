@@ -53,7 +53,7 @@ async function get<T>(query = ""): Promise<T> {
 }
 
 const ADMIN_NOTE: Record<string, string> = {
-  off: "Written by Lamp's rules. Claude writes this list once the Anthropic key is added in the server's secrets.",
+  off: "Written by Lamp's rules. Claude writes this list once an admin adds the Anthropic key in Staff, AI activity.",
   cap: "Written by Lamp's rules: this month's Claude budget is used up.",
   failed:
     "Written by Lamp's rules: Claude couldn't write today's list. It tries again within the hour.",

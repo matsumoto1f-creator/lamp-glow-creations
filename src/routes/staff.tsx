@@ -18,6 +18,7 @@ import { Funders } from "@/components/staff/funders";
 import { Money } from "@/components/staff/money";
 import { Dashboard } from "@/components/staff/dashboard";
 import { Team } from "@/components/staff/team";
+import { AiActivity } from "@/components/staff/ai-activity";
 import { NotificationsBell } from "@/components/staff/notifications";
 import { AppLinks } from "@/components/staff/app-links";
 import { Training } from "@/components/staff/training";
@@ -37,7 +38,7 @@ type StaffSearch = {
   thread?: string | undefined;
 };
 
-type View = "dashboard" | "engine" | "sent" | "funders" | "money" | "team" | "training";
+type View = "dashboard" | "engine" | "sent" | "funders" | "money" | "team" | "ai" | "training";
 const VIEWS: readonly View[] = [
   "dashboard",
   "engine",
@@ -45,10 +46,11 @@ const VIEWS: readonly View[] = [
   "funders",
   "money",
   "team",
+  "ai",
   "training",
 ];
 /** Tabs only admins see. */
-const ADMIN_VIEWS: readonly View[] = ["team"];
+const ADMIN_VIEWS: readonly View[] = ["team", "ai"];
 const VIEW_TITLE: Record<View, string> = {
   dashboard: "Dashboard",
   engine: "Engine leads",
@@ -56,6 +58,7 @@ const VIEW_TITLE: Record<View, string> = {
   funders: "Funders",
   money: "Money",
   team: "Team",
+  ai: "AI activity",
   training: "Training",
 };
 
@@ -237,6 +240,12 @@ function Staff() {
             <Team onChanged={() => setRepsTick((t) => t + 1)} />
           ) : (
             <p className="mt-8 text-sm text-smoke">Only admins manage the team.</p>
+          )
+        ) : view === "ai" ? (
+          access.isAdmin ? (
+            <AiActivity />
+          ) : (
+            <p className="mt-8 text-sm text-smoke">AI activity is for admins.</p>
           )
         ) : (
           <>

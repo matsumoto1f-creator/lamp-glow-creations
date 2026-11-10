@@ -18,6 +18,8 @@ import {
   type Viewer,
 } from "@/lib/chat";
 import { btnOutline, btnPrimary } from "@/components/site/layout";
+import { insertEmoji } from "@/lib/emoji";
+import { EmojiPicker } from "@/components/chat/emoji-picker";
 
 /**
  * One conversation (20261110120000_chat_staff.sql, 20261110140000_chat_merchant.sql). The database
@@ -63,6 +65,7 @@ export function ChatThread({
   const [warned, setWarned] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const boxRef = useRef<HTMLTextAreaElement>(null);
   const lastSeen = useRef<number>(0);
   const onReadRef = useRef(onRead);
   useEffect(() => {
@@ -149,6 +152,22 @@ export function ChatThread({
     if (getComputedStyle(el).overflowY === "auto") el.scrollTop = el.scrollHeight;
     else endRef.current?.scrollIntoView({ block: "end" });
   }, [count]);
+
+  // an emoji goes where the cursor is in the message box, and the cursor lands just after it
+  const addEmoji = (emoji: string) => {
+    const el = boxRef.current;
+    const r = insertEmoji(body, el?.selectionStart, el?.selectionEnd, emoji, MAX_LENGTH);
+    if (!r.added) return;
+    setBody(r.text);
+    setWarned(null);
+    if (error) setError("");
+    requestAnimationFrame(() => {
+      const box = boxRef.current;
+      if (!box) return;
+      box.focus();
+      box.setSelectionRange(r.caret, r.caret);
+    });
+  };
 
   async function send(force = false) {
     const sb = getSupabase();
@@ -312,7 +331,9 @@ export function ChatThread({
         data-chat-composer
       >
         <div className="flex items-end gap-2">
+          <EmojiPicker onPick={addEmoji} disabled={sending} />
           <textarea
+            ref={boxRef}
             aria-label="Message"
             className="max-h-40 min-h-11 flex-1 resize-none rounded-2xl bg-white px-4 py-2.5 text-base ring-1 ring-line sm:text-sm"
             rows={1}

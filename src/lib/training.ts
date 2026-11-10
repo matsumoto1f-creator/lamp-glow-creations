@@ -76,6 +76,23 @@ export const TRAINING: readonly TrainingVideo[] = [
     sec: 113,
   },
   {
+    slug: "rep-8-messages",
+    role: "rep",
+    part: 8,
+    title: "Messages",
+    about: "The Messages panel: rooms, direct messages, and your merchants' conversations.",
+    sec: 97,
+  },
+  {
+    slug: "rep-9-on-the-phone",
+    role: "rep",
+    part: 9,
+    title: "Applications on the phone",
+    about:
+      "Someone new calls: get their email first, then email the application or fill it in with them.",
+    sec: 79,
+  },
+  {
     slug: "admin-1-team",
     role: "admin",
     part: 1,
@@ -108,6 +125,15 @@ export const TRAINING: readonly TrainingVideo[] = [
     sec: 93,
   },
   {
+    slug: "admin-5-ai-activity",
+    role: "admin",
+    part: 5,
+    title: "AI activity and the key",
+    about:
+      "What Claude does in Lamp, adding the Anthropic key, the monthly limits, and what failed.",
+    sec: 106,
+  },
+  {
     slug: "merchant-1-applying",
     role: "merchant",
     part: 1,
@@ -130,6 +156,14 @@ export const TRAINING: readonly TrainingVideo[] = [
     title: "Your offers",
     about: "Offers from funders, side by side.",
     sec: 57,
+  },
+  {
+    slug: "merchant-4-messages",
+    role: "merchant",
+    part: 4,
+    title: "Messages",
+    about: "Asking your rep a question from your account page.",
+    sec: 46,
   },
 ];
 

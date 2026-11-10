@@ -1,3 +1,4 @@
+import { gifPreview } from "@/lib/gifs";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { ChevronLeft, Hash, Loader2, MessageSquarePlus, Plus, User, Users } from "lucide-react";
@@ -272,7 +273,7 @@ export function Messages({
                             {r.title}
                           </span>
                           <span className="block truncate text-xs text-smoke">
-                            {r.preview ?? r.subtitle}
+                            {gifPreview(r.preview) ?? r.preview ?? r.subtitle}
                           </span>
                         </span>
                         <span className="shrink-0 text-xs text-smoke">
@@ -353,6 +354,7 @@ export function Messages({
               isAdmin={isAdmin}
               placeholder={open?.kind === "merchant" ? "Write to the merchant" : "Write a message"}
               warnLending={open?.kind === "merchant"}
+              gifs={!!open && open.kind !== "merchant"}
               emptyText="No messages yet. Say hello."
               layout={compact ? "dock" : "page"}
               onRead={() => void load()}

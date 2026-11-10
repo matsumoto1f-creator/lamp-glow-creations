@@ -20,6 +20,10 @@ import {
 import { btnOutline, btnPrimary } from "@/components/site/layout";
 import { insertEmoji } from "@/lib/emoji";
 import { EmojiPicker } from "@/components/chat/emoji-picker";
+import { GifPicker } from "@/components/chat/gif-picker";
+import { MessageReactions } from "@/components/chat/message-reactions";
+import { isGifUrl } from "@/lib/gifs";
+import { groupReactions, nextReaction, type ReactionChip, type ReactionRow } from "@/lib/reactions";
 
 /**
  * One conversation (20261110120000_chat_staff.sql, 20261110140000_chat_merchant.sql). The database
@@ -42,6 +46,7 @@ export function ChatThread({
   viewer = "staff",
   layout = "page",
   warnLending = false,
+  gifs = false,
 }: {
   threadId: string;
   userId: string;
@@ -51,6 +56,8 @@ export function ChatThread({
   /** staff writing to a merchant: warn about words that call an MCA lending before sending */
   warnLending?: boolean;
   isAdmin?: boolean;
+  /** a staff room or direct message: offer the GIF button (never in a merchant's conversation) */
+  gifs?: boolean;
   placeholder: string;
   emptyText: string;
   /** after the conversation is marked read (the inbox refreshes its unread marks) */
@@ -60,6 +67,9 @@ export function ChatThread({
   const [body, setBody] = useState("");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
+  // null until the reactions table answers: before its database file has run, no reaction buttons show
+  const [reactions, setReactions] = useState<Map<number, ReactionChip[]> | null>(null);
+  const [reacting, setReacting] = useState(false);
   const [redacting, setRedacting] = useState<{ id: number; reason: string } | null>(null);
   // the lending words in the draft someone was warned about; sending again sends it as written
   const [warned, setWarned] = useState<string | null>(null);
@@ -85,6 +95,14 @@ export function ChatThread({
     if (err) return; // keep what's on screen; the next look tries again
     const list = (data as ChatMessage[]).slice().reverse();
     setMessages(list);
+    const ids = list.filter((m) => m.kind === "text" || m.kind === "gif").map((m) => m.id);
+    if (ids.length) {
+      const r = await sb
+        .from("chat_reactions" as never)
+        .select("message_id,user_id,emoji")
+        .in("message_id", ids);
+      setReactions(r.error ? null : groupReactions((r.data ?? []) as ReactionRow[], userId));
+    }
     const newest = list[list.length - 1];
     if (newest && newest.id !== lastSeen.current) {
       lastSeen.current = newest.id;
@@ -98,10 +116,11 @@ export function ChatThread({
         () => undefined,
       );
     }
-  }, [threadId]);
+  }, [threadId, userId]);
 
   useEffect(() => {
     setMessages(null);
+    setReactions(null);
     lastSeen.current = 0;
     void load();
   }, [load]);
@@ -121,6 +140,12 @@ export function ChatThread({
           table: "chat_messages",
           filter: `thread_id=eq.${threadId}`,
         },
+        () => void load(),
+      )
+      // someone reacted: only reactions this person may read arrive, and a reload sorts out which
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "chat_reactions" },
         () => void load(),
       )
       .subscribe((status) => setStreaming(status === "SUBSCRIBED"));
@@ -168,6 +193,46 @@ export function ChatThread({
       box.setSelectionRange(r.caret, r.caret);
     });
   };
+
+  /** Puts the reader's reaction on a message, or takes it off if it's already there. */
+  async function react(m: ChatMessage, emoji: string) {
+    const sb = getSupabase();
+    if (!sb || reacting) return;
+    const next = nextReaction(reactions?.get(m.id), emoji);
+    if (next === "full") {
+      setError("That's enough reactions on one message.");
+      return;
+    }
+    setReacting(true);
+    const { error: err } =
+      next === "remove"
+        ? await sb
+            .from("chat_reactions" as never)
+            .delete()
+            .eq("message_id", m.id)
+            .eq("user_id", userId)
+            .eq("emoji", emoji)
+        : await sb.from("chat_reactions" as never).insert({ message_id: m.id, emoji } as never);
+    setReacting(false);
+    if (err) {
+      setError(chatError(err));
+      return;
+    }
+    setError("");
+    await load();
+  }
+
+  /** Sends a KLIPY address as a GIF message. Returns an error line, or null when it went. */
+  async function sendGif(url: string): Promise<string | null> {
+    const sb = getSupabase();
+    if (!sb || !isGifUrl(url)) return "That isn't a GIF Lamp can show.";
+    const { error: err } = await sb
+      .from("chat_messages")
+      .insert({ thread_id: threadId, body: url, kind: "gif" } as never);
+    if (err) return chatError(err);
+    await load();
+    return null;
+  }
 
   async function send(force = false) {
     const sb = getSupabase();
@@ -236,7 +301,7 @@ export function ChatThread({
         ) : (
           messages.map((m) => {
             const mine = !!m.author && m.author === userId;
-            if (m.kind !== "text")
+            if (m.kind !== "text" && m.kind !== "gif")
               return (
                 <p
                   key={m.id}
@@ -248,7 +313,11 @@ export function ChatThread({
                 </p>
               );
             return (
-              <div key={m.id} className={cn("flex", mine ? "justify-end" : "justify-start")}>
+              <div
+                key={m.id}
+                className={cn("flex flex-col", mine ? "items-end" : "items-start")}
+                data-chat-message={m.kind}
+              >
                 <div
                   className={cn(
                     "max-w-[85%] rounded-2xl px-3.5 py-2 text-sm",
@@ -258,14 +327,25 @@ export function ChatThread({
                   <p className={cn("text-xs", mine ? "text-white/75" : "text-smoke")}>
                     {authorLabel(m, userId, viewer)} · {messageTime(m.created_at)}
                   </p>
-                  <p
-                    className={cn(
-                      "mt-0.5 whitespace-pre-wrap break-words",
-                      m.redacted_at && "italic opacity-75",
-                    )}
-                  >
-                    {m.body}
-                  </p>
+                  {m.kind === "gif" && !m.redacted_at && isGifUrl(m.body) ? (
+                    <img
+                      src={m.body}
+                      alt="GIF"
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                      className="mt-1 max-h-56 w-auto max-w-full rounded-xl"
+                      data-chat-gif
+                    />
+                  ) : (
+                    <p
+                      className={cn(
+                        "mt-0.5 whitespace-pre-wrap break-words",
+                        m.redacted_at && "italic opacity-75",
+                      )}
+                    >
+                      {m.body}
+                    </p>
+                  )}
                   {isAdmin && viewer === "staff" && !m.redacted_at && (
                     <button
                       type="button"
@@ -307,6 +387,14 @@ export function ChatThread({
                     </div>
                   )}
                 </div>
+                {reactions && !m.redacted_at && (
+                  <MessageReactions
+                    chips={reactions.get(m.id) ?? []}
+                    mine={mine}
+                    disabled={reacting}
+                    onToggle={(emoji) => void react(m, emoji)}
+                  />
+                )}
               </div>
             );
           })
@@ -332,6 +420,9 @@ export function ChatThread({
       >
         <div className="flex items-end gap-2">
           <EmojiPicker onPick={addEmoji} disabled={sending} />
+          {gifs && viewer === "staff" && (
+            <GifPicker userId={userId} isAdmin={isAdmin} disabled={sending} onSend={sendGif} />
+          )}
           <textarea
             ref={boxRef}
             aria-label="Message"

@@ -27,7 +27,7 @@ export const ENGINE_STATUS_LABEL: Record<EngineStatus, string> = {
 
 export const TIERS = ["A", "B", "C"] as const;
 
-type Signal = { source?: string; signal_type?: string; signal_date?: string };
+type Signal = { source?: string; signal_type?: string; signal_date?: string; detail?: string };
 
 /** "nyc_license 2026-10-12 · fmcsa 2026-10-03": what the engine saw, newest first. */
 export function signalSummary(signals: unknown): string {
@@ -40,7 +40,158 @@ export function signalSummary(signals: unknown): string {
     .join(" · ");
 }
 
+export const LEAD_TYPES = ["fleet", "contractor", "auto", "ucc"] as const;
+export type LeadType = (typeof LEAD_TYPES)[number];
+export const LEAD_TYPE_LABEL: Record<LeadType, string> = {
+  fleet: "Fleet",
+  contractor: "Contractor",
+  auto: "Auto shop",
+  ucc: "UCC",
+};
+
+const signalTypes = (signals: unknown): Set<string> =>
+  new Set(
+    Array.isArray(signals)
+      ? (signals as Signal[]).map((s) => (s && typeof s === "object" ? (s.signal_type ?? "") : ""))
+      : [],
+  );
+
+/**
+ * Which kind of lead this is, read from what the engine saw, in the order the engine's push picks
+ * them: an established trucking fleet, else a contractor (NYC permit or license, NJ home
+ * improvement registration), else an auto repair shop, else a merchant known only from a UCC filing.
+ */
+export function leadType(signals: unknown): LeadType | null {
+  const t = signalTypes(signals);
+  if (t.has("fmcsa_established")) return "fleet";
+  if (t.has("nyc_permit") || t.has("nyc_license") || t.has("nj_hic")) return "contractor";
+  if (t.has("nj_auto_facility")) return "auto";
+  if (t.has("mca_ucc")) return "ucc";
+  return null;
+}
+
+/** A UCC filing by an MCA funder is on record: this merchant has taken an advance before. */
+export const tookMca = (signals: unknown) => signalTypes(signals).has("mca_ucc");
+
 export const tel = (phone: string | null) => (phone ?? "").replace(/[^0-9+]/g, "");
+
+/** Plain names for the public records the engine reads. */
+const RECORD_LABEL: Record<string, string> = {
+  nyc_permit: "NYC building permit",
+  nyc_license: "NYC business license",
+  fmcsa_established: "Federal trucking registration (FMCSA)",
+  nj_auto_facility: "NJ auto facility license",
+  nj_hic: "NJ home improvement contractor registration",
+  mca_ucc: "UCC-1 filed by an MCA funder",
+  email_reply: "Replied to the Lamp email",
+  email_optout: "Asked Lamp to stop emailing",
+};
+
+export type LeadRecord = { label: string; date: string | null; detail: string | null };
+
+/**
+ * Every public record behind a lead, newest first, once each: what it is, when, and what it said
+ * (the engine sends a detail line such as "1 permitted job(s) since 2026-10-22, $56,000
+ * estimated; Plumbing"; older pushes have none).
+ */
+export function leadRecords(signals: unknown): LeadRecord[] {
+  if (!Array.isArray(signals)) return [];
+  const seen = new Set<string>();
+  const out: LeadRecord[] = [];
+  for (const s of signals as Signal[]) {
+    if (!s || typeof s !== "object") continue;
+    const type = String(s.signal_type ?? "");
+    const label = RECORD_LABEL[type] ?? (type || String(s.source ?? "")).replace(/_/g, " ");
+    if (!label) continue;
+    const date = typeof s.signal_date === "string" && s.signal_date ? s.signal_date : null;
+    const detail = typeof s.detail === "string" && s.detail.trim() ? s.detail.trim() : null;
+    const key = `${label}|${date}|${detail}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ label, date, detail });
+  }
+  return out.sort((a, b) => (b.date ?? "").localeCompare(a.date ?? ""));
+}
+
+export type LeadWhy = {
+  owner: string | null;
+  ownerFrom: string | null;
+  alsoOwner: string | null;
+  points: { text: string; means: string | null }[];
+};
+
+// What each part of the engine's reason line tells a rep. The engine writes "(PPP loan)"; the
+// program is shown as PPP so reps don't carry the word into an MCA call.
+const POINT_MEANS: [RegExp, (m: RegExpMatchArray) => string][] = [
+  [
+    /^operating in 2020-21/i,
+    () => "It was open and running in 2020-21, so it isn't a new business.",
+  ],
+  [
+    /PPP payroll \$([\d,]+)\/mo/i,
+    (m) => `Payroll it reported for PPP, about $${m[1]} a month: a rough idea of its size.`,
+  ],
+  [/\$([\d,]+) of permitted work/i, () => "Estimated value of the jobs on its permits."],
+  [/^FMCSA registered (\d{4})/i, (m) => `A registered trucking company since ${m[1]}.`],
+  [/^(\d+) trucks?$/i, (m) => `${m[1]} trucks on its federal registration.`],
+  [/license since (\d{4})/i, (m) => `Licensed by the city since ${m[1]}.`],
+  [/UCC|MCA/i, () => "A funder filed a lien for an advance: it has taken an MCA before."],
+];
+
+/**
+ * The engine's reason line, taken apart: "Owner: Name (where the name came from); also Other ·
+ * point · point". The owner leads the line because Lamp has no owner column.
+ */
+export function splitWhy(reason: string | null): LeadWhy {
+  const parts = (reason ?? "")
+    .split(" · ")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  let owner: string | null = null;
+  let ownerFrom: string | null = null;
+  let alsoOwner: string | null = null;
+  if (parts[0]?.startsWith("Owner:")) {
+    const m = parts
+      .shift()!
+      .slice(6)
+      .trim()
+      .match(/^(.+?)(?: \(([^)]*)\))?(?:; also (.+))?$/);
+    if (m) {
+      owner = m[1]?.trim() || null;
+      ownerFrom = m[2]?.trim() || null;
+      alsoOwner = m[3]?.trim() || null;
+    }
+  }
+  const points = parts
+    // "has phone" holds for every lead here, and a bare tag ("contractor") repeats the industry
+    .filter((p) => p.toLowerCase() !== "has phone" && !/^[a-z][a-z ]{0,24}$/.test(p))
+    .map((p) => {
+      const text = p.replace(/\(PPP loan\)/gi, "(PPP)");
+      const hit = POINT_MEANS.find(([re]) => re.test(p));
+      return { text, means: hit ? hit[1](p.match(hit[0])!) : null };
+    });
+  return { owner, ownerFrom, alsoOwner, points };
+}
+
+/** Why this kind of business needs working capital, and a first question that opens it up. */
+export const LEAD_APPROACH: Record<LeadType, { why: string; ask: string }> = {
+  contractor: {
+    why: "It has permitted work going on now. Contractors pay for materials, crew and equipment up front and get paid when the customer pays, so cash runs tight between payments.",
+    ask: "Ask about the job on the permit: how they're covering materials and payroll until the customer pays.",
+  },
+  fleet: {
+    why: "Trucking runs on fuel, insurance, repairs and weekly driver pay, while brokers and shippers pay in 30 to 60 days.",
+    ask: "Ask how many trucks are running right now and how long their customers take to pay.",
+  },
+  auto: {
+    why: "A licensed shop with bays, parts and equipment to keep busy. Slow months and big equipment buys hit its cash hardest.",
+    ask: "Ask what equipment they'd add, or how they get through a slow month.",
+  },
+  ucc: {
+    why: "A funder filed a lien for an advance, so it has taken an MCA before: the owner knows how it works and qualified once.",
+    ask: "Ask how that advance went and whether they could use more, or better terms on the next one.",
+  },
+};
 
 /** RFC 4180 CSV: quoted fields may hold commas, quotes ("") and line breaks. */
 export function parseCsv(text: string): string[][] {

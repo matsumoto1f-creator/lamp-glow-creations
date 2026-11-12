@@ -30,6 +30,7 @@ import {
   missing,
   signatureMatches,
 } from "@/lib/application-details";
+import { paperLink } from "@/lib/spoken-notes";
 import {
   applicationUrl,
   buildAltMime,
@@ -54,6 +55,8 @@ import {
   type SubmitResponse,
 } from "@/lib/application-links";
 import { NEW_APPLICATION_COPY, SITE } from "@/lib/site";
+import { safeDraft } from "@/lib/application-draft";
+import type { Json } from "@/integrations/supabase/types";
 import { recordSigned } from "@/lib/tracking.server";
 import {
   einVariants,
@@ -693,6 +696,9 @@ type InviteRow = {
   submitted_at: string | null;
   cancelled_at: string | null;
   expires_at: string;
+  draft: Record<string, unknown> | null;
+  draft_step: number | null;
+  draft_saved_at: string | null;
 };
 
 /** The invite, or null when the token matches none. Throws when the lookup itself failed. */
@@ -700,7 +706,7 @@ async function inviteByToken(svc: Svc, token: string): Promise<InviteRow | null>
   const r = await svc
     .from("application_invites")
     .select(
-      "id,rep_slug,first_name,last_name,business_name,email,phone,opened_at,started_at,submitted_at,cancelled_at,expires_at",
+      "id,rep_slug,first_name,last_name,business_name,email,phone,opened_at,started_at,submitted_at,cancelled_at,expires_at,draft,draft_step,draft_saved_at",
     )
     .eq("token_hash", await hashToken(token))
     .maybeSingle();
@@ -759,6 +765,9 @@ export async function openApplication(request: Request): Promise<Response> {
         email: inv.email ?? "",
         phone: inv.phone ?? "",
       },
+      answers: inv.draft ?? null,
+      answers_step: inv.draft_step ?? null,
+      answers_saved_at: inv.draft_saved_at ?? null,
     } satisfies OpenResponse);
   }
 
@@ -773,6 +782,132 @@ export async function openApplication(request: Request): Promise<Response> {
     rep: repOut(rep),
     prefill: null,
   } satisfies OpenResponse);
+}
+
+// ---------- POST /api/application/draft (staff, on the phone with the merchant) ----------
+
+const MAX_DRAFT_BYTES = 150 * 1024;
+
+/**
+ * Start application: the rep fills in the merchant's personal link with them on the phone. "save"
+ * keeps the answers on the invite (never an SSN or date of birth), so the merchant's own browser
+ * opens them; "email" sends that same link to the merchant to check, add the private numbers and
+ * sign. Only the rep the link belongs to, or an admin, and only while it is open.
+ */
+export async function applicationDraft(request: Request): Promise<Response> {
+  const nr = notReady();
+  if (nr) return nr;
+  const who = await caller(request);
+  if (!who) return json(401, { error: "Sign in to Lamp in this browser first." });
+  const [roles, mine] = await Promise.all([
+    who.client.from("user_roles").select("role").eq("user_id", who.userId),
+    who.client.rpc("current_rep_slug"),
+  ]);
+  const held = new Set(((roles.data ?? []) as { role: string }[]).map((r) => r.role));
+  const isAdmin = held.has("admin");
+  if (!isAdmin && !held.has("rep")) return json(403, { error: "Staff only." });
+  const ownSlug = (mine.data as string | null) ?? null;
+
+  const body = await readJson<{
+    action?: unknown;
+    token?: unknown;
+    draft?: unknown;
+    step?: unknown;
+    to?: unknown;
+    form?: unknown;
+  }>(request, MAX_DRAFT_BYTES + 4096);
+  if (body instanceof Response) return body;
+  if (!isToken(body.token)) return json(400, { error: "That isn't an application link." });
+  const svc = service();
+  const inv = await inviteByToken(svc, body.token).catch(() => undefined);
+  if (inv === undefined) return tryAgain();
+  if (!inv) return json(404, { error: "That link doesn't work any more." });
+  if (!isAdmin && inv.rep_slug !== ownSlug)
+    return json(403, { error: "That application belongs to another rep." });
+  if (inv.submitted_at) return json(409, { error: SIGNED });
+  if (inv.cancelled_at) return json(410, { error: "That link was replaced or stopped." });
+  if (Date.parse(inv.expires_at) < Date.now()) return json(410, { error: "That link expired." });
+
+  if (body.action === "save") {
+    const draft = safeDraft(body.draft);
+    if (!draft) return json(400, { error: "No answers to save." });
+    if (JSON.stringify(draft).length > MAX_DRAFT_BYTES)
+      return json(413, { error: "That's more than an application holds." });
+    const step =
+      typeof body.step === "number" && Number.isInteger(body.step)
+        ? Math.min(Math.max(body.step, 0), 10)
+        : 0;
+    const now = new Date().toISOString();
+    const upd = await svc
+      .from("application_invites")
+      .update({
+        draft: draft as Json,
+        draft_step: step,
+        draft_saved_at: now,
+        draft_by: who.userId,
+        started_at: inv.started_at ?? now,
+        opened_at: inv.opened_at ?? now,
+      })
+      .eq("id", inv.id)
+      .is("submitted_at", null)
+      .select("id");
+    if (upd.error) return json(500, { error: "Couldn't save. Try again." });
+    if (!upd.data?.length) return json(409, { error: SIGNED });
+    return json(200, { saved_at: now });
+  }
+
+  if (body.action === "email") {
+    // the owner's email as typed on the call, else the one the link was made with
+    const typed = typeof body.to === "string" ? cleanEmail(body.to) : "";
+    const to = EMAIL_RE.test(typed) ? typed : cleanEmail(inv.email);
+    if (!to || !EMAIL_RE.test(to))
+      return json(400, {
+        error:
+          "This link has no email address. Add it on the lead and start again, or copy the link.",
+      });
+    const dnc = await doNotContact(svc, to, inv.phone ?? "");
+    if (dnc === null)
+      return json(503, { error: "Couldn't check the do-not-contact list. Try again." });
+    if (dnc) return json(409, { error: "Marked do not contact." });
+    const rep = await repBySlug(svc, inv.rep_slug).catch(() => undefined);
+    if (rep === undefined) return tryAgain();
+    if (!rep) return json(409, { error: "That rep is gone." });
+    const access = await gmailAccessToken(svc).catch(() => ({ error: "Couldn't reach Google." }));
+    if ("error" in access) return json(412, { error: access.error });
+    const mail = inviteEmail({
+      firstName: inv.first_name ?? "",
+      businessName: inv.business_name ?? "",
+      repName: facing(rep).name,
+      note: "",
+      // Start application opens the paper form, so the merchant gets the same paper form
+      url:
+        body.form === "pdf"
+          ? paperLink(applicationUrl(SITE_URL(), rep.slug, body.token))
+          : applicationUrl(SITE_URL(), rep.slug, body.token),
+      legalName: SITE.legalName,
+      address: SITE.address,
+      filled: true,
+    });
+    const sent = await gmailSend(access.access, {
+      to,
+      fromName: `${facing(rep).name} at Lamp`,
+      replyTo: await replyToFor(svc, rep, who.userId),
+      subject: mail.subject,
+      text: mail.text,
+      html: mail.html,
+    });
+    if ("error" in sent) {
+      await svc.from("application_invites").update({ last_error: sent.error }).eq("id", inv.id);
+      return json(502, { error: `Couldn't send: ${sent.error}` });
+    }
+    await svc
+      .from("application_invites")
+      .update({ channel: "email", email: to, email_message_id: sent.id, last_error: null })
+      .eq("id", inv.id);
+    return json(200, { sent_to: to });
+  }
+
+  return json(400, { error: "Say save or email." });
 }
 
 // ---------- POST /api/application/submit (anyone with the link) ----------

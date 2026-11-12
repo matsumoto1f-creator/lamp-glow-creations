@@ -6,12 +6,15 @@ import { age } from "@/lib/staff";
 import { btnPrimary, card } from "@/components/site/layout";
 import { chip, input } from "@/components/staff/field-styles";
 import type { TeamRow } from "@/lib/team.server";
+import type { DiscordMember } from "@/lib/team-alerts";
 
 /**
  * Team (admins only): add reps by name and email, pick the admin each one reports to, make
  * someone an admin, switch a rep off, resend the welcome email. A rep who reports to an admin
  * sends applications in that admin's name; the signed file still lands in the rep's own files,
- * so the rep works the deal and the admin sees on every file which rep sent it.
+ * so the rep works the deal and the admin sees on every file which rep sent it. The Discord
+ * column matches each rep to their account in the Lamp Discord server, so their alerts come as
+ * DMs and /lamp knows who's asking, without them typing /lamp link.
  */
 
 async function call(method: "GET" | "POST", body?: unknown) {
@@ -28,6 +31,7 @@ async function call(method: "GET" | "POST", body?: unknown) {
   });
   const data = (await res.json().catch(() => ({}))) as {
     team?: TeamRow[];
+    discord?: { members: DiscordMember[]; error: string | null };
     row?: TeamRow;
     emailed?: boolean;
     email_error?: string | null;
@@ -39,6 +43,10 @@ async function call(method: "GET" | "POST", body?: unknown) {
 
 export function Team({ onChanged }: { onChanged?: () => void }) {
   const [rows, setRows] = useState<TeamRow[] | null>(null);
+  const [discord, setDiscord] = useState<{ members: DiscordMember[]; error: string | null }>({
+    members: [],
+    error: null,
+  });
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -49,7 +57,9 @@ export function Team({ onChanged }: { onChanged?: () => void }) {
 
   const load = useCallback(async () => {
     try {
-      setRows((await call("GET")).team ?? []);
+      const d = await call("GET");
+      setRows(d.team ?? []);
+      setDiscord(d.discord ?? { members: [], error: null });
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't load the team.");
@@ -61,6 +71,10 @@ export function Team({ onChanged }: { onChanged?: () => void }) {
   }, [load]);
 
   const admins = (rows ?? []).filter((r) => r.is_admin && r.active);
+  const memberName = new Map(discord.members.map((m) => [m.id, m.name]));
+  const matchedTo = new Map(
+    (rows ?? []).filter((r) => r.discord_id).map((r) => [r.discord_id!, r.name]),
+  );
 
   async function act(
     key: string,
@@ -200,17 +214,24 @@ export function Team({ onChanged }: { onChanged?: () => void }) {
         </p>
       )}
 
+      {discord.error && (
+        <p className="text-sm text-smoke" role="status">
+          Discord: {discord.error}
+        </p>
+      )}
+
       <section className={cn(card, "overflow-x-auto")}>
         {rows === null ? (
           <div className="grid place-items-center py-16">
             <Loader2 className="size-6 animate-spin text-smoke" />
           </div>
         ) : (
-          <table className="w-full min-w-[860px] text-left text-sm">
+          <table className="w-full min-w-[1040px] text-left text-sm">
             <thead className="border-b border-line text-xs uppercase tracking-wide text-smoke">
               <tr>
                 <th className="px-4 py-3 font-semibold">Person</th>
                 <th className="px-4 py-3 font-semibold">Sign-in</th>
+                <th className="px-4 py-3 font-semibold">Discord</th>
                 <th className="px-4 py-3 font-semibold">Reports to</th>
                 <th className="px-4 py-3 font-semibold">Admin</th>
                 <th className="px-4 py-3 font-semibold">On the team</th>
@@ -238,6 +259,46 @@ export function Team({ onChanged }: { onChanged?: () => void }) {
                       : r.invited_at
                         ? `Invited ${age(r.invited_at)} ago`
                         : "No login yet"}
+                  </td>
+                  <td className="px-4 py-3">
+                    {r.linked ? (
+                      <select
+                        aria-label={`${r.name}'s Discord account`}
+                        data-team-discord={r.slug}
+                        className="max-w-[13rem] rounded-full bg-white px-3 py-1.5 text-sm ring-1 ring-line"
+                        value={r.discord_id ?? ""}
+                        disabled={!!busy || (!discord.members.length && !r.discord_id)}
+                        onChange={(e) => {
+                          // read it now: the controlled select snaps back until the team reloads
+                          const id = e.target.value;
+                          void act(
+                            `discord:${r.slug}`,
+                            { action: "discord", slug: r.slug, discord_id: id || null },
+                            () =>
+                              id
+                                ? `${r.name} is matched to ${memberName.get(id) ?? "that account"} in Discord. Their alerts come as DMs, and /lamp knows them.`
+                                : `${r.name} isn't matched in Discord any more.`,
+                          );
+                        }}
+                      >
+                        <option value="">Not matched</option>
+                        {r.discord_id && !memberName.has(r.discord_id) && (
+                          <option value={r.discord_id}>Matched (not in the server now)</option>
+                        )}
+                        {discord.members.map((m) => {
+                          const other = matchedTo.get(m.id);
+                          return (
+                            <option key={m.id} value={m.id}>
+                              {m.name}
+                              {m.name !== m.username ? ` (@${m.username})` : ""}
+                              {other && other !== r.name ? `: now ${other}` : ""}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    ) : (
+                      <span className="text-xs text-smoke">After they sign in</span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <select

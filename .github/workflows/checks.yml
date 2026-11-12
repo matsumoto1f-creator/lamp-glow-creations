@@ -1,0 +1,43 @@
+# Runs on every pull request and on every change to main (including edits
+# Lovable pushes), so a broken change shows a red X before anyone clicks Publish.
+name: Checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Types
+        run: bunx tsc --noEmit -p .
+
+      - name: Lint and formatting
+        run: bunx eslint . --quiet
+
+      - name: Build
+        run: bun run build
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Tests
+        run: deno test --node-modules-dir=none tests/

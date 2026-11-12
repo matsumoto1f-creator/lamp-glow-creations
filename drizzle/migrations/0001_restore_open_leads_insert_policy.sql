@@ -1,0 +1,1 @@
+create policy "Anyone can submit a lead" on public.leads for insert to anon, authenticated with check (true);

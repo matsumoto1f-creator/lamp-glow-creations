@@ -5,7 +5,7 @@
 //   GET /api/brain/brief?file=<id>  one file's next step, for the file view
 //
 // Everything is read as the caller, so the database's rules decide which files they see. The
-// model is called at most once per person per day, only when ANTHROPIC_API_KEY is set (and
+// model is called at most once per person per day, only when Lamp has an Anthropic key (and
 // LAMP_BRAIN isn't "off"), only while the month's spend is under BRAIN_MONTHLY_CAP_USD (50 by
 // default), and only with the allowlisted facts from brain.ts. Whatever it writes is checked
 // (checkBrief) before anyone sees it; anything that fails falls back to the rules' own words.
@@ -14,6 +14,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import * as z from "zod/v4";
 import { caller, env, json, service, SERVICE_KEY, SUPABASE_URL } from "@/lib/funder-send.server";
+import { anthropicKey } from "@/lib/ai-key.server";
 import {
   type BrainInput,
   briefDay,
@@ -41,7 +42,9 @@ const OPEN = [
 const PENDING_MS = 2 * 60_000;
 const RETRY_FAILED_MS = 60 * 60_000;
 
-export const on = () => !!env("ANTHROPIC_API_KEY") && env("LAMP_BRAIN").toLowerCase() !== "off";
+/** Claude writes only when Lamp has a key (ai-key.server.ts) and LAMP_BRAIN isn't "off". */
+export const on = async () =>
+  env("LAMP_BRAIN").toLowerCase() !== "off" && !!(await anthropicKey()).key;
 export const cap = () => {
   const v = Number(env("BRAIN_MONTHLY_CAP_USD"));
   return Number.isFinite(v) && v >= 0 && env("BRAIN_MONTHLY_CAP_USD") !== "" ? v : 50;
@@ -276,7 +279,7 @@ async function write(
   repName: (slug: string | null) => string | undefined,
 ) {
   const client = new Anthropic({
-    apiKey: env("ANTHROPIC_API_KEY"),
+    apiKey: (await anthropicKey()).key,
     timeout: 60_000,
     maxRetries: 1,
   });
@@ -360,6 +363,7 @@ export async function brainBrief(request: Request): Promise<Response> {
   }
 
   const items = findToday(input, now, scope);
+  const isOn = await on();
   const rules = (reason: string | null, headline: string | null = null) =>
     json(200, {
       day,
@@ -367,10 +371,10 @@ export async function brainBrief(request: Request): Promise<Response> {
       reason,
       headline,
       items: items.map((i) => view(i)),
-      ...(me.isAdmin ? { switch: on() ? "on" : "off" } : {}),
+      ...(me.isAdmin ? { switch: isOn ? "on" : "off" } : {}),
     });
 
-  if (!on()) return rules("off");
+  if (!isOn) return rules("off");
   if (!items.length) return rules(null);
 
   let row = await today();

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import { CHAT_OPEN_EVENT } from "@/lib/chat-dock";
 import { Bell, Check } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
@@ -26,7 +27,8 @@ type Note = {
 const POLL_MS = 60_000;
 const SHOWN = 40;
 
-export function NotificationsBell() {
+/** chatUnread: conversations in the Messages side panel with something new (chat writes no notifications). */
+export function NotificationsBell({ chatUnread = 0 }: { chatUnread?: number }) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -90,23 +92,24 @@ export function NotificationsBell() {
   }
 
   const unread = notes.filter((n) => !n.read_at);
+  const badge = unread.length + chatUnread;
 
   return (
     <div ref={ref} className="relative" data-notifications>
       <button
         type="button"
-        aria-label={unread.length ? `Notifications, ${unread.length} unread` : "Notifications"}
+        aria-label={badge ? `Notifications, ${badge} unread` : "Notifications"}
         aria-expanded={open}
         className="relative grid size-10 place-items-center rounded-full ring-1 ring-line transition hover:ring-ink/30"
         onClick={() => setOpen((o) => !o)}
       >
         <Bell className="size-4.5" />
-        {unread.length > 0 && (
+        {badge > 0 && (
           <span
             className="absolute -right-1 -top-1 grid min-w-5 place-items-center rounded-full bg-leaf px-1 text-[0.7rem] font-bold leading-5 text-ink"
-            data-unread={unread.length}
+            data-unread={badge}
           >
-            {unread.length > 9 ? "9+" : unread.length}
+            {badge > 9 ? "9+" : badge}
           </span>
         )}
       </button>
@@ -128,6 +131,22 @@ export function NotificationsBell() {
               </button>
             )}
           </div>
+          {chatUnread > 0 && (
+            <button
+              type="button"
+              className="flex w-full items-center gap-3 border-b border-line bg-leaf/10 px-4 py-3 text-left text-sm font-semibold transition hover:bg-sand"
+              onClick={() => {
+                setOpen(false);
+                window.dispatchEvent(new CustomEvent(CHAT_OPEN_EVENT));
+              }}
+              data-bell-messages
+            >
+              <span aria-hidden className="size-2 shrink-0 rounded-full bg-leaf" />
+              {chatUnread === 1
+                ? "1 conversation has new messages"
+                : `${chatUnread} conversations have new messages`}
+            </button>
+          )}
           {notes.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-smoke">
               Nothing yet. New files, documents and offers on your deals show up here.

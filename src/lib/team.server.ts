@@ -8,6 +8,8 @@ import { caller, gmailAccessToken, json, service, SUPABASE_URL } from "@/lib/fun
 import { gmailSend, readJson } from "@/lib/application-links.server";
 import { EMAIL_RE, cleanEmail } from "@/lib/application-links";
 import { SITE } from "@/lib/site";
+import { discordMembers, setDiscordId } from "@/lib/discord.server";
+import { isDiscordId } from "@/lib/team-alerts";
 
 type Svc = ReturnType<typeof service>;
 
@@ -23,6 +25,8 @@ export type TeamRow = {
   is_admin: boolean;
   /** Waiting for their first sign-in. */
   invited_at: string | null;
+  /** The Discord account their Lamp login is matched to (by an admin or /lamp link). */
+  discord_id: string | null;
 };
 
 const SLUG = /^[a-z0-9][a-z0-9-]{1,31}$/;
@@ -60,12 +64,14 @@ async function team(svc: Svc): Promise<TeamRow[]> {
   const ids = seats.map((s) => s.user_id).filter((x): x is string => !!x);
   const [profiles, roles] = ids.length
     ? await Promise.all([
-        svc.from("profiles").select("id,email").in("id", ids),
+        svc.from("profiles").select("id,email,discord_id").in("id", ids),
         svc.from("user_roles").select("user_id").eq("role", "admin").in("user_id", ids),
       ])
     : [{ data: [] }, { data: [] }];
-  const emailOf = new Map(
-    ((profiles.data ?? []) as { id: string; email: string | null }[]).map((p) => [p.id, p.email]),
+  const profileOf = new Map(
+    (
+      (profiles.data ?? []) as { id: string; email: string | null; discord_id: string | null }[]
+    ).map((p) => [p.id, p]),
   );
   const admins = new Set(((roles.data ?? []) as { user_id: string }[]).map((r) => r.user_id));
   const inv = (invites.data ?? []) as {
@@ -83,10 +89,11 @@ async function team(svc: Svc): Promise<TeamRow[]> {
       title: s.title,
       active: s.active,
       admin_slug: s.admin_slug,
-      email: (s.user_id ? emailOf.get(s.user_id) : null) ?? open?.email ?? null,
+      email: (s.user_id ? profileOf.get(s.user_id)?.email : null) ?? open?.email ?? null,
       linked: !!s.user_id,
       is_admin: s.user_id ? admins.has(s.user_id) : !!open?.roles.includes("admin"),
       invited_at: !s.user_id && open ? open.created_at : null,
+      discord_id: (s.user_id ? profileOf.get(s.user_id)?.discord_id : null) ?? null,
     };
   });
 }
@@ -170,11 +177,12 @@ async function sendWelcome(svc: Svc, row: TeamRow, inviterId: string): Promise<s
   return "error" in sent ? sent.error : null;
 }
 
-/** GET /api/team: the team, admins only. */
+/** GET /api/team: the team, and who's in the Lamp Discord server to match them to; admins only. */
 export async function listTeam(request: Request): Promise<Response> {
   const a = await admin(request);
   if (a instanceof Response) return a;
-  return json(200, { team: await team(a.svc) });
+  const [rows, discord] = await Promise.all([team(a.svc), discordMembers()]);
+  return json(200, { team: rows, discord });
 }
 
 type Body = {
@@ -186,9 +194,10 @@ type Body = {
   admin_slug?: unknown;
   make_admin?: unknown;
   active?: unknown;
+  discord_id?: unknown;
 };
 
-/** POST /api/team: { action: "add" | "update" | "invite", ... }, admins only. */
+/** POST /api/team: { action: "add" | "update" | "invite" | "discord", ... }, admins only. */
 export async function changeTeam(request: Request): Promise<Response> {
   const a = await admin(request);
   if (a instanceof Response) return a;
@@ -279,6 +288,21 @@ export async function changeTeam(request: Request): Promise<Response> {
     if (row.linked) return json(400, { error: "They've already signed in." });
     const emailError = await sendWelcome(svc, row, userId);
     return emailError ? json(502, { error: emailError }) : json(200, { row, emailed: true });
+  }
+
+  if (body.action === "discord") {
+    // match their Lamp login to a Discord account, so alerts DM them and /lamp knows them
+    const discordId = body.discord_id === null ? null : body.discord_id;
+    if (discordId !== null && !isDiscordId(discordId))
+      return json(400, { error: "Pick someone from the Discord list." });
+    const seat = await svc.from("reps").select("user_id").eq("slug", slug).maybeSingle();
+    const uid = (seat.data as { user_id: string | null } | null)?.user_id ?? null;
+    if (!uid)
+      return json(400, { error: "They haven't signed in to Lamp yet. Match them after they do." });
+    if (!(await setDiscordId(svc, uid, discordId)))
+      return json(500, { error: "Couldn't save that. Try again." });
+    const next = (await team(svc)).find((r) => r.slug === slug)!;
+    return json(200, { row: next });
   }
 
   if (body.action === "update") {

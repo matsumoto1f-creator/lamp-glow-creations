@@ -52,6 +52,7 @@ import { Route as ApiDocumentsRequestRouteImport } from './routes/api.documents.
 import { Route as ApiDocumentsRequestUploadRouteImport } from './routes/api.documents.request-upload'
 import { Route as ApiDocumentsUploadRouteImport } from './routes/api.documents.upload'
 import { Route as ApiEnginePushRouteImport } from './routes/api.engine.push'
+import { Route as ApiEngineReplyRouteImport } from './routes/api.engine.reply'
 import { Route as ApiFundersSendRouteImport } from './routes/api.funders.send'
 import { Route as ApiGmailCallbackRouteImport } from './routes/api.gmail.callback'
 import { Route as ApiGmailConnectRouteImport } from './routes/api.gmail.connect'
@@ -275,6 +276,11 @@ const ApiEnginePushRoute = ApiEnginePushRouteImport.update({
   path: '/api/engine/push',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiEngineReplyRoute = ApiEngineReplyRouteImport.update({
+  id: '/api/engine/reply',
+  path: '/api/engine/reply',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiFundersSendRoute = ApiFundersSendRouteImport.update({
   id: '/api/funders/send',
   path: '/api/funders/send',
@@ -350,6 +356,7 @@ export interface FileRoutesByFullPath {
   '/api/documents/request-upload': typeof ApiDocumentsRequestUploadRoute
   '/api/documents/upload': typeof ApiDocumentsUploadRoute
   '/api/engine/push': typeof ApiEnginePushRoute
+  '/api/engine/reply': typeof ApiEngineReplyRoute
   '/api/funders/send': typeof ApiFundersSendRoute
   '/api/gmail/callback': typeof ApiGmailCallbackRoute
   '/api/gmail/connect': typeof ApiGmailConnectRoute
@@ -401,6 +408,7 @@ export interface FileRoutesByTo {
   '/api/documents/request-upload': typeof ApiDocumentsRequestUploadRoute
   '/api/documents/upload': typeof ApiDocumentsUploadRoute
   '/api/engine/push': typeof ApiEnginePushRoute
+  '/api/engine/reply': typeof ApiEngineReplyRoute
   '/api/funders/send': typeof ApiFundersSendRoute
   '/api/gmail/callback': typeof ApiGmailCallbackRoute
   '/api/gmail/connect': typeof ApiGmailConnectRoute
@@ -453,6 +461,7 @@ export interface FileRoutesById {
   '/api/documents/request-upload': typeof ApiDocumentsRequestUploadRoute
   '/api/documents/upload': typeof ApiDocumentsUploadRoute
   '/api/engine/push': typeof ApiEnginePushRoute
+  '/api/engine/reply': typeof ApiEngineReplyRoute
   '/api/funders/send': typeof ApiFundersSendRoute
   '/api/gmail/callback': typeof ApiGmailCallbackRoute
   '/api/gmail/connect': typeof ApiGmailConnectRoute
@@ -506,6 +515,7 @@ export interface FileRouteTypes {
     | '/api/documents/request-upload'
     | '/api/documents/upload'
     | '/api/engine/push'
+    | '/api/engine/reply'
     | '/api/funders/send'
     | '/api/gmail/callback'
     | '/api/gmail/connect'
@@ -557,6 +567,7 @@ export interface FileRouteTypes {
     | '/api/documents/request-upload'
     | '/api/documents/upload'
     | '/api/engine/push'
+    | '/api/engine/reply'
     | '/api/funders/send'
     | '/api/gmail/callback'
     | '/api/gmail/connect'
@@ -608,6 +619,7 @@ export interface FileRouteTypes {
     | '/api/documents/request-upload'
     | '/api/documents/upload'
     | '/api/engine/push'
+    | '/api/engine/reply'
     | '/api/funders/send'
     | '/api/gmail/callback'
     | '/api/gmail/connect'
@@ -657,6 +669,7 @@ export interface RootRouteChildren {
   ApiDiscordLinkRoute: typeof ApiDiscordLinkRoute
   ApiDiscordSetupRoute: typeof ApiDiscordSetupRoute
   ApiEnginePushRoute: typeof ApiEnginePushRoute
+  ApiEngineReplyRoute: typeof ApiEngineReplyRoute
   ApiFundersSendRoute: typeof ApiFundersSendRoute
   ApiGmailCallbackRoute: typeof ApiGmailCallbackRoute
   ApiGmailConnectRoute: typeof ApiGmailConnectRoute
@@ -967,6 +980,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiEnginePushRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/engine/reply': {
+      id: '/api/engine/reply'
+      path: '/api/engine/reply'
+      fullPath: '/api/engine/reply'
+      preLoaderRoute: typeof ApiEngineReplyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/funders/send': {
       id: '/api/funders/send'
       path: '/api/funders/send'
@@ -1080,6 +1100,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiDiscordLinkRoute: ApiDiscordLinkRoute,
   ApiDiscordSetupRoute: ApiDiscordSetupRoute,
   ApiEnginePushRoute: ApiEnginePushRoute,
+  ApiEngineReplyRoute: ApiEngineReplyRoute,
   ApiFundersSendRoute: ApiFundersSendRoute,
   ApiGmailCallbackRoute: ApiGmailCallbackRoute,
   ApiGmailConnectRoute: ApiGmailConnectRoute,

@@ -10,6 +10,7 @@ import { PageShell } from "@/components/site/layout";
 import { Board } from "@/components/staff/board";
 import { FileView } from "@/components/staff/file-view";
 import { EngineLeads } from "@/components/staff/engine-leads";
+import { EmailReplies } from "@/components/staff/email-replies";
 import { MyCalls } from "@/components/staff/notes-calls";
 import { Today } from "@/components/staff/today";
 import { LeadProfile } from "@/components/staff/lead-profile";
@@ -38,10 +39,12 @@ type StaffSearch = {
   thread?: string | undefined;
 };
 
-type View = "dashboard" | "engine" | "sent" | "funders" | "money" | "team" | "ai" | "training";
+type View =
+  "dashboard" | "engine" | "replies" | "sent" | "funders" | "money" | "team" | "ai" | "training";
 const VIEWS: readonly View[] = [
   "dashboard",
   "engine",
+  "replies",
   "sent",
   "funders",
   "money",
@@ -54,6 +57,7 @@ const ADMIN_VIEWS: readonly View[] = ["team", "ai"];
 const VIEW_TITLE: Record<View, string> = {
   dashboard: "Dashboard",
   engine: "Engine leads",
+  replies: "Email replies",
   sent: "Applications",
   funders: "Funders",
   money: "Money",
@@ -227,6 +231,8 @@ function Staff() {
           <Dashboard isAdmin={access.isAdmin} repSlug={access.repSlug} />
         ) : view === "engine" ? (
           <EngineLeads isAdmin={access.isAdmin} repSlug={access.repSlug} reps={reps} />
+        ) : view === "replies" ? (
+          <EmailReplies isAdmin={access.isAdmin} reps={reps} />
         ) : view === "sent" ? (
           <SentApplications isAdmin={access.isAdmin} repSlug={access.repSlug} reps={reps} />
         ) : view === "funders" ? (

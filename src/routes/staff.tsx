@@ -11,6 +11,8 @@ import { Board } from "@/components/staff/board";
 import { FileView } from "@/components/staff/file-view";
 import { EngineLeads } from "@/components/staff/engine-leads";
 import { MyLists } from "@/components/staff/my-lists";
+import { EmailReplies } from "@/components/staff/email-replies";
+import { EngineStatus } from "@/components/staff/engine-status";
 import { MyCalls } from "@/components/staff/notes-calls";
 import { Today } from "@/components/staff/today";
 import { LeadProfile } from "@/components/staff/lead-profile";
@@ -40,11 +42,23 @@ type StaffSearch = {
 };
 
 type View =
-  "dashboard" | "engine" | "lists" | "sent" | "funders" | "money" | "team" | "ai" | "training";
+  | "dashboard"
+  | "engine"
+  | "lists"
+  | "replies"
+  | "autopilot"
+  | "sent"
+  | "funders"
+  | "money"
+  | "team"
+  | "ai"
+  | "training";
 const VIEWS: readonly View[] = [
   "dashboard",
   "engine",
   "lists",
+  "replies",
+  "autopilot",
   "sent",
   "funders",
   "money",
@@ -53,11 +67,13 @@ const VIEWS: readonly View[] = [
   "training",
 ];
 /** Tabs only admins see. */
-const ADMIN_VIEWS: readonly View[] = ["team", "ai"];
+const ADMIN_VIEWS: readonly View[] = ["autopilot", "team", "ai"];
 const VIEW_TITLE: Record<View, string> = {
   dashboard: "Dashboard",
   engine: "Engine leads",
   lists: "My lists",
+  replies: "Email replies",
+  autopilot: "Email engine",
   sent: "Applications",
   funders: "Funders",
   money: "Money",
@@ -248,6 +264,14 @@ function Staff() {
           <EngineLeads isAdmin={access.isAdmin} repSlug={access.repSlug} reps={reps} />
         ) : view === "lists" ? (
           <MyLists onChanged={() => setListsTick((t) => t + 1)} />
+        ) : view === "replies" ? (
+          <EmailReplies isAdmin={access.isAdmin} reps={reps} />
+        ) : view === "autopilot" ? (
+          access.isAdmin ? (
+            <EngineStatus />
+          ) : (
+            <p className="mt-8 text-sm text-smoke">The email engine is for admins.</p>
+          )
         ) : view === "sent" ? (
           <SentApplications isAdmin={access.isAdmin} repSlug={access.repSlug} reps={reps} />
         ) : view === "funders" ? (

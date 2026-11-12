@@ -83,6 +83,8 @@ const RECORD_LABEL: Record<string, string> = {
   nj_auto_facility: "NJ auto facility license",
   nj_hic: "NJ home improvement contractor registration",
   mca_ucc: "UCC-1 filed by an MCA funder",
+  email_reply: "Replied to the Lamp email",
+  email_optout: "Asked Lamp to stop emailing",
 };
 
 export type LeadRecord = { label: string; date: string | null; detail: string | null };

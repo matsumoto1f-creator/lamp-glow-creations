@@ -37,7 +37,7 @@ export const unreadCount = (rows: Pick<InboxRow, "unread">[]) =>
 
 export type ChatMessage = {
   id: number;
-  kind: "text" | "document" | "system";
+  kind: "text" | "document" | "system" | "gif";
   body: string;
   author: string | null;
   author_role: "merchant" | "rep" | "admin" | "system";

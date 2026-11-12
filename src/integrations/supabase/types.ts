@@ -1569,6 +1569,106 @@ export type Database = {
           },
         ]
       }
+      private_list_entries: {
+        Row: {
+          area: string | null;
+          business: string;
+          contact: string | null;
+          created_at: string;
+          email: string | null;
+          grp: string | null;
+          id: string;
+          list_id: string;
+          notes: string;
+          owner: string;
+          phone: string | null;
+          position: number;
+          status: string;
+          updated_at: string;
+          website: string | null;
+        };
+        Insert: {
+          area?: string | null;
+          business: string;
+          contact?: string | null;
+          email?: string | null;
+          grp?: string | null;
+          list_id: string;
+          notes?: string;
+          phone?: string | null;
+          position?: number;
+          status?: string;
+          website?: string | null;
+        };
+        Update: {
+          area?: string | null;
+          business?: string;
+          contact?: string | null;
+          email?: string | null;
+          grp?: string | null;
+          notes?: string;
+          phone?: string | null;
+          position?: number;
+          status?: string;
+          website?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "private_list_entries_list_id_fkey";
+            columns: ["list_id"];
+            isOneToOne: false;
+            referencedRelation: "private_lists";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      private_list_touches: {
+        Row: {
+          created_at: string;
+          detail: string | null;
+          entry_id: string;
+          happened_at: string;
+          id: number;
+          kind: string;
+          owner: string;
+          to_address: string | null;
+        };
+        Insert: {
+          detail?: string | null;
+          entry_id: string;
+          happened_at?: string;
+          kind: string;
+          to_address?: string | null;
+        };
+        Update: Record<string, never>;
+        Relationships: [
+          {
+            foreignKeyName: "private_list_touches_entry_id_fkey";
+            columns: ["entry_id"];
+            isOneToOne: false;
+            referencedRelation: "private_list_entries";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      private_lists: {
+        Row: {
+          created_at: string;
+          id: string;
+          name: string;
+          note: string | null;
+          owner: string;
+        };
+        Insert: {
+          name: string;
+          note?: string | null;
+        };
+        Update: {
+          name?: string;
+          note?: string | null;
+        };
+        Relationships: [];
+      };
       profiles: {
         Row: {
           created_at: string

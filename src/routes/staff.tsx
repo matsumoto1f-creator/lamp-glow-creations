@@ -10,6 +10,7 @@ import { PageShell } from "@/components/site/layout";
 import { Board } from "@/components/staff/board";
 import { FileView } from "@/components/staff/file-view";
 import { EngineLeads } from "@/components/staff/engine-leads";
+import { MyLists } from "@/components/staff/my-lists";
 import { EmailReplies } from "@/components/staff/email-replies";
 import { EngineStatus } from "@/components/staff/engine-status";
 import { MyCalls } from "@/components/staff/notes-calls";
@@ -43,6 +44,7 @@ type StaffSearch = {
 type View =
   | "dashboard"
   | "engine"
+  | "lists"
   | "replies"
   | "autopilot"
   | "sent"
@@ -54,6 +56,7 @@ type View =
 const VIEWS: readonly View[] = [
   "dashboard",
   "engine",
+  "lists",
   "replies",
   "autopilot",
   "sent",
@@ -68,6 +71,7 @@ const ADMIN_VIEWS: readonly View[] = ["autopilot", "team", "ai"];
 const VIEW_TITLE: Record<View, string> = {
   dashboard: "Dashboard",
   engine: "Engine leads",
+  lists: "My lists",
   replies: "Email replies",
   autopilot: "Email engine",
   sent: "Applications",
@@ -115,6 +119,9 @@ function Staff() {
   const navigate = useNavigate({ from: "/staff" });
   const [reps, setReps] = useState<{ slug: string; name: string; admin_slug: string | null }[]>([]);
   const [repsTick, setRepsTick] = useState(0);
+  // My lists is a tab only for someone who has a list (or is on the page making their first)
+  const [hasLists, setHasLists] = useState(false);
+  const [listsTick, setListsTick] = useState(0);
 
   const isStaff = access.state === "staff";
   const chatUnread = useChatUnread(isStaff);
@@ -143,6 +150,14 @@ function Staff() {
       .order("name")
       .then(({ data }) => setReps(data ?? []));
   }, [isStaff, repsTick]);
+  useEffect(() => {
+    const sb = getSupabase();
+    if (!sb || !isStaff) return;
+    // the database only counts this person's own lists; an error means the table isn't there yet
+    sb.from("private_lists")
+      .select("id", { count: "exact", head: true })
+      .then(({ count, error }) => setHasLists(!error && (count ?? 0) > 0));
+  }, [isStaff, listsTick]);
 
   if (access.state === "loading") {
     return (
@@ -208,7 +223,11 @@ function Staff() {
             <Link to="/staff" search={{}} className={viewTab(!view)} data-staff-view="files">
               Files
             </Link>
-            {VIEWS.filter((v) => access.isAdmin || !ADMIN_VIEWS.includes(v)).map((v) => (
+            {VIEWS.filter(
+              (v) =>
+                (access.isAdmin || !ADMIN_VIEWS.includes(v)) &&
+                (v !== "lists" || hasLists || view === "lists"),
+            ).map((v) => (
               <Link
                 key={v}
                 to="/staff"
@@ -243,6 +262,8 @@ function Staff() {
           <Dashboard isAdmin={access.isAdmin} repSlug={access.repSlug} />
         ) : view === "engine" ? (
           <EngineLeads isAdmin={access.isAdmin} repSlug={access.repSlug} reps={reps} />
+        ) : view === "lists" ? (
+          <MyLists onChanged={() => setListsTick((t) => t + 1)} />
         ) : view === "replies" ? (
           <EmailReplies isAdmin={access.isAdmin} reps={reps} />
         ) : view === "autopilot" ? (

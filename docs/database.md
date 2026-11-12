@@ -33,7 +33,7 @@ answer never depends on what the caller can read.
 | anonymous | active reps | leads (insert only, through the site's server) |
 | merchant | own profile, businesses, applications, documents in own folder, visible events, presented offers (`my_offers`, with the funder's name only) | own profile and businesses; own application answers and contact fields; own documents until reviewed; `accept_offer()` |
 | rep | own files plus the unassigned pool (`pipeline_board`), and only on those files: events, documents, stored files, submissions, offers, and the owner's profile and businesses; own profile; own and untagged leads (and their events); funders; own deals and ledger entries | on own or unassigned files only: stage and staff notes (`application_internal_notes`), take an unassigned file for themselves (never assign, hand over or release, never change `source_rep_slug`); events as themselves; submissions; offers and their notes (`offer_internal_notes`); document review; own and untagged leads. No business edits, no `accept_offer()` |
-| admin | everything | everything, plus reps, roles, funders, deals, the ledger |
+| admin | everything except other people's private lists | everything, plus reps, roles, funders, deals, the ledger; not other people's private lists |
 | service role (server functions, cron) | bypasses RLS | bypasses RLS |
 
 Guardrails the database enforces whatever the app sends:
@@ -54,6 +54,7 @@ Guardrails the database enforces whatever the app sends:
 - from a browser, only a document's review changes: `status`, `review_note`, `reviewed_at`, and `reviewed_by` as the reviewer (or cleared). Its file (`bucket`, `storage_path`), owner, application, `kind` and every other column change only through the server or an owner-run function such as claiming a file (`documents_fields_guard`), because those columns decide who may open the stored file;
 - a merchant can add a document only as `received`, only for a file that exists under `<own user id>/`, and only with a `kind` from the list below; a merchant cannot change a row afterwards (to relabel a file they remove it and upload it again);
 - a merchant can remove a `received` or `rejected` document only while its application has never been submitted, and can remove a file from storage only when no document row points at it (`storage_object_is_indexed()`), so documents sent to funders stay with the deal;
+- private lists (`private_lists`, `private_list_entries`, `private_list_touches`, 2026-11-10, `20261112150000_private_lists.sql`) are a staff member's own prospect lists, shown at Staff > My lists. They are the one exception to "admin reads everything" in the table above: a list, its businesses and its log (one row per email, call, reply or note) are read and changed only by the person who made them (`owner = auth.uid()`), who must still be staff. No policy mentions `has_role('admin')`. `owner` and an entry's `list_id` are in no update grant, so a row can't be handed to another person or moved onto another person's list, and a log row is never rewritten (the owner may delete one). Merchants and visitors read nothing. The service role and the SQL editor still read these tables, like every table;
 - `engine_leads` is written only by the engine (service role, upsert by `(source, source_key)`); staff read every row and may change only `status`, `notes` and `rep_slug` (`engine_leads_before_update` resets everything else, stamps `worked_at` and fills `rep_slug` with the caller's slug on a status change). Anonymous has no access.
 
 ## Through the site's server
@@ -112,6 +113,9 @@ against a local Supabase stack.
 | offers | funder terms as written: amount, payback, fees, frequency, payments; generated factor_rate, payment, received_net | application, funder, one-accepted partial unique |
 | deals | the funded offer, one per application | rep, funder, funded_on |
 | commission_entries | owed, paid, clawback, adjustment per deal | deal |
+| private_lists | a staff member's own prospect list; only its owner reads or changes it, admins included | unique (owner, lower(name)) |
+| private_list_entries | one business on a private list: contact, phone, email, website, group, notes, status | (list_id, position, business), unique (list_id, lower(business)) |
+| private_list_touches | the log on a private-list business: emails sent, calls, replies, notes; never rewritten | (entry_id, happened_at) |
 | engine_leads | the lead engine's output (public-record businesses, tiered A/B/C/X), mirrored in by the engine; staff set status and notes | unique (source, source_key), (tier, status, need, first_found), phone, (rep_slug, status) |
 
 Views (`security_invoker`, so policies still apply): `pipeline_board` for the rep Kanban

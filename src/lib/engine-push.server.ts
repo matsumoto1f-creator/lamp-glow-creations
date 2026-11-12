@@ -28,7 +28,8 @@ async function takers(db: ReturnType<typeof service>) {
       .from("engine_leads")
       .select("id", { count: "exact", head: true })
       .eq("rep_slug", r.slug)
-      .eq("status", "new");
+      .eq("status", "new")
+      .neq("source", "email-reply"); // a reply to an email is not a lead the push handed out: it does not use up the rep's daily room
     if (c.error) throw new Error(c.error.message);
     out.push({
       slug: r.slug as string,

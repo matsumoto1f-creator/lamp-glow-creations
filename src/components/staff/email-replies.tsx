@@ -92,7 +92,7 @@ export function EmailReplies({
       <ul className="mt-4 grid gap-3">
         {(rows ?? []).map((r) => {
           const said = replyRecords(r.signals);
-          const optout = said[0]?.kind === "optout";
+          const optout = said.some((s) => s.kind === "optout");
           return (
             <li key={r.id} className={cn(card, "p-4")} data-reply={r.id}>
               <div className="flex flex-wrap items-start justify-between gap-3">

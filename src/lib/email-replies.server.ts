@@ -5,23 +5,19 @@
 // Never import this file from browser code: the route file loads it inside its handlers.
 import { env, json, SERVICE_KEY, service, SUPABASE_URL } from "@/lib/funder-send.server";
 import { sameSecret } from "@/lib/funder-send";
-import {
-  mergeSignals,
-  parseReplies,
-  recipients,
-  REPLY_SOURCE,
-  replyNote,
-} from "@/lib/email-replies";
+import { parseReplies, planReply, REPLY_SOURCE, type Seat } from "@/lib/email-replies";
 
 const allowed = (request: Request) =>
   sameSecret(request.headers.get("x-engine-push-secret") ?? "", env("ENGINE_PUSH_SECRET"));
 
 /**
  * POST /api/engine/reply { replies: [...], dry_run?: boolean }
- * Each reply becomes (or updates) one engine lead under source "email-reply", owned by the rep who
- * sent the email unless staff already reassigned it; what staff recorded on it (status, notes)
- * stays. The sender and every admin get one notification per new reply. A reply already recorded
- * (same message) changes nothing and notifies no one, so the engine can safely send it again.
+ * Each reply becomes (or updates) one engine lead under source "email-reply" (see planReply for who
+ * owns it, who is told and what changes). For each reply the notifications are written FIRST, then
+ * the lead: if the lead write fails the engine retries and someone may be told twice, but nobody is
+ * ever left untold. A reply already recorded (same message) changes nothing and tells no one.
+ * The answer names every message by id: `saved`, `already_recorded` and `rejected`, so the engine
+ * keeps exactly the ones it must send again.
  */
 export async function saveReplies(request: Request): Promise<Response> {
   if (!env("ENGINE_PUSH_SECRET")) return json(503, { error: "Engine push is not set up." });
@@ -34,28 +30,30 @@ export async function saveReplies(request: Request): Promise<Response> {
   } catch {
     return json(400, { error: "Send JSON." });
   }
+  const { replies, rejected } = parseReplies(body);
+  const dry = (body as { dry_run?: boolean } | null)?.dry_run === true;
+  if (dry || replies.length === 0)
+    return json(200, {
+      saved: [],
+      already_recorded: [],
+      rejected,
+      would_save: replies.length,
+      dry_run: dry,
+    });
+
   const db = service();
   const [reps, adminRows] = await Promise.all([
-    db.from("reps").select("slug,name,user_id"),
+    db.from("reps").select("slug,name,user_id,active"),
     db.from("user_roles").select("user_id").eq("role", "admin"),
   ]);
   if (reps.error || adminRows.error)
     return json(500, { error: (reps.error ?? adminRows.error)!.message });
-  const seats = (
-    (reps.data ?? []) as { slug: string; name: string; user_id: string | null }[]
-  ).filter((r) => !!r.user_id);
+  const seats = (reps.data ?? []) as Seat[];
   const admins = ((adminRows.data ?? []) as { user_id: string }[]).map((r) => r.user_id);
-  const { replies, problems } = parseReplies(
-    body,
-    seats.map((s) => s.slug),
-  );
-  const dry = (body as { dry_run?: boolean } | null)?.dry_run === true;
-  if (dry || replies.length === 0)
-    return json(200, { saved: 0, would_save: replies.length, problems, dry_run: dry });
 
-  let saved = 0;
-  let skipped = 0;
-  const notes: { user_id: string; kind: string; title: string; body: string; link: string }[] = [];
+  const saved: string[] = [];
+  const recorded: string[] = [];
+  const stop = (error: string) => json(500, { saved, already_recorded: recorded, rejected, error });
   for (const r of replies) {
     const old = await db
       .from("engine_leads")
@@ -63,34 +61,26 @@ export async function saveReplies(request: Request): Promise<Response> {
       .eq("source", REPLY_SOURCE)
       .eq("source_key", r.source_key)
       .maybeSingle();
-    if (old.error) return json(500, { saved, error: old.error.message, problems });
-    const { signals, fresh } = mergeSignals(old.data?.signals, r);
-    if (!fresh) {
-      skipped++;
+    if (old.error) return stop(old.error.message);
+    const plan = planReply(old.data, r, seats, admins);
+    if (!plan) {
+      recorded.push(r.message_id);
       continue;
     }
-    const seat = seats.find((s) => s.slug === r.sender)!;
-    const row = {
-      source: REPLY_SOURCE,
-      source_key: r.source_key,
-      name: r.name,
-      email: r.email ?? old.data?.email ?? null,
-      phone: r.phone ?? old.data?.phone ?? null,
-      city: r.city,
-      state: r.state,
-      industry: r.industry,
-      tier: "A",
-      reason: `Replied to the Lamp email${r.list_label ? ` · ${r.list_label}` : ""}`,
-      signals,
-      rep_slug: old.data?.rep_slug ?? r.sender, // staff may have handed it on: that stays
-    };
-    const up = await db.from("engine_leads").upsert(row, { onConflict: "source,source_key" });
-    if (up.error) return json(500, { saved, error: up.error.message, problems });
-    saved++;
-    const n = replyNote(r, seat.name);
-    for (const user_id of recipients(seat.user_id, admins))
-      notes.push({ user_id, kind: "assigned", ...n, link: "/staff?view=replies" });
+    if (plan.tell.length) {
+      const told = await db.from("notifications").insert(
+        plan.tell.map((user_id) => ({
+          user_id,
+          kind: "assigned",
+          ...plan.note,
+          link: "/staff?view=replies",
+        })),
+      );
+      if (told.error) return stop(told.error.message);
+    }
+    const up = await db.from("engine_leads").upsert(plan.row, { onConflict: "source,source_key" });
+    if (up.error) return stop(up.error.message);
+    saved.push(r.message_id);
   }
-  if (notes.length) await db.from("notifications").insert(notes); // a missed note doesn't undo the reply
-  return json(200, { saved, already_recorded: skipped, notified: notes.length, problems });
+  return json(200, { saved, already_recorded: recorded, rejected });
 }

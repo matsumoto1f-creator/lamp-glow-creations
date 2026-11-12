@@ -32,6 +32,24 @@ export type Mailbox = {
   why: string;
   /** drafting: on autopilot and nothing holds it; held: its own reason or a lane-wide gate (sign-off, pause...); off: not on autopilot */
   state: "drafting" | "held" | "off";
+  /** The mailbox's warm-up ramp (2026-11-12), or null when the engine runs without one. */
+  ramp: Ramp | null;
+};
+/**
+ * A new mailbox earns its daily cap by really sending: 5 a day at first, 10 from sending day 6, 20 from
+ * day 11, 30 from day 16 (the steps live in the engine's offer.json). `day` is today's sending day;
+ * `limiting` is true when the ramp, not the mailbox's own cap, is what holds it today; `held` means
+ * recent bounces put it a step back; `restarted` means it went quiet long enough to start over.
+ */
+export type Ramp = {
+  day: number;
+  cap: number;
+  next_cap: number | null;
+  next_day: number | null;
+  limiting: boolean;
+  held: boolean;
+  restarted: boolean;
+  words: string;
 };
 export type Snapshot = {
   key: StatusKey;
@@ -92,6 +110,22 @@ const when = (v: unknown) => {
   return DATE.test(s) ? s : "";
 };
 
+const maybe = (v: unknown): number | null => (v === null || v === undefined ? null : num(v));
+function parseRamp(v: unknown): Ramp | null {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return null;
+  const r = v as Raw;
+  return {
+    day: num(r["day"]),
+    cap: num(r["cap"]),
+    next_cap: maybe(r["next_cap"]),
+    next_day: maybe(r["next_day"]),
+    limiting: bool(r["limiting"]),
+    held: bool(r["held"]),
+    restarted: bool(r["restarted"]),
+    words: txt(r["words"], 300),
+  };
+}
+
 /**
  * Checks and copies the posted snapshot, keeping only the fields the page shows, each cut to size.
  * Refused whole (with the reason) when it is not { snapshot: {...} }, names an unknown key, has no
@@ -129,6 +163,7 @@ export function parseStatus(body: unknown): { snapshot: Snapshot } | { problem: 
         cap: num(m["cap"]),
         used: num(m["used"]),
         why: txt(m["why"]),
+        ramp: parseRamp(m["ramp"]),
         state:
           m["state"] === "drafting" || m["state"] === "held"
             ? m["state"]

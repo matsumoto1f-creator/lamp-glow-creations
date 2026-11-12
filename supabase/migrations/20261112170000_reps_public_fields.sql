@@ -1,5 +1,10 @@
 -- Visitors and merchants see only a rep's public fields (2026-11-03).
 --
+-- Renumbered 2026-11-12 (written as 20261103190000) so it sorts after everything on main, and
+-- brought up to date with it: file_contact() is new, for the Messages heading main added on
+-- 2026-11-10. The rest of the SQL is unchanged. Nothing main added since re-creates the two link
+-- triggers or the rules on reps; its chat functions that read reps run as their owner.
+--
 -- "Anyone reads active reps" gave visitors (anon) and everyone signed in (authenticated, which
 -- merchants are too) the whole row of every active rep. With the public key alone,
 -- /rest/v1/reps?select=slug,user_id,admin_slug listed each rep's sign-in id and who they report
@@ -9,21 +14,27 @@
 --   * merchants don't read reps directly. The account page gets the rep's name on the
 --     application they're completing from rep_card(), which returns those same public fields of
 --     one active rep;
+--   * the account page's Messages heading named the merchant's contact by reading the rep's row
+--     and their team lead's as the merchant. It now asks file_contact(), which answers with one
+--     name and only for the caller's own file: the rep's active team lead, else the rep, as the
+--     application emails name them;
 --   * staff read every row and column as before ("Staff read all reps", "Admins manage reps"),
 --     so the Dashboard, Team and the rest of the staff portal don't change;
 --   * applications_before_insert() and leads_before_insert() check a link's ref through
 --     rep_card() instead of reading reps as whoever is inserting. A merchant who signs up from a
 --     rep's link still lands on that rep's book; without this they would land in the pool.
 --
--- Order: merge, paste this, then Publish (the account page calls rep_card()). Either order is
--- safe: until both are done the account page just has no rep name, which it never prints. Safe
--- to run again.
+-- Order: merge, paste this, then Publish (the account page calls rep_card() and file_contact()).
+-- Either order is safe: until both are done the account page just has no rep name, which it never
+-- prints, and Messages is headed "Messages with Lamp" instead of with the contact's first name.
+-- Safe to run again.
 --
 -- Two short transactions, in this order so a sign-up running during the paste still lands with
--- its rep. Part 1 adds rep_card() and points the two triggers at it; it waits for no one and
--- changes nothing anyone sees. Part 2 changes who reads reps: it waits only for queries reading
--- reps right now (staff screens read it through current_rep_slug()) and holds new ones for the
--- few milliseconds it takes. If it stops on a lock timeout, paste the whole file again.
+-- its rep. Part 1 adds rep_card() and file_contact() and points the two triggers at rep_card();
+-- it waits for no one and changes nothing anyone sees. Part 2 changes who reads reps: it waits
+-- only for queries reading reps right now (staff screens read it through current_rep_slug()) and
+-- holds new ones for the few milliseconds it takes. If it stops on a lock timeout, paste the whole
+-- file again.
 
 set lock_timeout = '5s';
 
@@ -42,6 +53,27 @@ as $$
 $$;
 revoke all on function public.rep_card(text) from public;
 grant execute on function public.rep_card(text) to anon, authenticated, service_role;
+
+-- Who the merchant is talking to on their own file, as the application emails and the signed PDF
+-- name them: the rep's team lead when the rep has an active one, otherwise the rep. Runs as its
+-- owner because a merchant reads no reps rows. One name, and only for a file the caller owns:
+-- nothing for an unassigned file, an inactive rep or anyone else's file.
+create or replace function public.file_contact(_application_id uuid)
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(l.name, r.name)
+  from public.applications a
+  join public.reps r on r.slug = a.rep_slug and r.active
+  left join public.reps l on l.slug = r.admin_slug and l.active
+  where a.id = _application_id
+    and a.user_id = auth.uid();
+$$;
+revoke all on function public.file_contact(uuid) from public, anon;
+grant execute on function public.file_contact(uuid) to authenticated, service_role;
 
 -- As in 20261017120100, except the ref is checked through rep_card().
 create or replace function public.applications_before_insert()

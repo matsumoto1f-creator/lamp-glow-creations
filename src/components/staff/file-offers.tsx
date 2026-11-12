@@ -241,17 +241,18 @@ export function FileOffers({
               async () => {
                 // the offer and its note in one transaction (add_offer, 20261112160000); the
                 // note goes in the staff-only table and the database stamps who added both
+                // (submission, expiry and note are left out when empty: they default to null)
                 const r = await sb.rpc("add_offer", {
                   _application_id: fileId,
                   _funder_id: o.funder_id,
-                  _submission_id: sub?.id ?? null,
                   _amount: o.amount,
                   _payback: o.payback,
                   _fees: o.fees,
                   _frequency: o.frequency,
                   _payments: o.payments,
-                  _expires_at: o.expires ? `${o.expires}T23:59:59` : null,
-                  _note: o.notes || null,
+                  ...(sub ? { _submission_id: sub.id } : {}),
+                  ...(o.expires ? { _expires_at: `${o.expires}T23:59:59` } : {}),
+                  ...(o.notes ? { _note: o.notes } : {}),
                 });
                 if (r.error) return r;
                 if (sub && sub.status === "submitted") {

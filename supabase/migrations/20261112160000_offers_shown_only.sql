@@ -1,8 +1,10 @@
 -- Offers a rep never showed stay hidden from the merchant (2026-11-03).
 --
--- Renumbered 2026-11-12 (written as 20261103120000) so it sorts after everything on main; the SQL
--- is unchanged. Nothing main added since (chat, private lists, engine status) re-creates my_offers,
--- offer_funder_name() or the offers rule.
+-- Renumbered 2026-11-12 (written as 20261103120000) so it sorts after everything on main. One
+-- change since: add_offer()'s three arguments that may be empty (submission, expiry, note) come
+-- last and default to null, so the generated types mark them optional and the page leaves them
+-- out. The rest of the SQL is unchanged. Nothing main added since (chat, private lists, engine
+-- status) re-creates my_offers, offer_funder_name() or the offers rule.
 --
 -- "Merchants read presented offers" let a merchant read every offer on their file that wasn't
 -- 'received'. An offer a rep withdrew (or marked declined or expired) without ever showing it is
@@ -20,8 +22,10 @@
 --   * my_offers keeps only read rights. It became writable through when 20261029120100 stopped
 --     joining funders (writes still met the offers rules); visitors now have no rights on it.
 --
--- Order: merge, paste this, then Publish (the staff page calls add_offer()). The page live now
--- keeps working before and after. Safe to run again.
+-- Order: paste this FIRST, then Publish. It is safe before or after the merge: the page live now
+-- keeps working before and after the paste. Never Publish before the paste: the new staff page
+-- calls add_offer(), and until that exists Add an offer shows an error and saves nothing. Safe to
+-- run again.
 --
 -- Two short transactions. Part 1 swaps my_offers and waits only for reads of it in progress.
 -- Part 2 changes the offers rule: it waits for reads and changes of offers already under way and
@@ -91,17 +95,19 @@ $$;
 revoke all on function public.offer_funder_name(uuid) from public, anon;
 grant execute on function public.offer_funder_name(uuid) to authenticated, service_role;
 
--- The offer and its note in one transaction, as the caller. A blank note saves no note.
+-- The offer and its note in one transaction, as the caller. A blank note saves no note. The
+-- three that may be empty come last and default to null (the generated types then mark them
+-- optional, and the page leaves them out).
 create or replace function public.add_offer(
   _application_id uuid,
   _funder_id uuid,
-  _submission_id uuid,
   _amount numeric,
   _payback numeric,
   _fees numeric,
   _frequency public.payment_frequency,
   _payments integer,
-  _expires_at timestamptz,
+  _submission_id uuid default null,
+  _expires_at timestamptz default null,
   _note text default null
 )
 returns uuid
@@ -123,9 +129,9 @@ begin
   return new_id;
 end;
 $$;
-revoke all on function public.add_offer(uuid, uuid, uuid, numeric, numeric, numeric, public.payment_frequency, integer, timestamptz, text)
+revoke all on function public.add_offer(uuid, uuid, numeric, numeric, numeric, public.payment_frequency, integer, uuid, timestamptz, text)
   from public, anon;
-grant execute on function public.add_offer(uuid, uuid, uuid, numeric, numeric, numeric, public.payment_frequency, integer, timestamptz, text)
+grant execute on function public.add_offer(uuid, uuid, numeric, numeric, numeric, public.payment_frequency, integer, uuid, timestamptz, text)
   to authenticated, service_role;
 commit;
 

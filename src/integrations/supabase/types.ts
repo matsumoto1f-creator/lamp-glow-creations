@@ -2261,14 +2261,14 @@ export type Database = {
         Args: {
           _amount: number
           _application_id: string
-          _expires_at: string | null
+          _expires_at?: string
           _fees: number
           _frequency: Database["public"]["Enums"]["payment_frequency"]
           _funder_id: string
-          _note?: string | null
+          _note?: string
           _payback: number
           _payments: number
-          _submission_id: string | null
+          _submission_id?: string
         }
         Returns: string
       }

@@ -175,7 +175,7 @@ export function EngineStatusView({ s }: { s: Snapshot }) {
               <p className="mt-1 text-xs text-smoke">
                 {m.used} of {m.cap} today
               </p>
-              {m.on && m.ramp && (m.ramp.limiting || m.ramp.held || m.ramp.restarted) && (
+              {m.on && m.ramp && m.ramp.limiting && (
                 <p
                   className={cn(
                     "mt-2 rounded-md px-2 py-1 text-xs",

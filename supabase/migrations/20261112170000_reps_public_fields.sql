@@ -16,8 +16,11 @@
 --     one active rep;
 --   * the account page's Messages heading named the merchant's contact by reading the rep's row
 --     and their team lead's as the merchant. It now asks file_contact(), which answers with one
---     name and only for the caller's own file: the rep's active team lead, else the rep, as the
---     application emails name them;
+--     name and only for the caller's own file: the rep's active team lead, else the rep (the name
+--     the application emails already use; a file whose rep is inactive gets none, as before). So
+--     a merchant still learns, by name, the team lead of a rep whose book their own file is on.
+--     The product shows that name on purpose. Sign-in ids, admin_slug and every reps row stay out
+--     of a merchant's reach;
 --   * staff read every row and column as before ("Staff read all reps", "Admins manage reps"),
 --     so the Dashboard, Team and the rest of the staff portal don't change;
 --   * applications_before_insert() and leads_before_insert() check a link's ref through
@@ -54,10 +57,10 @@ $$;
 revoke all on function public.rep_card(text) from public;
 grant execute on function public.rep_card(text) to anon, authenticated, service_role;
 
--- Who the merchant is talking to on their own file, as the application emails and the signed PDF
--- name them: the rep's team lead when the rep has an active one, otherwise the rep. Runs as its
--- owner because a merchant reads no reps rows. One name, and only for a file the caller owns:
--- nothing for an unassigned file, an inactive rep or anyone else's file.
+-- Who the merchant is talking to on their own file: the rep's team lead when the rep has an
+-- active one, otherwise the rep (for an active rep, the name the application emails and the signed
+-- PDF use). Runs as its owner because a merchant reads no reps rows. One name, and only for a
+-- file the caller owns: nothing for an unassigned file, an inactive rep or anyone else's file.
 create or replace function public.file_contact(_application_id uuid)
 returns text
 language sql

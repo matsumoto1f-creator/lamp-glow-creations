@@ -8,7 +8,9 @@ import {
   FileText,
   Loader2,
   Lock,
+  Copy,
   Mail,
+  Phone,
   ShieldCheck,
   Upload,
   X,
@@ -30,6 +32,7 @@ import { missingRealEstate, usd0, amount } from "@/lib/real-estate";
 import { applicationPdfBytes, downloadApplicationPdf } from "@/lib/application-pdf";
 import {
   EMAIL_RE,
+  inviteSms,
   MAX_UPLOAD_BYTES,
   saveClaim,
   UPLOAD_TYPES,
@@ -48,6 +51,7 @@ import {
 import { SignBlock } from "@/components/application/sign-block";
 import { emptySigning, uploadType, type Signing } from "@/components/application/form-kit";
 import { F, inputCls, Text } from "@/components/application/fields";
+import { getSupabase } from "@/lib/supabase";
 import { cleanChoices, PHONE_CONSENT_TEXT, QUESTIONS, type ChoiceKey } from "@/lib/apply";
 import { QuickQuestion } from "@/components/site/quick-question";
 import { reportStage, saveProgressToken } from "@/lib/application-progress";
@@ -59,6 +63,12 @@ import { reportStage, saveProgressToken } from "@/lib/application-progress";
  * merchant signs and submits without an account. The signed file lands with the rep; then they
  * can create a login to follow it, and the file moves into that account.
  * Merchant copy: never the word "loan".
+ *
+ * Start application (?fill=rep, from a lead's page in the back office): the rep fills the
+ * merchant's personal link in with them on the phone. The answers save to the link on Lamp's
+ * server as they go (never the SSN or date of birth, which only the merchant types), so the
+ * merchant's own browser opens them. The rep never signs: the last step emails that same link to
+ * the merchant, or copies it to text, and the merchant checks it, adds those numbers and signs.
  */
 
 const STEPS = [
@@ -102,14 +112,15 @@ function missingByStep(d: Details): Record<StepId, string[]> {
 const draftKey = (invite: string | null | undefined, rep: string) =>
   invite ? `lamp.application.draft.${invite}` : `lamp.application.draft.rep.${rep}`;
 
-function loadDraft(key: string): { d: Details; step: number } | null {
+function loadDraft(key: string): { d: Details; step: number; savedAt: number } | null {
   try {
     const raw = window.localStorage.getItem(key);
     if (!raw) return null;
-    const v = JSON.parse(raw) as { d?: unknown; step?: unknown };
+    const v = JSON.parse(raw) as { d?: unknown; step?: unknown; savedAt?: unknown };
     return {
       d: fromRow((v.d ?? {}) as Record<string, unknown>),
       step: typeof v.step === "number" ? Math.min(Math.max(0, v.step), STEPS.length - 1) : 0,
+      savedAt: typeof v.savedAt === "number" ? v.savedAt : 0,
     };
   } catch {
     return null;
@@ -125,6 +136,27 @@ function saveDraft(key: string, d: Details, step: number) {
   }
 }
 
+/** The SSN and date of birth: only the merchant types them, when they sign. */
+export const PRIVATE_GAP = /SSN|date of birth/;
+
+/** POST /api/application/draft as the signed-in rep. Throws with the server's words. */
+export async function postDraft(body: object): Promise<Record<string, unknown>> {
+  const sb = getSupabase();
+  const session = sb ? (await sb.auth.getSession()).data.session : null;
+  if (!session) throw new Error("Sign in to Lamp in this browser so this saves for them.");
+  const res = await fetch("/api/application/draft", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  if (!res.ok) throw new Error(String(data["error"] ?? `The server answered ${res.status}.`));
+  return data;
+}
+
 function clearDraft(key: string) {
   try {
     window.localStorage.removeItem(key);
@@ -133,7 +165,19 @@ function clearDraft(key: string) {
   }
 }
 
-export function LinkApplication({ repSlug, token }: { repSlug: string; token: string | null }) {
+export function LinkApplication({
+  repSlug,
+  token,
+  filling = false,
+}: {
+  repSlug: string;
+  token: string | null;
+  /** A rep filling it in with the merchant on the phone (Start application). */
+  filling?: boolean;
+}) {
+  // only a personal link can be filled in for someone
+  const phoneMode = filling && Boolean(token);
+  const [synced, setSynced] = useState<{ at: string } | { error: string } | null>(null);
   const [open, setOpen] = useState<OpenResponse | "error" | null>(null);
   const [d, setD] = useState<Details>(emptyDetails);
   const [step, setStep] = useState(0);
@@ -185,7 +229,16 @@ export function LinkApplication({ repSlug, token }: { repSlug: string; token: st
         }
         setOpen(o);
         if (o.state !== "open") return;
-        const saved = loadDraft(draftKey(o.draft, repSlug));
+        const local = loadDraft(draftKey(o.draft, repSlug));
+        // answers a rep filled in on the phone, when they're newer than this browser's own
+        const serverAt = o.answers_saved_at ? Date.parse(o.answers_saved_at) : 0;
+        const saved =
+          o.answers && serverAt > (local?.savedAt ?? 0)
+            ? {
+                d: fromRow(o.answers),
+                step: Math.min(Math.max(0, o.answers_step ?? 0), STEPS.length - 1),
+              }
+            : local;
         if (saved) {
           setContactDone(true);
           // reopen on the first step with gaps (the SSN and date of birth are never saved), and
@@ -244,7 +297,32 @@ export function LinkApplication({ repSlug, token }: { repSlug: string; token: st
     }
   };
 
-  const byStep = useMemo(() => missingByStep(d), [d]);
+  const allByStep = useMemo(() => missingByStep(d), [d]);
+  // on the phone the rep moves on without the SSN and date of birth: the merchant adds them
+  const byStep = useMemo(
+    () =>
+      phoneMode
+        ? (Object.fromEntries(
+            Object.entries(allByStep).map(([k, v]) => [k, v.filter((m) => !PRIVATE_GAP.test(m))]),
+          ) as Record<StepId, string[]>)
+        : allByStep,
+    [allByStep, phoneMode],
+  );
+
+  // on the phone, every change saves to the link on Lamp's server, a moment after typing stops
+  useEffect(() => {
+    if (!phoneMode || !token || !open || open === "error" || open.state !== "open") return;
+    if (!contactDone) return;
+    const t = window.setTimeout(() => {
+      const safe = { ...d, owners: d.owners.map((o) => ({ ...o, ssn: "", dob: "" })) };
+      postDraft({ action: "save", token, draft: safe, step })
+        .then((r) => setSynced({ at: String(r["saved_at"] ?? new Date().toISOString()) }))
+        .catch((e: unknown) =>
+          setSynced({ error: e instanceof Error ? e.message : "Couldn't save to Lamp." }),
+        );
+    }, 1200);
+    return () => window.clearTimeout(t);
+  }, [d, step, phoneMode, token, open, contactDone]);
   const allMissing = useMemo(() => missing(d), [d]);
   const current = STEPS[step]!;
   const rep = open && open !== "error" ? open.rep : null;
@@ -455,6 +533,14 @@ export function LinkApplication({ repSlug, token }: { repSlug: string; token: st
               firstName={d.owners[0]?.first ?? ""}
             />
 
+            {phoneMode && token && (
+              <PhoneBanner
+                synced={synced}
+                business={d.business.legal_name}
+                onSend={() => saveAndSend(token, d, step)}
+              />
+            )}
+
             {!contactDone && quickStep < QUESTIONS.length ? (
               <QuickQuestions
                 step={quickStep}
@@ -542,23 +628,38 @@ export function LinkApplication({ repSlug, token }: { repSlug: string; token: st
                       )}
                       {current.id === "property" && <RealEstateSection d={d} update={update} />}
                       {current.id === "funding" && <FundingSection d={d} update={update} />}
-                      {current.id === "statements" && (
-                        <Statements files={files} setFiles={setFiles} />
-                      )}
+                      {current.id === "statements" &&
+                        (phoneMode ? (
+                          <p className="rounded-2xl bg-sand p-4 text-sm ring-1 ring-line">
+                            Bank statements go up from the merchant&apos;s side: they add them when
+                            they open the link to sign, or send them to you later. Skip this step.
+                          </p>
+                        ) : (
+                          <Statements files={files} setFiles={setFiles} />
+                        ))}
                       {current.id === "sign" && (
                         <>
                           <Review d={d} onEdit={(i) => go(i)} files={files.length} />
                           <div className="mt-10 border-t border-line pt-8">
-                            <SignBlock
-                              d={d}
-                              s={sig}
-                              set={(patch) => setSig((x) => ({ ...x, ...patch }))}
-                              todo={allMissing}
-                              error={error}
-                              busy={busy}
-                              onSign={() => void submit()}
-                              cta={`Sign and send to ${repFirst}`}
-                            />
+                            {phoneMode && token ? (
+                              <HandOff
+                                d={d}
+                                token={token}
+                                gaps={allMissing.filter((m) => !PRIVATE_GAP.test(m))}
+                                repName={repName}
+                              />
+                            ) : (
+                              <SignBlock
+                                d={d}
+                                s={sig}
+                                set={(patch) => setSig((x) => ({ ...x, ...patch }))}
+                                todo={allMissing}
+                                error={error}
+                                busy={busy}
+                                onSign={() => void submit()}
+                                cta={`Sign and send to ${repFirst}`}
+                              />
+                            )}
                             {uploading && (
                               <p className="mt-4 flex items-center justify-center gap-2 text-sm text-smoke">
                                 <Loader2 className="size-4 animate-spin" /> Adding {uploading}…
@@ -615,8 +716,10 @@ export function LinkApplication({ repSlug, token }: { repSlug: string; token: st
                 />
 
                 <p className="mt-8 flex items-center justify-center gap-2 text-center text-sm text-smoke">
-                  <Lock className="size-3.5" /> Encrypted and private. Saved on this device as you
-                  go, except your SSN and date of birth.
+                  <Lock className="size-3.5" />{" "}
+                  {phoneMode
+                    ? "Saved to Lamp for the merchant as you go, except the SSN and date of birth: they add those when they sign."
+                    : "Encrypted and private. Saved on this device as you go, except your SSN and date of birth."}
                 </p>
               </>
             )}
@@ -1336,7 +1439,13 @@ export function DoneScreen({
   );
 }
 
-function ClosedLink({ state, repName }: { state: OpenResponse["state"]; repName: string | null }) {
+export function ClosedLink({
+  state,
+  repName,
+}: {
+  state: OpenResponse["state"];
+  repName: string | null;
+}) {
   const who = repName ?? "your Lamp rep";
   if (state === "signed") {
     return (
@@ -1378,6 +1487,206 @@ function Notice({ title, children }: { title: string; children: ReactNode }) {
     <div className="ll-glass mx-auto mt-16 max-w-lg rounded-[1.75rem] p-8 text-center ring-1 ring-line">
       <h1 className="font-display text-2xl font-bold tracking-tight">{title}</h1>
       <div className="mt-3 flex flex-col items-center text-smoke">{children}</div>
+    </div>
+  );
+}
+
+/** On the phone: who this is for, that the rep doesn't sign, and whether it saved. */
+export function PhoneBanner({
+  synced,
+  business,
+  onSend,
+}: {
+  synced: { at: string } | { error: string } | null;
+  business: string;
+  /** Saves what's typed and emails them this link to finish on their own; says what happened. */
+  onSend?: () => Promise<string>;
+}) {
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState<{ ok: boolean; text: string } | null>(null);
+  async function send() {
+    if (!onSend) return;
+    setSending(true);
+    setSent(null);
+    try {
+      setSent({ ok: true, text: await onSend() });
+    } catch (e) {
+      setSent({ ok: false, text: e instanceof Error ? e.message : "Couldn't send. Try again." });
+    } finally {
+      setSending(false);
+    }
+  }
+  return (
+    <div
+      className="mt-6 flex flex-wrap items-start gap-3 rounded-2xl bg-leaf/15 p-4 text-sm ring-1 ring-leaf/40"
+      data-phone-mode
+    >
+      <Phone className="mt-0.5 size-4 shrink-0 text-forest" />
+      <div className="min-w-0 flex-1">
+        <p className="font-semibold">
+          You&apos;re filling this in{business ? ` for ${business}` : ""} on the phone.
+        </p>
+        <p className="mt-0.5 text-smoke">
+          Skip the SSN and date of birth. At the end, or the moment they have to go, email them this
+          link, and they check it, add those and sign. Never sign for them.
+        </p>
+        {synced && (
+          <p
+            className={cn("mt-1 text-xs", "error" in synced ? "text-destructive" : "text-smoke")}
+            data-phone-sync
+          >
+            {"error" in synced
+              ? synced.error
+              : `Saved to Lamp ${new Date(synced.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`}
+          </p>
+        )}
+        {sent && (
+          <p
+            className={cn("mt-1 text-xs", sent.ok ? "text-forest" : "text-destructive")}
+            role="status"
+            data-phone-sent
+          >
+            {sent.text}
+          </p>
+        )}
+      </div>
+      {onSend && (
+        <button
+          type="button"
+          className={cn(btnOutline, "shrink-0 px-4 py-2 text-sm")}
+          disabled={sending}
+          onClick={() => void send()}
+          title="They have to go? Lamp saves what you've filled in and emails them this link to finish."
+          data-phone-send-now
+        >
+          {sending ? <Loader2 className="size-4 animate-spin" /> : <Mail className="size-4" />}
+          Email it to them to finish
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * They have to go mid-call: save what's typed to the link right now (not after the usual pause),
+ * then email them the same link to finish, to the owner's email on the form or, failing that, the
+ * one the link was made with. Returns the line to show the rep.
+ */
+export async function saveAndSend(
+  token: string,
+  d: Details,
+  step: number,
+  form?: "pdf",
+): Promise<string> {
+  const safe = { ...d, owners: d.owners.map((o) => ({ ...o, ssn: "", dob: "" })) };
+  await postDraft({ action: "save", token, draft: safe, step });
+  const typed = (d.owners[0]?.email || d.business.email || "").trim().toLowerCase();
+  const r = await postDraft({
+    action: "email",
+    token,
+    ...(EMAIL_RE.test(typed) ? { to: typed } : {}),
+    ...(form ? { form } : {}),
+  });
+  return `Emailed to ${String(r["sent_to"] ?? typed)} with everything you've filled in. They finish it and sign.`;
+}
+
+/** The last step on the phone: send the same link for the merchant to check and sign. */
+export function HandOff({
+  d,
+  token,
+  gaps,
+  repName,
+  form,
+}: {
+  d: Details;
+  token: string;
+  gaps: string[];
+  repName: string;
+  /** "pdf": the link they get opens the paper application */
+  form?: "pdf";
+}) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const owner = d.owners[0];
+  const first = owner?.first.trim() || "them";
+  const to = (owner?.email || d.business.email || "").trim().toLowerCase();
+  // the merchant's link is this page without the rep's ?fill=rep
+  const url = (() => {
+    if (typeof window === "undefined") return "";
+    const u = new URL(window.location.href);
+    u.searchParams.delete("fill");
+    return u.toString();
+  })();
+
+  async function email() {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const r = await postDraft({ action: "email", token, to, ...(form ? { form } : {}) });
+      setMsg({
+        ok: true,
+        text: `Sent to ${String(r["sent_to"] ?? to)}. Stay on the line while they open it.`,
+      });
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : "Couldn't send. Try again." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(inviteSms(owner?.first ?? "", repName, url));
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2500);
+    } catch {
+      setMsg({ ok: false, text: url });
+    }
+  }
+
+  return (
+    <div data-hand-off>
+      <h3 className="font-display text-xl font-bold">Send it to {first} to sign</h3>
+      <p className="mt-2 text-sm text-smoke">
+        They open the same application with everything you filled in, add their SSN and date of
+        birth, check it over and sign. It lands on your board like any signed application.
+      </p>
+      {gaps.length > 0 && (
+        <p className="mt-4 rounded-2xl bg-sand p-4 text-sm ring-1 ring-line">
+          Still blank, so they&apos;ll fill these in: {gaps.join(", ")}.
+        </p>
+      )}
+      <div className="mt-6 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          className={cn(btnPrimary, "px-6 py-3")}
+          disabled={busy || !EMAIL_RE.test(to)}
+          title={EMAIL_RE.test(to) ? undefined : "Add the owner's email on the Owners step first"}
+          onClick={() => void email()}
+          data-hand-off-email
+        >
+          {busy ? <Loader2 className="size-4 animate-spin" /> : <Mail className="size-4" />}
+          {EMAIL_RE.test(to) ? `Email it to ${to}` : "Email it to them"}
+        </button>
+        <button
+          type="button"
+          className={cn(btnOutline, "px-6 py-3")}
+          onClick={() => void copy()}
+          data-hand-off-copy
+        >
+          <Copy className="size-4" />{" "}
+          {copied ? "Copied: paste it in a text" : "Copy a text with the link"}
+        </button>
+      </div>
+      {msg && (
+        <p
+          className={cn("mt-4 text-sm", msg.ok ? "text-forest" : "text-destructive")}
+          role="status"
+        >
+          {msg.text}
+        </p>
+      )}
     </div>
   );
 }

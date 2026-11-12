@@ -1,6 +1,7 @@
 import { cn } from "@/lib/utils";
 import { card } from "@/components/site/layout";
 import { clock, trainingFor, trainingSrc, type TrainingRole } from "@/lib/training";
+import { IntentPlaybook } from "@/components/staff/intent-playbook";
 
 /**
  * Training: the tutorial videos, by role. Reps get the rep series, admins get rep and admin, and
@@ -9,8 +10,8 @@ import { clock, trainingFor, trainingSrc, type TrainingRole } from "@/lib/traini
  */
 
 const HEAD: Record<TrainingRole, { title: string; note: string }> = {
-  rep: { title: "For reps", note: "Watch these in order. About twelve minutes in all." },
-  admin: { title: "For admins", note: "Running the team, the board, funders and money." },
+  rep: { title: "For reps", note: "Watch these in order. About seventeen minutes in all." },
+  admin: { title: "For admins", note: "Running the team, the board, funders, money and AI." },
   merchant: {
     title: "For merchants",
     note: "Merchants see these on their account page. Send one when a merchant asks how something works.",
@@ -62,6 +63,7 @@ export function TrainingShelf({ role, heading = true }: { role: TrainingRole; he
 export function Training({ isAdmin }: { isAdmin: boolean }) {
   return (
     <div className="mt-2">
+      <IntentPlaybook />
       <TrainingShelf role="rep" />
       {isAdmin && <TrainingShelf role="admin" />}
       <TrainingShelf role="merchant" />

@@ -1,24 +1,55 @@
 import { useEffect, useState } from "react";
-import { Download, Loader2, Search, Send } from "lucide-react";
+import {
+  ChevronRight,
+  Copy,
+  Download,
+  FilePen,
+  Loader2,
+  Phone,
+  Search,
+  Send,
+  Sparkles,
+} from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { age } from "@/lib/staff";
 import { btnOutline, btnPrimary, card } from "@/components/site/layout";
+import { chip, input, textarea } from "@/components/staff/field-styles";
+import { smartLead } from "@/lib/smart-lead";
+import { LEAD_WORKED_EVENT } from "@/lib/focus";
+import { SpeakButton } from "@/components/staff/speak-button";
+import { fitTo, joinSpoken, paperLink } from "@/lib/spoken-notes";
 import { SendApplications, type SendSeed } from "@/components/staff/send-applications";
-import { MAX_RECIPIENTS } from "@/lib/application-links";
+import { postInvites } from "@/lib/post-invites";
+import { EMAIL_RE, MAX_RECIPIENTS } from "@/lib/application-links";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import type { TablesInsert } from "@/integrations/supabase/types";
 import {
   BOARD_ORIGINS,
   ENGINE_STATUS_LABEL,
   ENGINE_STATUSES,
+  LEAD_APPROACH,
+  LEAD_TYPE_LABEL,
+  LEAD_TYPES,
   TIERS,
   boardBatch,
+  leadRecords,
+  leadType,
   leadsFromCsv,
   leadsToCsv,
   searchFilter,
   signalSummary,
+  splitWhy,
   tel,
+  tookMca,
   type EngineStatus,
+  type LeadType,
 } from "@/lib/engine-leads";
 
 /**
@@ -26,6 +57,9 @@ import {
  * list). The engine runs outside Lamp; an admin picks leads there, downloads them with the rep
  * each one goes to, and uploads the file here. A rep sees and works only their own leads and
  * records what happened on the call; the engine never dials or sends, a person does.
+ * Clicking a lead opens its page: the contact the rep gets on the call (who, the email for the
+ * application, the best number) and notes, saved to columns no push touches; then who to ask for,
+ * why it was picked, every public record behind it and how to open the call.
  * Ticking leads opens Send the application: one personal link each, by email or to copy.
  * Search looks through name, phone, email, city and industry within the tier and status
  * picked; admins can also download the ticked leads as a CSV.
@@ -49,10 +83,16 @@ type Row = {
   first_found: string | null;
   pushed_at: string;
   worked_at: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  contact_updated_at: string | null;
 };
 
+type ContactPatch = Pick<Row, "contact_name" | "contact_email" | "contact_phone" | "notes">;
+
 const COLUMNS =
-  "id,name,phone,email,city,state,industry,tier,need,reason,signals,status,notes,rep_slug,first_found,pushed_at,worked_at";
+  "id,name,phone,email,city,state,industry,tier,need,reason,signals,status,notes,rep_slug,first_found,pushed_at,worked_at,contact_name,contact_email,contact_phone,contact_updated_at";
 const LIMIT = 300;
 
 export function EngineLeads({
@@ -66,6 +106,8 @@ export function EngineLeads({
 }) {
   const [tier, setTier] = useState<string>(isAdmin ? "A" : "");
   const [status, setStatus] = useState<string>("new");
+  // "" shows every type in one list; a type narrows the loaded list without a reload
+  const [kind, setKind] = useState<LeadType | "">("");
   const [search, setSearch] = useState("");
   // what the list was last loaded for: the box waits for a pause in typing
   const [query, setQuery] = useState("");
@@ -74,6 +116,8 @@ export function EngineLeads({
   const [saving, setSaving] = useState<number | null>(null);
   const [reload, setReload] = useState(0);
   const [selected, setSelected] = useState<Set<number>>(new Set());
+  // the lead whose page is open
+  const [openId, setOpenId] = useState<number | null>(null);
   // The send panel, keyed so picking again starts it fresh with the new picks.
   const [sending, setSending] = useState<{ key: number; seed: SendSeed[] } | null>(null);
 
@@ -124,6 +168,7 @@ export function EngineLeads({
       return;
     }
     if (next === "do_not_call") pick(row.id, false);
+    window.dispatchEvent(new Event(LEAD_WORKED_EVENT));
     setRows((rs) =>
       rs
         ? rs.map((r) =>
@@ -162,9 +207,41 @@ export function EngineLeads({
 
   // Do-not-call leads never get a link (the server refuses them too).
   const canPick = (r: Row) => r.status !== "do_not_call";
-  const pickable = (rows ?? []).filter(canPick);
+  const shown = rows && kind ? rows.filter((r) => leadType(r.signals) === kind) : rows;
+  const pickable = (shown ?? []).filter(canPick);
   const allPicked = pickable.length > 0 && pickable.every((r) => selected.has(r.id));
   const somePicked = pickable.some((r) => selected.has(r.id));
+
+  const openRow = openId == null ? null : ((rows ?? []).find((r) => r.id === openId) ?? null);
+
+  /** Saves what the rep got on the call; returns an error to show, or "" when it saved. */
+  async function saveContact(row: Row, patch: ContactPatch): Promise<string> {
+    const sb = getSupabase();
+    if (!sb) return "Not connected. Refresh and try again.";
+    const { data, error: err } = await sb
+      .from("engine_leads")
+      .update(patch)
+      .eq("id", row.id)
+      .select("contact_updated_at")
+      .maybeSingle();
+    if (err) return `Couldn't save: ${err.message}`;
+    if (!data) return "Couldn't save: this lead isn't yours to change.";
+    window.dispatchEvent(new Event(LEAD_WORKED_EVENT));
+    setRows((rs) =>
+      rs
+        ? rs.map((r) =>
+            r.id === row.id
+              ? {
+                  ...r,
+                  ...patch,
+                  contact_updated_at: data.contact_updated_at ?? r.contact_updated_at,
+                }
+              : r,
+          )
+        : rs,
+    );
+    return "";
+  }
 
   function pick(id: number, on: boolean) {
     setSelected((s) => {
@@ -186,15 +263,10 @@ export function EngineLeads({
     });
   }
 
-  function openSend() {
-    const seed = (rows ?? [])
-      .filter((r) => selected.has(r.id) && canPick(r))
-      .map((r) => ({
-        lead_id: r.id,
-        business_name: r.name ?? "",
-        phone: r.phone ?? "",
-        email: r.email ?? "",
-      }));
+  function openSend(only?: Row) {
+    const seed = (only ? [only] : (rows ?? []).filter((r) => selected.has(r.id)))
+      .filter(canPick)
+      .map((r) => sendSeed(r));
     if (seed.length) setSending((s) => ({ key: (s?.key ?? 0) + 1, seed }));
   }
 
@@ -251,6 +323,27 @@ export function EngineLeads({
             <option value="">Any status</option>
           </select>
         </label>
+        <label className="text-sm">
+          <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-smoke">
+            Type
+          </span>
+          <select
+            className="rounded-full bg-white px-4 py-2 text-sm ring-1 ring-line"
+            value={kind}
+            onChange={(e) => {
+              setKind(e.target.value as LeadType | "");
+              setSelected(new Set());
+            }}
+            data-lead-type
+          >
+            <option value="">All types, one list</option>
+            {LEAD_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {LEAD_TYPE_LABEL[t]}
+              </option>
+            ))}
+          </select>
+        </label>
         <label className="min-w-[14rem] flex-1 text-sm sm:max-w-sm">
           <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-smoke">
             Search
@@ -277,6 +370,7 @@ export function EngineLeads({
         <p className="ml-auto text-sm text-smoke">
           {isAdmin ? "Every engine lead" : "Your leads"}
           {rows && ` · ${rows.length}${rows.length === LIMIT ? "+" : ""}`}
+          {rows && kind && ` · ${shown?.length ?? 0} ${LEAD_TYPE_LABEL[kind].toLowerCase()}`}
         </p>
       </div>
 
@@ -306,10 +400,15 @@ export function EngineLeads({
       )}
 
       <div className={cn(card, "mt-4 overflow-x-auto")}>
-        {rows === null ? (
+        {rows === null || shown === null ? (
           <div className="grid place-items-center py-16">
             <Loader2 className="size-6 animate-spin text-smoke" />
           </div>
+        ) : rows.length > 0 && shown.length === 0 && kind ? (
+          <p className="px-6 py-12 text-center text-sm text-smoke">
+            No {LEAD_TYPE_LABEL[kind].toLowerCase()} leads in this list. Pick All types to see the
+            rest.
+          </p>
         ) : rows.length === 0 ? (
           <p className="px-6 py-12 text-center text-sm text-smoke">
             {query
@@ -336,6 +435,7 @@ export function EngineLeads({
                   />
                 </th>
                 <th className="px-4 py-3 font-semibold">Tier</th>
+                <th className="px-4 py-3 font-semibold">Type</th>
                 <th className="px-4 py-3 font-semibold">Business</th>
                 <th className="px-4 py-3 font-semibold">Phone</th>
                 <th className="px-4 py-3 font-semibold">Where</th>
@@ -347,14 +447,19 @@ export function EngineLeads({
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {shown.map((r) => (
                 <tr
                   key={r.id}
                   data-engine-lead={r.id}
                   className={cn(
-                    "border-b border-line last:border-0 hover:bg-sand",
-                    selected.has(r.id) && "bg-sand",
+                    "cursor-pointer border-b border-line last:border-0 hover:bg-sand",
+                    (selected.has(r.id) || openId === r.id) && "bg-sand",
                   )}
+                  // a click anywhere on the lead opens its page; its own controls keep working
+                  onClick={(e) => {
+                    if ((e.target as HTMLElement).closest("input,select,a,button,label")) return;
+                    setOpenId(r.id);
+                  }}
                 >
                   <td className="w-10 py-3 pl-4 pr-0">
                     <input
@@ -371,9 +476,37 @@ export function EngineLeads({
                     {r.tier ?? "—"}
                     {r.need != null && <span className="ml-1 text-xs text-smoke">{r.need}</span>}
                   </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-xs">
+                    {(() => {
+                      const t = leadType(r.signals);
+                      return t ? (
+                        <span className="rounded-full bg-sand px-2.5 py-1 font-semibold">
+                          {LEAD_TYPE_LABEL[t]}
+                        </span>
+                      ) : (
+                        <span className="text-smoke">—</span>
+                      );
+                    })()}
+                    {tookMca(r.signals) && leadType(r.signals) !== "ucc" && (
+                      <div
+                        className="mt-1 text-smoke"
+                        title="A UCC filing by an MCA funder is on record"
+                      >
+                        Took an MCA
+                      </div>
+                    )}
+                  </td>
                   <td className="max-w-[16rem] px-4 py-3 font-medium">
                     <div className="truncate">{r.name || "Unnamed business"}</div>
                     {r.industry && <div className="truncate text-xs text-smoke">{r.industry}</div>}
+                    <button
+                      type="button"
+                      className="mt-1 inline-flex items-center gap-0.5 text-xs font-semibold text-forest hover:underline"
+                      onClick={() => setOpenId(r.id)}
+                      data-open-lead={r.id}
+                    >
+                      Open lead <ChevronRight className="size-3.5" />
+                    </button>
                   </td>
                   <td className="px-4 py-3 tabular-nums">
                     {r.phone ? (
@@ -386,15 +519,46 @@ export function EngineLeads({
                     ) : (
                       "—"
                     )}
-                    {r.email && (
-                      <div className="max-w-[12rem] truncate text-xs text-smoke">{r.email}</div>
+                    {r.contact_phone && (
+                      <div className="text-xs text-smoke">
+                        Best:{" "}
+                        <a
+                          href={`tel:${tel(r.contact_phone)}`}
+                          className="underline-offset-4 hover:text-forest hover:underline"
+                        >
+                          {r.contact_phone}
+                        </a>
+                      </div>
+                    )}
+                    {(r.contact_email || r.email) && (
+                      <div className="max-w-[12rem] truncate text-xs text-smoke">
+                        {r.contact_email || r.email}
+                      </div>
                     )}
                   </td>
                   <td className="px-4 py-3 text-smoke">
                     {[r.city, r.state].filter(Boolean).join(", ") || "—"}
                   </td>
                   <td className="max-w-[18rem] px-4 py-3 text-smoke">
-                    <span className="line-clamp-2">{r.reason || "—"}</span>
+                    {(() => {
+                      const w = splitWhy(r.reason);
+                      const rest = w.points.map((p) => p.text).join(" · ");
+                      return (
+                        <button
+                          type="button"
+                          className="block text-left hover:text-ink"
+                          onClick={() => setOpenId(r.id)}
+                          title="Open the lead"
+                        >
+                          {(r.contact_name || w.owner) && (
+                            <span className="block truncate font-semibold text-ink">
+                              Ask for {r.contact_name || w.owner}
+                            </span>
+                          )}
+                          <span className="line-clamp-2">{rest || (w.owner ? "" : "—")}</span>
+                        </button>
+                      );
+                    })()}
                   </td>
                   <td className="max-w-[14rem] px-4 py-3 text-xs text-smoke">
                     <span className="line-clamp-2">{signalSummary(r.signals) || "—"}</span>
@@ -449,6 +613,31 @@ export function EngineLeads({
         )}
       </div>
 
+      <Sheet open={openRow != null} onOpenChange={(o) => !o && setOpenId(null)}>
+        <SheetContent
+          side="right"
+          // the sheet opens in a portal outside the staff page's themed wrapper, so it carries the
+          // same theme classes itself: dark by default, paper in light mode, like the page behind
+          className="ll-night ll-calm ll-member w-full overflow-y-auto border-l border-line bg-night text-paper sm:max-w-2xl"
+          data-lead-page={openRow?.id}
+        >
+          {openRow && (
+            <LeadPage
+              key={openRow.id}
+              row={openRow}
+              isAdmin={isAdmin}
+              reps={reps}
+              saving={saving === openRow.id}
+              repName={repName(openRow.rep_slug)}
+              onStatus={(next) => void setLeadStatus(openRow, next)}
+              onRep={(slug) => void assignRep(openRow, slug)}
+              onSave={(patch) => saveContact(openRow, patch)}
+              onSend={canPick(openRow) ? () => openSend(openRow) : undefined}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
+
       {selected.size > 0 && (
         <div
           className="sticky bottom-4 z-30 mt-4 flex flex-wrap items-center gap-3 rounded-2xl bg-white px-4 py-3 shadow-[0_16px_40px_-16px_rgb(0_0_0/0.6)] ring-1 ring-line"
@@ -467,7 +656,7 @@ export function EngineLeads({
               type="button"
               className={cn(btnPrimary, "px-4 py-2")}
               disabled={selected.size > MAX_RECIPIENTS}
-              onClick={openSend}
+              onClick={() => openSend()}
             >
               <Send className="size-4" /> Send application ({selected.size})
             </button>
@@ -492,6 +681,536 @@ export function EngineLeads({
         </div>
       )}
     </div>
+  );
+}
+
+/** A lead as the send panel's first row: the rep's contact first, the engine's after. */
+function sendSeed(r: Row): SendSeed {
+  const [first = "", ...rest] = (r.contact_name ?? "").trim().split(/\s+/);
+  return {
+    lead_id: r.id,
+    first_name: first,
+    last_name: rest.join(" "),
+    business_name: r.name ?? "",
+    phone: r.contact_phone || r.phone || "",
+    email: r.contact_email || r.email || "",
+  };
+}
+
+/** One lead in full: the contact the rep gets on the call, then everything the engine knows. */
+function LeadPage({
+  row,
+  isAdmin,
+  reps,
+  saving,
+  repName,
+  onStatus,
+  onRep,
+  onSave,
+  onSend,
+}: {
+  row: Row;
+  isAdmin: boolean;
+  reps: { slug: string; name: string }[];
+  saving: boolean;
+  repName: string | null;
+  onStatus: (next: EngineStatus) => void;
+  onRep: (slug: string) => void;
+  onSave: (patch: ContactPatch) => Promise<string>;
+  onSend?: (() => void) | undefined;
+}) {
+  const [starting, setStarting] = useState(false);
+  const why = splitWhy(row.reason);
+  const type = leadType(row.signals);
+  const [name, setName] = useState(row.contact_name ?? "");
+  const [email, setEmail] = useState(row.contact_email ?? row.email ?? "");
+  const [phone, setPhone] = useState(row.contact_phone ?? "");
+  const [notes, setNotes] = useState(row.notes ?? "");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const patch: ContactPatch = {
+    contact_name: name.trim() || null,
+    contact_email: email.trim().toLowerCase() || null,
+    contact_phone: phone.trim() || null,
+    notes: notes.trim(),
+  };
+  const changed =
+    patch.contact_name !== (row.contact_name ?? null) ||
+    patch.contact_email !== (row.contact_email ?? row.email ?? null) ||
+    patch.contact_phone !== (row.contact_phone ?? null) ||
+    patch.notes !== (row.notes ?? "").trim();
+  const problem =
+    patch.contact_email && !EMAIL_RE.test(patch.contact_email)
+      ? "That email address doesn't look right."
+      : patch.contact_phone && !/^[0-9+()\s.\-x]{7,40}$/.test(patch.contact_phone)
+        ? "Numbers only for the best number, like (718) 555-0142."
+        : "";
+
+  /**
+   * Start application: save what's typed, make this merchant's personal link (no email goes
+   * out), and open its paper application in a new tab for the rep to fill in with them on the
+   * phone.
+   */
+  async function startApplication() {
+    if (problem) return;
+    // opened now, while the click still counts, so the browser doesn't block it as a popup
+    const tab = window.open("about:blank", "_blank");
+    setStarting(true);
+    setMsg(null);
+    try {
+      if (changed) {
+        const err = await onSave(patch);
+        if (err) throw new Error(err);
+      }
+      const seed = sendSeed({ ...row, ...patch });
+      const [res] = await postInvites({
+        action: "send",
+        ...(isAdmin && row.rep_slug ? { rep_slug: row.rep_slug } : {}),
+        recipients: [{ ...seed, channel: "link" }],
+      });
+      if (!res?.url) throw new Error(res?.detail || "Couldn't make the application link.");
+      // the paper application, the one-page form Stevie prefers, in the rep's fill-in mode
+      const paper = paperLink(res.url);
+      const url = `${paper}${paper.includes("?") ? "&" : "?"}fill=rep`;
+      if (tab) tab.location.href = url;
+      else window.location.href = url;
+      setMsg({ ok: true, text: "Paper application opened in a new tab. Fill it in with them." });
+    } catch (e) {
+      tab?.close();
+      setMsg({ ok: false, text: e instanceof Error ? e.message : "Couldn't start it. Try again." });
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  async function save() {
+    if (problem || !changed) return;
+    setBusy(true);
+    setMsg(null);
+    const err = await onSave(patch);
+    setBusy(false);
+    setMsg(err ? { ok: false, text: err } : { ok: true, text: "Saved." });
+  }
+
+  const label = "mb-1.5 block text-xs font-semibold uppercase tracking-wide text-smoke";
+  return (
+    <div className="pb-10">
+      <SheetHeader className="pr-8">
+        <SheetTitle className="font-display text-2xl">{row.name || "Unnamed business"}</SheetTitle>
+        <SheetDescription className="text-smoke">
+          {[row.industry, [row.city, row.state].filter(Boolean).join(", ")]
+            .filter(Boolean)
+            .join(" · ")}
+        </SheetDescription>
+        <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
+          {type && (
+            <span className="rounded-full bg-sand px-2.5 py-1 font-semibold">
+              {LEAD_TYPE_LABEL[type]}
+            </span>
+          )}
+          {tookMca(row.signals) && type !== "ucc" && (
+            <span className="rounded-full bg-sand px-2.5 py-1 font-semibold">Took an MCA</span>
+          )}
+          <span className="rounded-full bg-sand px-2.5 py-1 font-semibold">
+            Tier {row.tier ?? "—"}
+          </span>
+          <span className="text-smoke">Found {row.first_found ?? age(row.pushed_at)}</span>
+        </div>
+      </SheetHeader>
+
+      <div className="mt-5 flex flex-wrap items-center gap-2">
+        {row.phone && (
+          <a href={`tel:${tel(row.phone)}`} className={cn(btnPrimary, "px-4 py-2")}>
+            <Phone className="size-4" /> {row.phone}
+          </a>
+        )}
+        {row.contact_phone && (
+          <a href={`tel:${tel(row.contact_phone)}`} className={cn(btnOutline, "px-4 py-2")}>
+            <Phone className="size-4" /> Best: {row.contact_phone}
+          </a>
+        )}
+        <select
+          className="rounded-full bg-white px-3 py-2 text-sm ring-1 ring-line"
+          value={row.status}
+          disabled={saving}
+          onChange={(e) => onStatus(e.target.value as EngineStatus)}
+          aria-label="Status"
+        >
+          {ENGINE_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {ENGINE_STATUS_LABEL[s]}
+            </option>
+          ))}
+        </select>
+        {isAdmin ? (
+          <select
+            className="rounded-full bg-white px-3 py-2 text-sm ring-1 ring-line"
+            value={row.rep_slug ?? ""}
+            disabled={saving}
+            onChange={(e) => onRep(e.target.value)}
+            aria-label="Rep"
+          >
+            <option value="">Unassigned</option>
+            {reps.map((p) => (
+              <option key={p.slug} value={p.slug}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        ) : (
+          repName && <span className="text-sm text-smoke">Rep: {repName}</span>
+        )}
+      </div>
+
+      <section className={cn(card, "mt-5 p-5")} data-lead-contact>
+        <h3 className="text-sm font-semibold">What you got on the call</h3>
+        <p className="mt-1 text-xs text-smoke">
+          Saved on this lead for you and your admins. The engine never overwrites it. Start
+          application opens their application to fill in together on the phone; they sign it from
+          the link you send at the end.
+        </p>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <label className="block text-sm sm:col-span-2">
+            <span className={label}>Who you spoke to</span>
+            <input
+              className={input}
+              value={name}
+              maxLength={120}
+              placeholder={why.owner ? `e.g. ${why.owner}` : "Owner or decision maker"}
+              onChange={(e) => setName(e.target.value)}
+              data-contact-name
+            />
+          </label>
+          <label className="block text-sm">
+            <span className={label}>Email for the application</span>
+            <input
+              className={input}
+              type="email"
+              inputMode="email"
+              autoComplete="off"
+              value={email}
+              maxLength={200}
+              placeholder="owner@business.com"
+              onChange={(e) => setEmail(e.target.value)}
+              data-contact-email
+            />
+          </label>
+          <label className="block text-sm">
+            <span className={label}>Best number to reach them</span>
+            <input
+              className={input}
+              type="tel"
+              inputMode="tel"
+              autoComplete="off"
+              value={phone}
+              maxLength={40}
+              placeholder="Their cell, if they gave it"
+              onChange={(e) => setPhone(e.target.value)}
+              data-contact-phone
+            />
+          </label>
+          <div className="text-sm sm:col-span-2">
+            <label className="block">
+              <span className={label}>Notes</span>
+              <textarea
+                className={textarea}
+                value={notes}
+                maxLength={2000}
+                placeholder="What they need, how much, how soon, when to call back"
+                onChange={(e) => setNotes(e.target.value)}
+                data-contact-notes
+              />
+            </label>
+            <SpeakButton
+              className="mt-2"
+              onPhrase={(said) => setNotes((n) => fitTo(joinSpoken(n, said), 2000))}
+            />
+          </div>
+        </div>
+        {problem && <p className="mt-3 text-sm text-destructive">{problem}</p>}
+        {msg && (
+          <p className={cn("mt-3 text-sm", msg.ok ? "text-forest" : "text-destructive")}>
+            {msg.text}
+          </p>
+        )}
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          {onSend && (
+            <button
+              type="button"
+              className={cn(btnPrimary, "px-5 py-2")}
+              disabled={starting || busy || !!problem}
+              onClick={() => void startApplication()}
+              data-start-application
+            >
+              {starting ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <FilePen className="size-4" />
+              )}{" "}
+              Start application
+            </button>
+          )}
+          <button
+            type="button"
+            className={cn(btnOutline, "px-5 py-2")}
+            disabled={busy || !changed || !!problem}
+            onClick={() => void save()}
+            data-contact-save
+          >
+            {busy ? <Loader2 className="size-4 animate-spin" /> : null} Save
+          </button>
+          {onSend && (
+            <button
+              type="button"
+              className={cn(btnOutline, "px-5 py-2")}
+              disabled={changed}
+              title={changed ? "Save first" : undefined}
+              onClick={onSend}
+              data-contact-send
+            >
+              <Send className="size-4" /> Send the application
+            </button>
+          )}
+          {row.contact_updated_at && (
+            <span className="text-xs text-smoke">
+              Contact updated {age(row.contact_updated_at)}
+            </span>
+          )}
+        </div>
+      </section>
+
+      <div className="mt-6">
+        <LeadDetail row={row} />
+      </div>
+    </div>
+  );
+}
+
+/** Everything the engine knows about one lead, laid out for the call. */
+function LeadDetail({ row }: { row: Row }) {
+  const why = splitWhy(row.reason);
+  const records = leadRecords(row.signals);
+  const type = leadType(row.signals);
+  const approach = [
+    ...(type ? [LEAD_APPROACH[type]] : []),
+    ...(type !== "ucc" && tookMca(row.signals) ? [LEAD_APPROACH.ucc] : []),
+  ];
+  const head = "text-xs font-semibold uppercase tracking-wide text-smoke";
+  return (
+    <div className="grid gap-6 text-sm sm:grid-cols-2" data-lead-detail={row.id}>
+      <SmartLeadCard row={row} owner={why.owner} type={type} approach={approach} />
+
+      <section>
+        <h4 className={head}>Who to ask for</h4>
+        {why.owner ? (
+          <>
+            <p className="mt-2 text-base font-semibold">{why.owner}</p>
+            {why.ownerFrom && (
+              <p className="mt-0.5 text-xs text-smoke">From public records: {why.ownerFrom}</p>
+            )}
+            {why.alsoOwner && (
+              <p className="mt-1 text-xs text-smoke">Also named: {why.alsoOwner}</p>
+            )}
+            <p className="mt-2 text-xs text-smoke">
+              Ask for them by name. If someone else answers, ask who handles the money side.
+            </p>
+          </>
+        ) : (
+          <p className="mt-2 text-smoke">
+            No owner name in the public records yet. Ask for the owner, or whoever handles the
+            finances, and note the name for next time.
+          </p>
+        )}
+        <dl className="mt-3 space-y-1 text-xs text-smoke">
+          {row.industry && (
+            <div>
+              <dt className="inline font-semibold">Business: </dt>
+              <dd className="inline">{row.industry}</dd>
+            </div>
+          )}
+          {(row.city || row.state) && (
+            <div>
+              <dt className="inline font-semibold">Where: </dt>
+              <dd className="inline">{[row.city, row.state].filter(Boolean).join(", ")}</dd>
+            </div>
+          )}
+          <div>
+            <dt className="inline font-semibold">Tier: </dt>
+            <dd className="inline">
+              {row.tier ?? "—"}
+              {row.tier === "A" && " (dial first)"}
+            </dd>
+          </div>
+        </dl>
+      </section>
+
+      <section>
+        <h4 className={head}>Why it was picked</h4>
+        {why.points.length ? (
+          <ul className="mt-2 space-y-2">
+            {why.points.map((p) => (
+              <li key={p.text}>
+                <span className="font-medium">{p.text}</span>
+                {p.means && <span className="block text-xs text-smoke">{p.means}</span>}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-smoke">The engine gave no reason for this one.</p>
+        )}
+      </section>
+
+      <section>
+        <h4 className={head}>On the public record</h4>
+        {records.length ? (
+          <ul className="mt-2 space-y-2">
+            {records.map((x) => (
+              <li key={`${x.label}|${x.date}|${x.detail}`}>
+                <span className="font-medium">{x.label}</span>
+                {x.date && <span className="ml-1.5 text-xs tabular-nums text-smoke">{x.date}</span>}
+                {x.detail && <span className="block text-xs text-smoke">{x.detail}</span>}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 text-smoke">No records came with this lead.</p>
+        )}
+      </section>
+    </div>
+  );
+}
+
+/**
+ * Smart lead: the cheat sheet for this call. What's going on in their trade this month, why this
+ * lead now, an opener, who they are, how they'd use the money, their words, what they'll push back
+ * with, and where they start on the 5 levels. Built from written playbooks (src/lib/smart-lead.ts)
+ * and the lead's own records, so it's the same every time and costs nothing.
+ */
+function SmartLeadCard({
+  row,
+  owner,
+  type,
+  approach,
+}: {
+  row: Row;
+  owner: string | null;
+  type: LeadType | null;
+  approach: { why: string; ask: string }[];
+}) {
+  const s = smartLead(
+    { industry: row.industry, city: row.city, state: row.state, signals: row.signals, owner },
+    type,
+    new Date(),
+  );
+  const [copied, setCopied] = useState(false);
+  const head = "text-xs font-semibold uppercase tracking-wide text-smoke";
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(s.opener);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard blocked: the text is on screen */
+    }
+  }
+  return (
+    <section
+      className="rounded-2xl bg-sand/60 p-4 ring-1 ring-line sm:col-span-2 sm:p-5"
+      data-smart-lead={s.book.key}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <h4 className="flex items-center gap-1.5 font-display text-base font-semibold">
+          <Sparkles className="size-4 text-forest" /> Smart lead
+        </h4>
+        <span className="rounded-full bg-white px-2.5 py-0.5 text-xs font-semibold ring-1 ring-line">
+          {s.book.label.replace(/^an? /, "")} · {s.month}
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-5 lg:grid-cols-2">
+        <div>
+          <p className={head}>Their world in {s.month}</p>
+          <p className="mt-1.5">{s.now.now}</p>
+          <p className="mt-1.5 text-smoke">
+            <span className="font-semibold text-ink">So the money is for: </span>
+            {s.now.use}
+          </p>
+        </div>
+        <div>
+          <p className={head}>Why this lead, why now</p>
+          <ul className="mt-1.5 space-y-1.5">
+            {s.timing.map((t) => (
+              <li key={t}>{t}</li>
+            ))}
+            {approach.map((a) => (
+              <li key={a.ask} className="text-smoke">
+                {a.why} <span className="font-medium text-ink">{a.ask}</span>
+              </li>
+            ))}
+            {!s.timing.length && !approach.length && (
+              <li className="text-smoke">
+                No timing in its records: lead with the season, and ask what's coming up for them.
+              </li>
+            )}
+          </ul>
+        </div>
+      </div>
+
+      <div className="mt-5">
+        <div className="flex items-center justify-between gap-2">
+          <p className={head}>Open with</p>
+          <button type="button" className={chip} onClick={() => void copy()} data-smart-copy>
+            <Copy className="size-3.5" /> {copied ? "Copied" : "Copy"}
+          </button>
+        </div>
+        <p
+          className="mt-1.5 rounded-xl bg-white p-3 leading-relaxed ring-1 ring-line"
+          data-smart-opener
+        >
+          &ldquo;{s.opener}&rdquo;
+        </p>
+        <p className="mt-1.5 text-xs text-smoke">
+          They start around{" "}
+          <span className="font-semibold">
+            level {s.level.n}, {s.level.name}
+          </span>
+          . {s.level.move}
+        </p>
+      </div>
+
+      <div className="mt-5 grid gap-5 lg:grid-cols-2">
+        <div>
+          <p className={head}>Who they are</p>
+          <p className="mt-1.5">{s.book.who}</p>
+          <p className={cn(head, "mt-4")}>How they&apos;d use it</p>
+          <ul className="mt-1.5 list-disc space-y-1 pl-5">
+            {s.book.uses.map((u) => (
+              <li key={u}>{u}</li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <p className={head}>Talk their language</p>
+          <ul className="mt-1.5 flex flex-wrap gap-1.5">
+            {s.book.language.map((w) => (
+              <li key={w} className="rounded-full bg-white px-2.5 py-1 text-xs ring-1 ring-line">
+                {w}
+              </li>
+            ))}
+          </ul>
+          <p className={cn(head, "mt-4")}>If they say</p>
+          <ul className="mt-1.5 space-y-2.5">
+            {s.book.pushback.map((p) => (
+              <li key={p.they}>
+                <span className="font-medium">&ldquo;{p.they}&rdquo;</span>
+                <span className="block text-smoke">{p.you}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </section>
   );
 }
 

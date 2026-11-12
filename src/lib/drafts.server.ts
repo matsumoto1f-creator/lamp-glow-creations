@@ -14,7 +14,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import * as z from "zod/v4";
-import { caller, env, json, SERVICE_KEY, service, SUPABASE_URL } from "@/lib/funder-send.server";
+import { caller, json, SERVICE_KEY, service, SUPABASE_URL } from "@/lib/funder-send.server";
+import { anthropicKey } from "@/lib/ai-key.server";
 import { readJson } from "@/lib/application-links.server";
 import { briefDay, findToday, safeName, SIGNAL_LABEL, type TodayItem } from "@/lib/brain";
 import {
@@ -192,8 +193,9 @@ export async function brainDraft(request: Request): Promise<Response> {
 
   let draft: Draft = rules;
   let written: string[] = [];
-  let reason: string | null = on() ? null : "off";
-  if (on()) {
+  const isOn = await on();
+  let reason: string | null = isOn ? null : "off";
+  if (isOn) {
     const svc = service();
     const drafts = () => svc.from("brain_drafts" as never);
     const day = briefDay(now);
@@ -213,7 +215,7 @@ export async function brainDraft(request: Request): Promise<Response> {
       else {
         try {
           const client = new Anthropic({
-            apiKey: env("ANTHROPIC_API_KEY"),
+            apiKey: (await anthropicKey()).key,
             timeout: 45_000,
             maxRetries: 1,
           });

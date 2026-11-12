@@ -84,6 +84,8 @@ export function EngineStatusView({ s }: { s: Snapshot }) {
               ? "The engine sends the emails itself."
               : ""}{" "}
           {s.daily_cap !== null && `At most ${s.daily_cap} a day in all. `}
+          {s.senders.some((m) => m.ramp) &&
+            "New mailboxes warm up first: a few a day, rising to their full cap as they really send. "}
           {s.reply_check.ran_at &&
             `Replies last checked ${at(s.reply_check.ran_at)}${s.reply_check.ok ? "" : " (that check failed)"}.`}
         </p>
@@ -173,6 +175,17 @@ export function EngineStatusView({ s }: { s: Snapshot }) {
               <p className="mt-1 text-xs text-smoke">
                 {m.used} of {m.cap} today
               </p>
+              {m.on && m.ramp && (m.ramp.limiting || m.ramp.held || m.ramp.restarted) && (
+                <p
+                  className={cn(
+                    "mt-2 rounded-md px-2 py-1 text-xs",
+                    m.ramp.held || m.ramp.restarted ? TONE.warn : TONE.idle,
+                  )}
+                  data-engine-ramp={m.key}
+                >
+                  {m.ramp.words}
+                </p>
+              )}
               {m.on && m.why && <p className="mt-2 text-sm">{m.why}</p>}
             </div>
           );

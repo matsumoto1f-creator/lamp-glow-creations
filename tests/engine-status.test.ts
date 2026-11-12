@@ -293,3 +293,75 @@ Deno.test(
     assertEquals(old.snapshot.kill, { max_bounce_rate: null, min_sends: null });
   },
 );
+
+// 2026-11-12: the per-mailbox warm-up ramp, as outreach/emailkit/autopilot.py ramp_public() sends it
+const ramp = {
+  day: 3,
+  step: 1,
+  steps: 4,
+  cap: 5,
+  full_cap: 30,
+  next_cap: 10,
+  next_day: 6,
+  held: false,
+  restarted: false,
+  limiting: true,
+  words: "Warm-up day 3: 5 a day, 10 a day from sending day 6",
+};
+const withRamp = (r: unknown) =>
+  snap({ senders: [{ ...snap().senders[0], cap: 5, used: 5, ramp: r }, snap().senders[1]] });
+
+Deno.test("ramp: each mailbox's warm-up comes through with the fields the page shows", () => {
+  const r = parseStatus({ snapshot: withRamp(ramp) });
+  if (!("snapshot" in r)) throw new Error(r.problem);
+  assertEquals(r.snapshot.senders[0].ramp, {
+    day: 3,
+    cap: 5,
+    next_cap: 10,
+    next_day: 6,
+    limiting: true,
+    held: false,
+    restarted: false,
+    words: "Warm-up day 3: 5 a day, 10 a day from sending day 6",
+  });
+  assertEquals(r.snapshot.senders[0].cap, 5);
+});
+
+Deno.test(
+  "ramp: none sent, or not an object, reads as no ramp; a snapshot from before the ramp still parses",
+  () => {
+    for (const bad of [undefined, null, [], "5 a day", 5]) {
+      const r = parseStatus({ snapshot: withRamp(bad) });
+      if (!("snapshot" in r)) throw new Error(r.problem);
+      assertEquals(r.snapshot.senders[0].ramp, null);
+    }
+    const old = parseStatus({ snapshot: snap() });
+    if (!("snapshot" in old)) throw new Error(old.problem);
+    assertEquals(
+      old.snapshot.senders.map((m) => m.ramp),
+      [null, null, null],
+    );
+  },
+);
+
+Deno.test("ramp: bad values are made safe, a top step has no next one", () => {
+  const r = parseStatus({
+    snapshot: withRamp({
+      day: -4,
+      cap: "lots",
+      next_cap: null,
+      next_day: undefined,
+      limiting: "yes",
+      held: 1,
+      restarted: true,
+      words: "x".repeat(900),
+    }),
+  });
+  if (!("snapshot" in r)) throw new Error(r.problem);
+  const m = r.snapshot.senders[0].ramp!;
+  assertEquals(
+    [m.day, m.cap, m.next_cap, m.next_day, m.limiting, m.held, m.restarted],
+    [0, 0, null, null, false, false, true],
+  );
+  assertEquals(m.words.length, 300);
+});

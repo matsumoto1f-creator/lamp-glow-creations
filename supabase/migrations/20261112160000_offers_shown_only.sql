@@ -1,5 +1,9 @@
 -- Offers a rep never showed stay hidden from the merchant (2026-11-03).
 --
+-- Renumbered 2026-11-12 (written as 20261103120000) so it sorts after everything on main; the SQL
+-- is unchanged. Nothing main added since (chat, private lists, engine status) re-creates my_offers,
+-- offer_funder_name() or the offers rule.
+--
 -- "Merchants read presented offers" let a merchant read every offer on their file that wasn't
 -- 'received'. An offer a rep withdrew (or marked declined or expired) without ever showing it is
 -- not 'received' either, so the merchant could read it through the API: the amount, the terms,

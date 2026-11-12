@@ -239,7 +239,7 @@ export function FileOffers({
             const ok = await run(
               "offer",
               async () => {
-                // the offer and its note in one transaction (add_offer, 20261103120000); the
+                // the offer and its note in one transaction (add_offer, 20261112160000); the
                 // note goes in the staff-only table and the database stamps who added both
                 const r = await sb.rpc("add_offer", {
                   _application_id: fileId,

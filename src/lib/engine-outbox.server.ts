@@ -176,7 +176,10 @@ async function reviewItems(): Promise<{ items: Item[] } | { error: string }> {
       .gte("updated_at", since)
       .limit(1000),
   ]);
-  if (open.error || recent.error) return { error: (open.error ?? recent.error)!.message };
+  const err = open.error ?? recent.error;
+  // before the table exists (the SQL file not run yet) the card simply has nothing waiting
+  if (err && (err.code === "42P01" || err.code === "PGRST205")) return { items: [] };
+  if (err) return { error: err.message };
   const items = [...(open.data ?? []), ...(recent.data ?? [])] as unknown as Item[];
   items.sort(
     (a, b) =>

@@ -30,6 +30,7 @@ import { CHAT_OPEN_EVENT } from "@/lib/chat-dock";
 import { useChatUnread } from "@/hooks/use-chat-unread";
 import { FocusRing } from "@/components/staff/focus-ring";
 import { inFocusPilot } from "@/lib/focus";
+import { knownTeam, roleLabel } from "@/lib/team-lead";
 
 type StaffSearch = {
   // "messages" was a tab before Messages became the side panel: an old link opens the panel
@@ -187,6 +188,9 @@ function Staff() {
     );
   }
 
+  // the reps who report to this person: a lead sees their files too (the database decides)
+  const team = access.isAdmin ? [] : knownTeam(access.teamSlugs, reps);
+
   return (
     <PageShell member wide footer={false} tone="night">
       <div
@@ -198,7 +202,7 @@ function Staff() {
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <p className="text-sm text-smoke">
-              {user?.email} · {access.isAdmin ? "Admin" : "Rep"}
+              {user?.email} · {roleLabel(access.isAdmin, team.length)}
               {access.repSlug && ` · /${access.repSlug}`}
             </p>
             <h1 className="mt-1 font-display text-3xl font-bold tracking-tight sm:text-4xl">
@@ -299,8 +303,9 @@ function Staff() {
             <Board
               isAdmin={access.isAdmin}
               repSlug={access.repSlug}
+              team={team}
               stage={search.stage}
-              rep={access.isAdmin ? (search.rep ?? "all") : "all"}
+              rep={access.isAdmin || team.length ? (search.rep ?? "all") : "all"}
               reps={reps}
               onStage={(stage) => navigate({ search: (s) => ({ ...s, stage }) })}
               onRep={(rep) =>

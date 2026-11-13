@@ -6,6 +6,7 @@ import { logActivity } from "@/lib/track";
 import { cn } from "@/lib/utils";
 import { age, STAGE_LABEL, STAGES, type Stage } from "@/lib/staff";
 import { card } from "@/components/site/layout";
+import { boardFilter, watching } from "@/lib/team-lead";
 
 type Row = {
   id: string | null;
@@ -51,6 +52,7 @@ function savedLayout(): Layout {
 export function Board({
   isAdmin,
   repSlug,
+  team,
   stage,
   rep,
   reps,
@@ -59,6 +61,8 @@ export function Board({
 }: {
   isAdmin: boolean;
   repSlug: string | null;
+  /** the reps who report to this person: a lead sees their files and changes nothing on them */
+  team: string[];
   stage: Stage | undefined;
   rep: RepFilter;
   reps: { slug: string; name: string; admin_slug?: string | null }[];
@@ -92,7 +96,9 @@ export function Board({
       // Policies already limit what a rep can read. Filtering rep_slug explicitly as well
       // lets Postgres use the (rep_slug, status, created_at) index (docs/database.md).
       if (!isAdmin) {
-        q = repSlug ? q.or(`rep_slug.eq.${repSlug},rep_slug.is.null`) : q.is("rep_slug", null);
+        // a rep: their own and the unassigned pool; a lead: the team's too, or one of them
+        const f = boardFilter(repSlug, team, rep === repSlug ? "mine" : rep);
+        q = "or" in f ? q.or(f.or) : "rep" in f ? q.eq("rep_slug", f.rep) : q.is("rep_slug", null);
       } else if (rep === "unassigned") {
         q = q.is("rep_slug", null);
       } else if (rep !== "all") {
@@ -111,7 +117,9 @@ export function Board({
     return () => {
       live = false;
     };
-  }, [isAdmin, repSlug, stageFilter, rep]);
+    // team is a new array each render: its contents are what matter
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin, repSlug, team.join(","), stageFilter, rep]);
 
   /** The rep, with their admin's team when they report to one: "Zeus · Stevie's team". */
   const repName = (slug: string | null) => {
@@ -125,6 +133,13 @@ export function Board({
   async function move(id: string, to: Stage) {
     const before = rows?.find((r) => r.id === id);
     if (!before || before.status === to) return;
+    if (watching(isAdmin, repSlug, before.rep_slug)) {
+      // a team file: its own rep moves it
+      setError(
+        `${before.business_name || "That file"} is ${repName(before.rep_slug)?.split(" · ")[0] ?? "another rep"}'s to move. You can open it and leave a note.`,
+      );
+      return;
+    }
     setError("");
     setRows((rs) => rs?.map((r) => (r.id === id ? { ...r, status: to } : r)) ?? rs);
     const sb = getSupabase();
@@ -221,8 +236,35 @@ export function Board({
             </select>
           </label>
         )}
+        {!isAdmin && team.length > 0 && (
+          <label className="text-sm" data-lead-filter>
+            <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-smoke">
+              Rep
+            </span>
+            <select
+              className="rounded-full bg-white px-4 py-2 text-sm ring-1 ring-line"
+              value={rep}
+              onChange={(e) => onRep(e.target.value)}
+            >
+              <option value="all">You and your team</option>
+              {repSlug && <option value={repSlug}>You</option>}
+              <option value="unassigned">Unassigned</option>
+              {reps
+                .filter((r) => team.includes(r.slug))
+                .map((r) => (
+                  <option key={r.slug} value={r.slug}>
+                    {r.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
         <p className="ml-auto text-sm text-smoke">
-          {isAdmin ? "All files" : "Your files and the unassigned pool"}
+          {isAdmin
+            ? "All files"
+            : team.length
+              ? "Your files, your team's files and the unassigned pool"
+              : "Your files and the unassigned pool"}
           {count}
         </p>
       </div>
@@ -241,7 +283,7 @@ export function Board({
         <Kanban
           rows={rows}
           stages={showClosed ? STAGES : OPEN_STAGES}
-          repName={isAdmin ? repName : null}
+          repName={isAdmin || team.length ? repName : null}
           onMove={(id, to) => void move(id, to)}
         />
       ) : (

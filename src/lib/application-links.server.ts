@@ -4,6 +4,7 @@
 // with the rep's name on it and replies going to the rep.
 //
 // Never import this file from browser code: the route files load it inside their handlers.
+import { ownRow } from "@/lib/team-lead";
 import {
   caller,
   gmailAccessToken,
@@ -378,7 +379,9 @@ export async function applicationInvites(request: Request): Promise<Response> {
       note: string | null;
       engine_lead_id: number | null;
     } | null;
-    if (!inv) return json(404, { error: "That link isn't one of yours." });
+    // a team lead reads the links their team sent; stopping or resending one is its sender's
+    if (!inv || !ownRow(isAdmin, ownSlug, inv.rep_slug))
+      return json(404, { error: "That link isn't one of yours." });
     if (inv.submitted_at) return json(409, { error: SIGNED });
 
     // both writes skip a link signed since the read above (Postgres re-checks the condition
@@ -520,7 +523,7 @@ export async function applicationInvites(request: Request): Promise<Response> {
   if (leadIds.length) {
     const r = await who.client
       .from("engine_leads")
-      .select("id,name,phone,email,status")
+      .select("id,name,phone,email,status,rep_slug")
       .in("id", leadIds);
     for (const l of (r.data ?? []) as {
       id: number;
@@ -528,8 +531,10 @@ export async function applicationInvites(request: Request): Promise<Response> {
       phone: string | null;
       email: string | null;
       status: string;
+      rep_slug: string | null;
     }[])
-      leads.set(l.id, l);
+      // a team lead reads the team's leads; a link goes only to a lead that is the sender's own
+      if (ownRow(isAdmin, ownSlug, l.rep_slug)) leads.set(l.id, l);
   }
 
   const note = typeof body.note === "string" ? body.note.slice(0, MAX_NOTE) : "";

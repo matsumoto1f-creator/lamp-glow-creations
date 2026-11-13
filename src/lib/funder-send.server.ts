@@ -10,6 +10,7 @@
 //
 // Never import this file from browser code: the route files load it inside their handlers.
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { workVerdict } from "@/lib/team-lead";
 import {
   type Attachment,
   b64url,
@@ -91,6 +92,24 @@ export async function caller(request: Request) {
   const who = await client.auth.getUser(auth.slice(7));
   if (who.error || !who.data.user) return null;
   return { client, userId: who.data.user.id };
+}
+
+/**
+ * May this signed-in person WORK the file (act on it), not only see it? Asked before the server
+ * acts on a file with its own key: a team lead sees a team file and may not work it
+ * (can_work_application, the team_leads migration). Before that SQL runs, seeing the file is the
+ * test, as it was.
+ */
+export async function mayWork(
+  client: NonNullable<Awaited<ReturnType<typeof caller>>>["client"],
+  applicationId: string,
+): Promise<boolean> {
+  const verdict = workVerdict(
+    await client.rpc("can_work_application", { _application_id: applicationId }),
+  );
+  if (verdict !== "old") return verdict === "yes";
+  const file = await client.from("applications").select("id").eq("id", applicationId).maybeSingle();
+  return !!file.data;
 }
 
 /** Which settings are present, as yes or no only. Shown to staff on the Funders page. */

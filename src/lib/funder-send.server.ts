@@ -10,7 +10,7 @@
 //
 // Never import this file from browser code: the route files load it inside their handlers.
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { workVerdict } from "@/lib/team-lead";
+import { strictWork, workVerdict } from "@/lib/team-lead";
 import {
   type Attachment,
   b64url,
@@ -97,19 +97,29 @@ export async function caller(request: Request) {
 /**
  * May this signed-in person WORK the file (act on it), not only see it? Asked before the server
  * acts on a file with its own key: a team lead sees a team file and may not work it
- * (can_work_application, the team_leads migration). Before that SQL runs, seeing the file is the
- * test, as it was.
+ * (can_work_application, the team_leads migration). If that function can't be called yet, the
+ * same rule is worked out here from the caller's roles, their rep link and the file's rep, so
+ * seeing a file is never enough on its own.
  */
 export async function mayWork(
-  client: NonNullable<Awaited<ReturnType<typeof caller>>>["client"],
+  who: NonNullable<Awaited<ReturnType<typeof caller>>>,
   applicationId: string,
 ): Promise<boolean> {
   const verdict = workVerdict(
-    await client.rpc("can_work_application", { _application_id: applicationId }),
+    await who.client.rpc("can_work_application", { _application_id: applicationId }),
   );
   if (verdict !== "old") return verdict === "yes";
-  const file = await client.from("applications").select("id").eq("id", applicationId).maybeSingle();
-  return !!file.data;
+  const [roles, slug, file] = await Promise.all([
+    who.client.from("user_roles").select("role").eq("user_id", who.userId),
+    who.client.rpc("current_rep_slug"),
+    who.client.from("applications").select("rep_slug").eq("id", applicationId).maybeSingle(),
+  ]);
+  if (roles.error || slug.error || file.error || !file.data) return false;
+  return strictWork(
+    ((roles.data ?? []) as { role: string }[]).map((r) => r.role),
+    (slug.data as string | null) ?? null,
+    (file.data as { rep_slug: string | null }).rep_slug,
+  );
 }
 
 /** Which settings are present, as yes or no only. Shown to staff on the Funders page. */

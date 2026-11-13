@@ -82,7 +82,7 @@ export async function createDocumentRequest(request: Request): Promise<Response>
       .maybeSingle();
     const req = seen.data as { id: string; application_id: string } | null;
     // seeing the request isn't enough: a team lead sees the team's and may not close them
-    if (!req || !(await mayWork(who.client, req.application_id)))
+    if (!req || !(await mayWork(who, req.application_id)))
       return json(404, { error: "That request isn't on a file you can work." });
     await svc
       .from("document_requests")
@@ -116,7 +116,7 @@ export async function createDocumentRequest(request: Request): Promise<Response>
   if (!UUID.test(appId)) return json(400, { error: "Which file?" });
   // the caller's own rules decide whether they may work this file (a team lead sees a team
   // file and may not ask its merchant for documents: that is the file's own rep's call)
-  if (!(await mayWork(who.client, appId)))
+  if (!(await mayWork(who, appId)))
     return json(404, { error: "That file isn't one you can work." });
   const roles = await svc
     .from("user_roles")

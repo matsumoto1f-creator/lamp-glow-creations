@@ -5,6 +5,7 @@ import {
   knownTeam,
   ownRow,
   roleLabel,
+  strictWork,
   teamOf,
   watching,
   workVerdict,
@@ -107,4 +108,21 @@ Deno.test("server: a sent link or a lead is acted on only by its own rep or an a
   assert(!ownRow(false, "zeus", null));
   assert(!ownRow(false, null, null));
   assert(!ownRow(false, null, "darrell"));
+});
+
+Deno.test("server: the work test worked out without the database's function", () => {
+  // an admin works any file
+  assert(strictWork(["admin"], null, "darrell"));
+  assert(strictWork(["rep", "admin"], "asad", null));
+  // a rep works their own and unassigned files
+  assert(strictWork(["rep"], "darrell", "darrell"));
+  assert(strictWork(["rep"], "darrell", null));
+  // a team lead sees the team's file and may not work it
+  assert(!strictWork(["rep"], "zeus", "darrell"));
+  // a rep role with no rep link works only unassigned files
+  assert(strictWork(["rep"], null, null));
+  assert(!strictWork(["rep"], null, "darrell"));
+  // a merchant works nothing, not even their own unassigned file
+  assert(!strictWork(["merchant"], null, null));
+  assert(!strictWork([], "darrell", "darrell"));
 });

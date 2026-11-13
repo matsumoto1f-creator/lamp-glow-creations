@@ -59,8 +59,8 @@ export const roleLabel = (isAdmin: boolean, teamSize: number) =>
 
 /**
  * Reads the answer of can_work_application() for the site's server. "old" means the function
- * isn't in the database yet (the SQL hasn't run): the caller then falls back to the test used
- * before team leads, whether they can see the file. Any other error is a no.
+ * can't be called yet (the SQL hasn't run, or the API hasn't picked it up): the caller then
+ * works the same rule out itself (strictWork). Any other error is a no.
  */
 export function workVerdict(r: {
   data: unknown;
@@ -69,6 +69,20 @@ export function workVerdict(r: {
   if (!r.error) return r.data === true ? "yes" : "no";
   return r.error.code === "PGRST202" || r.error.code === "42883" ? "old" : "no";
 }
+
+/**
+ * The work test worked out on the server, for when the database can't be asked yet: an admin
+ * works any file; a rep works their own and unassigned ones; nobody else works anything. The
+ * same rule as rep_can_work_application(), so a team lead who can see a team file still gets a
+ * no here.
+ */
+export const strictWork = (
+  roles: readonly string[],
+  ownSlug: string | null,
+  fileRep: string | null,
+) =>
+  roles.includes("admin") ||
+  (roles.includes("rep") && (fileRep === null || (!!ownSlug && fileRep === ownSlug)));
 
 /**
  * Is this row (a sent link, an engine lead) the caller's own to act on? An admin acts on any; a

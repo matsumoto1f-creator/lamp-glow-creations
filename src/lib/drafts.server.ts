@@ -14,7 +14,14 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import * as z from "zod/v4";
-import { caller, json, SERVICE_KEY, service, SUPABASE_URL } from "@/lib/funder-send.server";
+import {
+  caller,
+  json,
+  mayWork,
+  SERVICE_KEY,
+  service,
+  SUPABASE_URL,
+} from "@/lib/funder-send.server";
 import { anthropicKey } from "@/lib/ai-key.server";
 import { readJson } from "@/lib/application-links.server";
 import { briefDay, findToday, safeName, SIGNAL_LABEL, type TodayItem } from "@/lib/brain";
@@ -179,6 +186,9 @@ export async function brainDraft(request: Request): Promise<Response> {
   }
 
   if (!item) return json(404, { error: "Nothing to follow up on for this one today." });
+  // a team lead sees a team file; following up on it is its own rep's (and a draft costs money)
+  if (kind === "file" && !(await mayWork(who, String(body.id))))
+    return json(404, { error: "Nothing to follow up on for this one today." });
   const docs = WANTS_DOCS_LINK.includes(item.signal) && okLink(body.docs_link);
   const facts = {
     signal: item.signal,

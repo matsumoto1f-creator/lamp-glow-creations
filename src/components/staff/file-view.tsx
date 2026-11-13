@@ -450,7 +450,8 @@ export function FileView({
           </span>{" "}
           <span className="text-smoke">
             You can read it, leave a note and message the merchant. The stage, documents, funders
-            and offers are {repName(file.rep_slug).split(" ")[0]}'s to change.
+            and offers are {repName(file.rep_slug).split(" ")[0]}'s to change, and the documents and
+            full application are theirs to open.
           </span>
         </p>
       )}
@@ -602,6 +603,12 @@ export function FileView({
                 onLabels={setReqLabels}
               />
             </fieldset>
+            {watch && docs.length > 0 && (
+              <p className="mt-2 text-sm text-smoke" data-docs-closed>
+                You can see what has come in. Opening a document is for the file's own rep and
+                admins.
+              </p>
+            )}
             {docs.length === 0 ? (
               <p className="mt-2 text-sm text-smoke">Nothing uploaded yet.</p>
             ) : (
@@ -613,15 +620,21 @@ export function FileView({
                     className="flex flex-wrap items-center gap-3 rounded-xl bg-sand px-4 py-3 text-sm"
                   >
                     <Paperclip className="size-4 shrink-0 text-smoke" />
-                    <button
-                      type="button"
-                      onClick={() => open(d)}
-                      aria-label={`Open ${docName(d)}`}
-                      className="inline-flex min-w-0 items-center gap-1.5 font-medium hover:text-forest"
-                    >
-                      <span className="truncate">{docName(d)}</span>
-                      <ExternalLink className="size-3.5 shrink-0" />
-                    </button>
+                    {watch ? (
+                      <span className="min-w-0 truncate font-medium" data-doc-name>
+                        {docName(d)}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => open(d)}
+                        aria-label={`Open ${docName(d)}`}
+                        className="inline-flex min-w-0 items-center gap-1.5 font-medium hover:text-forest"
+                      >
+                        <span className="truncate">{docName(d)}</span>
+                        <ExternalLink className="size-3.5 shrink-0" />
+                      </button>
+                    )}
                     <span className="w-full basis-full pl-7 text-xs text-smoke sm:order-last">
                       came in {stamp(d.created_at)}
                       {reqLabels.get(d.id) &&

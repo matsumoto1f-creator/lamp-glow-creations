@@ -123,7 +123,7 @@ export async function statementsAction(request: Request): Promise<Response> {
   if (body.action === "get") return json(200, await state(who, svc, id));
   // reading a statement (it costs money) and confirming the numbers change the file's report:
   // a team lead sees the report on a team file and leaves both to the file's own rep
-  if (!(await mayWork(who.client, id)))
+  if (!(await mayWork(who, id)))
     return json(403, { error: "That file isn't yours to work. Its own rep runs the report." });
   if (body.action === "read") {
     const doc =

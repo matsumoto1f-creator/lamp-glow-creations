@@ -312,3 +312,27 @@ Deno.test("lead engine: by source, how many applied through a sent link", () => 
   assertEquals(b.engine.bySource.find((s) => s.source === "ucc")!.applied, 1);
   assertEquals(b.reps[0]!.signed, 1);
 });
+
+Deno.test("a team lead's own numbers leave out the team's files, submissions and offers", () => {
+  const d = empty();
+  // the database hands a lead their own files, the unassigned pool and the team's
+  d.files = [
+    file("mine", { rep_slug: "zeus" }),
+    file("pool", { rep_slug: null }),
+    file("team1", { rep_slug: "darrell" }),
+    file("team2", { rep_slug: "micheal" }),
+  ];
+  d.submissions = [
+    { id: "s1", application_id: "mine", funder_id: "f1", submitted_at: "2026-10-21T10:00:00" },
+    { id: "s2", application_id: "team1", funder_id: "f1", submitted_at: "2026-10-21T10:00:00" },
+  ];
+  const lead = buildDashboard(d, periodRange("all", NOW), { repSlug: "zeus", now: NOW });
+  assertEquals(lead.pipeline.open, 2);
+  // an admin (no rep scope) still counts every file
+  const admin = buildDashboard(d, periodRange("all", NOW), { repSlug: null, now: NOW });
+  assertEquals(admin.pipeline.open, 4);
+  // a rep with no team gets what they always got: the rows are already only theirs and the pool
+  d.files = [file("mine", { rep_slug: "zeus" }), file("pool", { rep_slug: null })];
+  const rep = buildDashboard(d, periodRange("all", NOW), { repSlug: "zeus", now: NOW });
+  assertEquals(rep.pipeline.open, 2);
+});

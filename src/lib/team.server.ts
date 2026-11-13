@@ -330,7 +330,15 @@ export async function changeTeam(request: Request): Promise<Response> {
             onConflict: "user_id,role",
             ignoreDuplicates: true,
           });
-        else await svc.from("user_roles").delete().eq("user_id", uid).eq("role", "admin");
+        else {
+          // they keep their seat, so they keep (or get) the rep role: without it an admin who
+          // was never given one would lose the staff pages, and a team lead their team's files
+          await svc.from("user_roles").upsert({ user_id: uid, role: "rep" } as never, {
+            onConflict: "user_id,role",
+            ignoreDuplicates: true,
+          });
+          await svc.from("user_roles").delete().eq("user_id", uid).eq("role", "admin");
+        }
       } else if (row.email) {
         await svc
           .from("role_invites")

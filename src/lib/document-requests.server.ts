@@ -9,7 +9,14 @@
 // The database keeps only a hash of the link's secret. The link can only add files to its own
 // file: it never shows the merchant anything already stored beyond the names of what they sent.
 
-import { caller, json, service, SUPABASE_URL, SERVICE_KEY } from "@/lib/funder-send.server";
+import {
+  caller,
+  json,
+  mayWork,
+  service,
+  SUPABASE_URL,
+  SERVICE_KEY,
+} from "@/lib/funder-send.server";
 import { readCapped, readJson, uploadType, looksLikePdf } from "@/lib/application-links.server";
 import {
   hashToken,
@@ -70,10 +77,13 @@ export async function createDocumentRequest(request: Request): Promise<Response>
     if (!UUID.test(body.close_id)) return json(400, { error: "Which request?" });
     const seen = await who.client
       .from("document_requests")
-      .select("id")
+      .select("id,application_id")
       .eq("id", body.close_id)
       .maybeSingle();
-    if (!seen.data) return json(404, { error: "That request isn't on a file you can see." });
+    const req = seen.data as { id: string; application_id: string } | null;
+    // seeing the request isn't enough: a team lead sees the team's and may not close them
+    if (!req || !(await mayWork(who, req.application_id)))
+      return json(404, { error: "That request isn't on a file you can work." });
     await svc
       .from("document_requests")
       .update({ closed_at: new Date().toISOString() })
@@ -104,9 +114,10 @@ export async function createDocumentRequest(request: Request): Promise<Response>
 
   const appId = String(body.application_id ?? "");
   if (!UUID.test(appId)) return json(400, { error: "Which file?" });
-  // the caller's own rules decide whether they may work this file
-  const file = await who.client.from("applications").select("id").eq("id", appId).maybeSingle();
-  if (!file.data) return json(404, { error: "That file isn't one you can work." });
+  // the caller's own rules decide whether they may work this file (a team lead sees a team
+  // file and may not ask its merchant for documents: that is the file's own rep's call)
+  if (!(await mayWork(who, appId)))
+    return json(404, { error: "That file isn't one you can work." });
   const roles = await svc
     .from("user_roles")
     .select("role")

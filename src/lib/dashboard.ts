@@ -271,7 +271,19 @@ export function buildDashboard(
   const engine = rep ? data.engine.filter((e) => e.rep_slug === rep) : data.engine;
   const events = rep ? data.events.filter((e) => e.actor_user_id === repUser) : data.events;
   const invites = rep ? data.invites.filter((i) => i.rep_slug === rep) : data.invites;
-  const { files, deals, ledger, submissions, offers } = data;
+  // Files, submissions and offers come already narrowed by the database: a rep gets their own
+  // and the unassigned pool. A team lead also gets the team's files, which aren't "your
+  // numbers": they are left out here, with what hangs off them.
+  const files = rep
+    ? data.files.filter((f) => f.rep_slug === rep || f.rep_slug === null)
+    : data.files;
+  const counted = new Set(files.map((f) => f.id));
+  const submissions = rep
+    ? data.submissions.filter((x) => counted.has(x.application_id))
+    : data.submissions;
+  const offers = rep ? data.offers.filter((x) => counted.has(x.application_id)) : data.offers;
+  const signed = rep ? data.signed.filter((x) => counted.has(x.application_id)) : data.signed;
+  const { deals, ledger } = data;
 
   // ---- north star: merchants funded, with the money beside it ----
   const fundedIn = (inside: (v: string) => boolean) =>
@@ -320,7 +332,7 @@ export function buildDashboard(
     {
       key: "signed",
       label: "Signed the application",
-      count: data.signed.filter((s) => inNow(s.signed_at)).length,
+      count: signed.filter((s) => inNow(s.signed_at)).length,
     },
     {
       key: "sent",

@@ -26,6 +26,7 @@ import {
 } from "@/lib/staff";
 import { btnOutline, btnPrimary, card } from "@/components/site/layout";
 import { CameIn } from "@/components/staff/came-in";
+import { watching } from "@/lib/team-lead";
 import { FileOffers } from "@/components/staff/file-offers";
 import { FileSend } from "@/components/staff/file-send";
 
@@ -330,6 +331,9 @@ export function FileView({
   const repName = (slug: string | null) =>
     slug ? (reps.find((r) => r.slug === slug)?.name ?? slug) : "Unassigned";
   const mine = !!repSlug && file.rep_slug === repSlug;
+  // a team lead looking at a file of someone who reports to them: read it, leave a note, message
+  // the merchant; every change is the file's own rep's (the database refuses the rest)
+  const watch = watching(isAdmin, repSlug, file.rep_slug);
 
   // The lender copy is page 1, flat; the signing record adds the schedule and how it was signed.
   async function downloadPdf(pages: PdfPages) {
@@ -439,12 +443,27 @@ export function FileView({
         </p>
       )}
 
+      {watch && (
+        <p className="mt-4 rounded-xl bg-sand px-4 py-3 text-sm" data-watching>
+          <span className="font-semibold">
+            This is {repName(file.rep_slug)}'s file. You see it as their team lead.
+          </span>{" "}
+          <span className="text-smoke">
+            You can read it, leave a note and message the merchant. The stage, documents, funders
+            and offers are {repName(file.rep_slug).split(" ")[0]}'s to change, and the documents and
+            full application are theirs to open.
+          </span>
+        </p>
+      )}
+
       {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
 
       <div className="mt-6 grid gap-5 lg:grid-cols-[1.4fr_1fr]">
         <div className="space-y-5">
           <section className={cn(card, "p-6")}>
-            <h3 className="font-display text-lg font-semibold">Work this file</h3>
+            <h3 className="font-display text-lg font-semibold">
+              {watch ? "This file" : "Work this file"}
+            </h3>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <label className="text-sm">
                 <span className="mb-1.5 block text-xs text-smoke">Stage</span>
@@ -452,7 +471,7 @@ export function FileView({
                   aria-label="Stage"
                   className="w-full rounded-full bg-white px-4 py-2 ring-1 ring-line"
                   value={file.status}
-                  disabled={!!busy}
+                  disabled={!!busy || watch}
                   onChange={(e) => updateFile("stage", { status: e.target.value as Stage })}
                 >
                   {STAGES.map((s) => (
@@ -574,14 +593,22 @@ export function FileView({
 
           <section className={cn(card, "p-6")}>
             <h3 className="font-display text-lg font-semibold">Documents</h3>
-            <DocRequests
-              fileId={fileId}
-              firstName={file.first_name}
-              phone={file.phone}
-              email={file.email}
-              docsTick={docs.length}
-              onLabels={setReqLabels}
-            />
+            <fieldset disabled={watch} className={quiet} data-readonly={watch || undefined}>
+              <DocRequests
+                fileId={fileId}
+                firstName={file.first_name}
+                phone={file.phone}
+                email={file.email}
+                docsTick={docs.length}
+                onLabels={setReqLabels}
+              />
+            </fieldset>
+            {watch && docs.length > 0 && (
+              <p className="mt-2 text-sm text-smoke" data-docs-closed>
+                You can see what has come in. Opening a document is for the file's own rep and
+                admins.
+              </p>
+            )}
             {docs.length === 0 ? (
               <p className="mt-2 text-sm text-smoke">Nothing uploaded yet.</p>
             ) : (
@@ -593,15 +620,21 @@ export function FileView({
                     className="flex flex-wrap items-center gap-3 rounded-xl bg-sand px-4 py-3 text-sm"
                   >
                     <Paperclip className="size-4 shrink-0 text-smoke" />
-                    <button
-                      type="button"
-                      onClick={() => open(d)}
-                      aria-label={`Open ${docName(d)}`}
-                      className="inline-flex min-w-0 items-center gap-1.5 font-medium hover:text-forest"
-                    >
-                      <span className="truncate">{docName(d)}</span>
-                      <ExternalLink className="size-3.5 shrink-0" />
-                    </button>
+                    {watch ? (
+                      <span className="min-w-0 truncate font-medium" data-doc-name>
+                        {docName(d)}
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => open(d)}
+                        aria-label={`Open ${docName(d)}`}
+                        className="inline-flex min-w-0 items-center gap-1.5 font-medium hover:text-forest"
+                      >
+                        <span className="truncate">{docName(d)}</span>
+                        <ExternalLink className="size-3.5 shrink-0" />
+                      </button>
+                    )}
                     <span className="w-full basis-full pl-7 text-xs text-smoke sm:order-last">
                       came in {stamp(d.created_at)}
                       {reqLabels.get(d.id) &&
@@ -610,22 +643,26 @@ export function FileView({
                     <span className="ml-auto shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-smoke ring-1 ring-line">
                       {DOC_TAG[d.status]}
                     </span>
-                    <button
-                      type="button"
-                      disabled={!!busy || d.status === "accepted"}
-                      onClick={() => review(d, "accepted")}
-                      className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 text-xs font-semibold ring-1 ring-line transition hover:ring-ink/30 disabled:opacity-40"
-                    >
-                      <Check className="size-3.5" /> Accept
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!!busy || d.status === "rejected"}
-                      onClick={() => review(d, "rejected")}
-                      className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 text-xs font-semibold ring-1 ring-line transition hover:ring-ink/30 disabled:opacity-40"
-                    >
-                      <X className="size-3.5" /> Not accepted
-                    </button>
+                    {!watch && (
+                      <>
+                        <button
+                          type="button"
+                          disabled={!!busy || d.status === "accepted"}
+                          onClick={() => review(d, "accepted")}
+                          className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 text-xs font-semibold ring-1 ring-line transition hover:ring-ink/30 disabled:opacity-40"
+                        >
+                          <Check className="size-3.5" /> Accept
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!!busy || d.status === "rejected"}
+                          onClick={() => review(d, "rejected")}
+                          className="inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 text-xs font-semibold ring-1 ring-line transition hover:ring-ink/30 disabled:opacity-40"
+                        >
+                          <X className="size-3.5" /> Not accepted
+                        </button>
+                      </>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -654,14 +691,16 @@ export function FileView({
             />
           )}
 
-          <FileOffers
-            key={sentTick}
-            fileId={file.id}
-            userId={userId}
-            isAdmin={isAdmin}
-            fileRep={file.rep_slug}
-            onChange={() => void load()}
-          />
+          <fieldset disabled={watch} className={quiet} data-readonly={watch || undefined}>
+            <FileOffers
+              key={sentTick}
+              fileId={file.id}
+              userId={userId}
+              isAdmin={isAdmin}
+              fileRep={file.rep_slug}
+              onChange={() => void load()}
+            />
+          </fieldset>
 
           <section className={cn(card, "p-6")}>
             <h3 className="font-display text-lg font-semibold">Timeline</h3>
@@ -690,7 +729,9 @@ export function FileView({
         </div>
 
         <div className="space-y-5">
-          <StatementReport fileId={fileId} />
+          <fieldset disabled={watch} className={quiet} data-readonly={watch || undefined}>
+            <StatementReport fileId={fileId} />
+          </fieldset>
           <FileApplication fileId={fileId} full={full} />
 
           <section className={cn(card, "p-6")}>
@@ -760,6 +801,9 @@ export function FileView({
     </div>
   );
 }
+
+/** A fieldset that only switches its controls off (for a lead watching a team file): no box. */
+const quiet = "m-0 min-w-0 border-0 p-0";
 
 function Item({ label, children }: { label: string; children: ReactNode }) {
   return (

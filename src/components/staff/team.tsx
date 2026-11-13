@@ -70,7 +70,10 @@ export function Team({ onChanged }: { onChanged?: () => void }) {
     void load();
   }, [load]);
 
-  const admins = (rows ?? []).filter((r) => r.is_admin && r.active);
+  // who someone can report to: an admin, or a rep who already leads a team (a team lead keeps
+  // their team after the Admin box is unticked; they see its files and change nothing on them)
+  const leading = new Set((rows ?? []).map((r) => r.admin_slug).filter(Boolean));
+  const admins = (rows ?? []).filter((r) => r.active && (r.is_admin || leading.has(r.slug)));
   const memberName = new Map(discord.members.map((m) => [m.id, m.name]));
   const matchedTo = new Map(
     (rows ?? []).filter((r) => r.discord_id).map((r) => [r.discord_id!, r.name]),
@@ -128,8 +131,9 @@ export function Team({ onChanged }: { onChanged?: () => void }) {
         <h2 className="font-display text-lg font-semibold">Add a rep</h2>
         <p className="mt-1 max-w-3xl text-sm text-smoke">
           Lamp emails them from partners@getlamp.app with how to sign in and their two application
-          links. If they report to an admin, the applications they send go out in that admin's name,
-          and the signed files land in the rep's own files.
+          links. If they report to someone, the applications they send go out in that person's name,
+          and the signed files land in the rep's own files. A team lead who isn't an admin sees
+          their team's files and changes nothing on them: untick Admin and they keep the team.
         </p>
         <form
           onSubmit={add}
@@ -248,7 +252,18 @@ export function Team({ onChanged }: { onChanged?: () => void }) {
                   className={cn("border-b border-line last:border-0", !r.active && "opacity-60")}
                 >
                   <td className="px-4 py-3">
-                    <p className="font-semibold">{r.name}</p>
+                    <p className="font-semibold">
+                      {r.name}
+                      {leading.has(r.slug) && !r.is_admin && (
+                        <span
+                          className="ml-2 rounded-full bg-sand px-2 py-0.5 text-xs font-semibold text-smoke"
+                          title="Sees their team's files and changes nothing on them. No admin tabs."
+                          data-team-lead
+                        >
+                          Team lead
+                        </span>
+                      )}
+                    </p>
                     <p className="text-xs text-smoke">
                       {r.email ?? "No email"} · /{r.slug}
                     </p>
@@ -342,7 +357,11 @@ export function Team({ onChanged }: { onChanged?: () => void }) {
                           `admin:${r.slug}`,
                           { action: "update", slug: r.slug, make_admin: on },
                           () =>
-                            on ? `${r.name} is now an admin.` : `${r.name} is no longer an admin.`,
+                            on
+                              ? `${r.name} is now an admin.`
+                              : leading.has(r.slug)
+                                ? `${r.name} is no longer an admin. They still lead their team: they see its files and change nothing on them.`
+                                : `${r.name} is no longer an admin.`,
                         );
                       }}
                     />

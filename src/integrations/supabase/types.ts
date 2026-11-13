@@ -2272,6 +2272,10 @@ export type Database = {
         Args: { _application_id: string }
         Returns: boolean
       }
+      can_work_application: {
+        Args: { _application_id: string }
+        Returns: boolean
+      }
       claim_applications: { Args: { _tokens?: string[] }; Returns: number }
       current_rep_slug: { Args: { _user_id?: string }; Returns: string }
       funder_matches: {
@@ -2363,6 +2367,11 @@ export type Database = {
         Returns: boolean
       }
       rep_can_see_lead: { Args: { _lead_id: string }; Returns: boolean }
+      rep_can_work_application: {
+        Args: { _application_id: string }
+        Returns: boolean
+      }
+      my_team_slugs: { Args: never; Returns: string[] }
       rep_can_see_user: { Args: { _user_id: string }; Returns: boolean }
       reveal_application_details: {
         Args: { _application_id: string; _purpose?: string }

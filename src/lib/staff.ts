@@ -83,7 +83,14 @@ export type StaffAccess =
   | { state: "signed_out" }
   | { state: "denied" }
   | { state: "error"; message: string }
-  | { state: "staff"; userId: string; isAdmin: boolean; repSlug: string | null };
+  | {
+      state: "staff";
+      userId: string;
+      isAdmin: boolean;
+      repSlug: string | null;
+      /** the reps who report to this person (my_team_slugs); null until that SQL runs */
+      teamSlugs: string[] | null;
+    };
 
 /**
  * Who the signed-in user is to the pipeline. Roles come from user_roles (a user reads only
@@ -103,9 +110,10 @@ export function useStaffAccess(userId: string | null, authLoading: boolean): Sta
     let live = true;
     setAccess({ state: "loading" });
     (async () => {
-      const [roles, slug] = await Promise.all([
+      const [roles, slug, team] = await Promise.all([
         sb.from("user_roles").select("role").eq("user_id", userId),
         sb.rpc("current_rep_slug"),
+        sb.rpc("my_team_slugs"),
       ]);
       if (!live) return;
       if (roles.error) {
@@ -123,6 +131,7 @@ export function useStaffAccess(userId: string | null, authLoading: boolean): Sta
         userId,
         isAdmin,
         repSlug: slug.error ? null : (slug.data ?? null),
+        teamSlugs: team.error || !Array.isArray(team.data) ? null : team.data,
       });
     })();
     return () => {

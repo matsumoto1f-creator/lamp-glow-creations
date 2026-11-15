@@ -65,6 +65,7 @@ import {
   recipients,
   type Duplicate,
 } from "@/lib/new-application-email";
+import { dailyEmailLimit, limitReached, newYorkDayStart, roomLeft } from "@/lib/invite-limit";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SLUG = /^[a-z0-9][a-z0-9-]{1,31}$/;
@@ -83,6 +84,22 @@ const notReady = () =>
 
 /** A lookup failed (not "there's none"): the caller can try again. */
 const tryAgain = () => json(503, { error: "Try again in a moment." });
+
+/**
+ * Application emails this person has sent since midnight in New York (invite-limit.ts). A send
+ * that failed outright (an error and no Gmail message) doesn't count; a resend does, because it
+ * is another email. Null when the count itself failed.
+ */
+async function emailsSentToday(svc: Svc, userId: string): Promise<number | null> {
+  const r = await svc
+    .from("application_invites")
+    .select("id", { count: "exact", head: true })
+    .eq("sent_by", userId)
+    .eq("channel", "email")
+    .gte("sent_at", newYorkDayStart(new Date()).toISOString())
+    .or("email_message_id.not.is.null,last_error.is.null");
+  return r.error ? null : (r.count ?? 0);
+}
 
 /**
  * The request body, read up to max bytes; null when it's larger. Content-Length is only a hint (a
@@ -413,6 +430,12 @@ export async function applicationInvites(request: Request): Promise<Response> {
       return json(503, { error: "Couldn't check the do-not-contact list. Try again." });
     if (dnc || (lead?.data as { status: string } | null)?.status === "do_not_call")
       return json(409, { error: "Marked do not contact." });
+    if (channel === "email") {
+      const limit = dailyEmailLimit(isAdmin);
+      const sentToday = await emailsSentToday(svc, who.userId);
+      if (sentToday === null) return tryAgain();
+      if (roomLeft(limit, sentToday) === 0) return json(429, { error: limitReached(limit) });
+    }
     const rep = await repBySlug(svc, inv.rep_slug).catch(() => undefined);
     if (rep === undefined) return tryAgain();
     if (!rep) return json(409, { error: "That rep is gone." });
@@ -543,6 +566,14 @@ export async function applicationInvites(request: Request): Promise<Response> {
   let access: { access: string } | { error: string } | null = null;
   const since = new Date(Date.now() - 10 * 60_000).toISOString();
   const results: SendResult[] = [];
+  // the day's email ceiling for the person pressing Send; links to copy are never limited
+  const emailLimit = dailyEmailLimit(isAdmin);
+  let emailRoom = Number.POSITIVE_INFINITY;
+  if (recipients.some((r) => r.channel === "email")) {
+    const sentToday = await emailsSentToday(svc, who.userId);
+    if (sentToday === null) return tryAgain();
+    emailRoom = roomLeft(emailLimit, sentToday);
+  }
 
   for (let index = 0; index < recipients.length; index++) {
     const r: Recipient = recipients[index]!;
@@ -605,6 +636,15 @@ export async function applicationInvites(request: Request): Promise<Response> {
         });
         continue;
       }
+    }
+
+    if (channel === "email") {
+      if (emailRoom <= 0) {
+        results.push({ index, status: "skipped", detail: limitReached(emailLimit) });
+        continue;
+      }
+      // counted before the send, so a failure part-way through never lets the batch run over
+      emailRoom--;
     }
 
     const token = newToken();

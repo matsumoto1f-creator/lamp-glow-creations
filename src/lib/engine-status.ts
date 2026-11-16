@@ -38,6 +38,10 @@ export type Mailbox = {
   sent_today: number | null;
   /** Emails written from this mailbox and not sent yet: waiting for approval, or in Drafts. Null as above. */
   waiting: number | null;
+  /** Approved and going out later today (held for sending hours or the business's own morning); null as above. */
+  scheduled: number | null;
+  /** When the last of those goes, as New York clock text, or "". */
+  scheduled_last: string;
 };
 /**
  * A new mailbox earns its daily cap by really sending: 5 a day at first, 10 from sending day 6, 20 from
@@ -62,6 +66,8 @@ export type Snapshot = {
   delivery: string;
   /** The sending hours as the engine holds them, "Mon-Fri 09:00-17:00 America/New_York", or "". */
   window: string;
+  /** "09:30" when approved emails wait until that time of day where the business is; "" when they do not. */
+  local_not_before: string;
   daily_cap: number | null;
   senders: Mailbox[];
   jobs: Job[];
@@ -158,6 +164,9 @@ export function parseStatus(body: unknown): { snapshot: Snapshot } | { problem: 
     autopilot_on: bool(s["autopilot_on"]),
     delivery: txt(s["delivery"], 20),
     window: txt(s["window"], 80),
+    local_not_before: /^\d\d:\d\d$/.test(txt(s["local_not_before"], 5))
+      ? txt(s["local_not_before"], 5)
+      : "",
     daily_cap: s["daily_cap"] === null || s["daily_cap"] === undefined ? null : num(s["daily_cap"]),
     senders: arr(s["senders"], 10).map((x) => {
       const m = obj(x);
@@ -173,6 +182,8 @@ export function parseStatus(body: unknown): { snapshot: Snapshot } | { problem: 
         ramp: parseRamp(m["ramp"]),
         sent_today: maybe(m["sent_today"]),
         waiting: maybe(m["waiting"]),
+        scheduled: maybe(m["scheduled"]),
+        scheduled_last: when(m["scheduled_last"]),
         state:
           m["state"] === "drafting" || m["state"] === "held"
             ? m["state"]
@@ -390,6 +401,17 @@ export function windowWords(w: string): string {
   return `${m[1]}, ${clock12(Number(m[2]), Number(m[3]))} to ${clock12(Number(m[4]), Number(m[5]))} ${zone}`;
 }
 
+/** "9:30 AM" for "09:30"; "" for anything else. */
+export function hourWords(hm: string): string {
+  const m = /^(\d\d):(\d\d)$/.exec(hm || "");
+  return m ? clock12(Number(m[1]), Number(m[2])) : "";
+}
+/** Approved emails that go out later today, in words: when they go, and when the last one does. */
+function laterWords(n: number, last: string, s: Snapshot): string {
+  const nb = hourWords(s.local_not_before);
+  const when_ = nb ? `at ${nb} in each business's own time zone` : "in the next sending hours";
+  return `${n} approved and going out ${when_}${last && engineClock(last) ? `, the last at ${engineClock(last)}` : ""}`;
+}
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 /** The cap a mailbox will have on its next sending day: today's sends earn the next warm-up day. */
 function nextCap(m: Mailbox, sentToday: number): number {
@@ -422,6 +444,8 @@ export type MailboxDay = {
   today: string;
   next: string;
   sent: number;
+  /** approved, going out later today */
+  scheduled: number;
   waiting: number;
 };
 export function mailboxDay(m: Mailbox, s: Snapshot, now: Date): MailboxDay {
@@ -430,7 +454,8 @@ export function mailboxDay(m: Mailbox, s: Snapshot, now: Date): MailboxDay {
   const rv = review(s);
   const sent = m.sent_today ?? 0;
   const waiting = m.waiting ?? 0;
-  const base = { sent, waiting };
+  const scheduled = m.scheduled ?? 0;
+  const base = { sent, waiting, scheduled };
   if (m.state === "off")
     return {
       ...base,
@@ -466,12 +491,20 @@ export function mailboxDay(m: Mailbox, s: Snapshot, now: Date): MailboxDay {
       today: `${day}: ${m.used} of ${m.cap} used.`,
       next,
     };
+  if (scheduled > 0 && waiting === 0)
+    return {
+      ...base,
+      tone: "ok",
+      pill: "Approved, going out",
+      today: `${day}: ${sent} sent, ${laterWords(scheduled, m.scheduled_last, s)}. Nothing more is needed from you.`,
+      next,
+    };
   if (waiting > 0)
     return {
       ...base,
       tone: "warn",
       pill: rv ? "Waiting for your approval" : "Waiting in Drafts",
-      today: `${day}: ${sent} sent, ${waiting} waiting ${rv ? "for your approval at the top of this page" : "in Gmail Drafts for the rep to send"}.`,
+      today: `${day}: ${sent} sent, ${scheduled > 0 ? `${laterWords(scheduled, m.scheduled_last, s)}, ` : ""}${waiting} waiting ${rv ? "for your approval at the top of this page" : "in Gmail Drafts for the rep to send"}.`,
       next,
     };
   if (sent > 0)
@@ -520,6 +553,13 @@ export function dayLine(
   const known = on.length > 0 && on.every((m) => m.sent_today !== null && m.waiting !== null);
   const sent = on.reduce((n, m) => n + (m.sent_today ?? 0), 0);
   const waiting = on.reduce((n, m) => n + (m.waiting ?? 0), 0);
+  const scheduled = on.reduce((n, m) => n + (m.scheduled ?? 0), 0);
+  const last =
+    on
+      .map((m) => (m.scheduled ? m.scheduled_last : ""))
+      .sort()
+      .pop() ?? "";
+  const later = scheduled > 0 ? `${laterWords(scheduled, last, s)}` : "";
   const room = on.reduce((n, m) => n + nextCap(m, m.sent_today ?? 0), 0);
   const next = !s.autopilot_on
     ? "Autopilot is paused, so nothing more is written until it is switched back on."
@@ -539,7 +579,13 @@ export function dayLine(
   if (waiting > 0)
     return {
       tone: "warn",
-      today: `${day}: ${sent} sent, ${waiting} waiting ${rv ? "for your approval at the top of this page. Nothing goes out until you press Send." : "in Gmail Drafts for the reps to send."}`,
+      today: `${day}: ${sent} sent, ${later ? `${later}, ` : ""}${waiting} waiting ${rv ? "for your approval at the top of this page. Nothing goes out until you press Send." : "in Gmail Drafts for the reps to send."}`,
+      next,
+    };
+  if (scheduled > 0)
+    return {
+      tone: "ok",
+      today: `${day}: ${sent} sent, ${later}. Nothing more is needed from you.`,
       next,
     };
   if (sent > 0)

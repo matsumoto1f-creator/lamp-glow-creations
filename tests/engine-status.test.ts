@@ -5,6 +5,7 @@ import {
   engineClock,
   engineDay,
   freshness,
+  hourWords,
   jobState,
   mailboxDay,
   MAX_BYTES,
@@ -618,6 +619,98 @@ Deno.test(
     assertEquals(
       dayLine(held, MON_0915).today,
       "Today, Mon Nov 16: no mailbox can write emails right now.",
+    );
+  },
+);
+
+// ---- 2026-11-16: approved emails wait for 9:30 AM where the business is; the page calls them approved, never "waiting for you" ----
+Deno.test(
+  "mailbox: approved emails held for the business's own morning read as approved and going out, with the last time",
+  () => {
+    const s = day(
+      [
+        box("asad", {
+          sent_today: 1,
+          waiting: 0,
+          scheduled: 4,
+          scheduled_last: "2026-11-16T12:30",
+        }),
+      ],
+      { local_not_before: "09:30" },
+    );
+    const d = mailboxDay(s.senders[0], s, MON_0915);
+    assertEquals([d.pill, d.tone], ["Approved, going out", "ok"]);
+    assertEquals(
+      d.today,
+      "Today, Mon Nov 16: 1 sent, 4 approved and going out at 9:30 AM in each business's own time zone, the last at 12:30 PM ET. Nothing more is needed from you.",
+    );
+    assertEquals([d.sent, d.scheduled, d.waiting], [1, 4, 0]);
+    // some approved and going out, some still needing a person: both are said, and the pill is the one that needs him
+    const mix = day(
+      [
+        box("asad", {
+          sent_today: 0,
+          waiting: 2,
+          scheduled: 3,
+          scheduled_last: "2026-11-16T11:30",
+        }),
+      ],
+      { local_not_before: "09:30" },
+    );
+    const x = mailboxDay(mix.senders[0], mix, MON_0915);
+    assertEquals(x.pill, "Waiting for your approval");
+    assertEquals(
+      x.today,
+      "Today, Mon Nov 16: 0 sent, 3 approved and going out at 9:30 AM in each business's own time zone, the last at 11:30 AM ET, 2 waiting for your approval at the top of this page.",
+    );
+    // held for sending hours only (no local rule): no time of day is invented
+    const hrs = day([box("asad", { sent_today: 0, waiting: 0, scheduled: 5 })]);
+    assertEquals(
+      mailboxDay(hrs.senders[0], hrs, MON_0915).today,
+      "Today, Mon Nov 16: 0 sent, 5 approved and going out in the next sending hours. Nothing more is needed from you.",
+    );
+  },
+);
+
+Deno.test(
+  "day line and parse: the approved-and-going-out count, its last time and the 9:30 rule come through",
+  () => {
+    const s = day(
+      [
+        box("asad", {
+          sent_today: 2,
+          waiting: 0,
+          scheduled: 3,
+          scheduled_last: "2026-11-16T11:30",
+        }),
+        box("zeus", {
+          sent_today: 0,
+          waiting: 0,
+          scheduled: 5,
+          scheduled_last: "2026-11-16T12:30",
+        }),
+      ],
+      { local_not_before: "09:30" },
+    );
+    assertEquals(
+      [s.local_not_before, s.senders[0].scheduled, s.senders[1].scheduled_last],
+      ["09:30", 3, "2026-11-16T12:30"],
+    );
+    const d = dayLine(s, MON_0915);
+    assertEquals(d.tone, "ok");
+    assertEquals(
+      d.today,
+      "Today, Mon Nov 16: 2 sent, 8 approved and going out at 9:30 AM in each business's own time zone, the last at 12:30 PM ET. Nothing more is needed from you.",
+    );
+    assertEquals(
+      [hourWords("09:30"), hourWords("13:05"), hourWords("soon")],
+      ["9:30 AM", "1:05 PM", ""],
+    );
+    // a rule that is not a time of day is dropped, and an older engine leaves the count unknown
+    const bad = day([box("asad", { scheduled: undefined })], { local_not_before: "morning" });
+    assertEquals(
+      [bad.local_not_before, bad.senders[0].scheduled, bad.senders[0].scheduled_last],
+      ["", null, ""],
     );
   },
 );

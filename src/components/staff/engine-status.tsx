@@ -7,6 +7,7 @@ import { chip } from "@/components/staff/field-styles";
 import {
   dayLine,
   engineTime,
+  hourWords,
   freshness,
   INDUSTRY_LABEL,
   jobState,
@@ -76,6 +77,8 @@ export function EngineStatusView({ s, now = new Date() }: { s: Snapshot; now?: D
   const review = s.delivery === "review";
   const hours = windowWords(s.window);
   const waitingNow = s.senders.reduce((n, m) => n + (m.waiting ?? 0), 0);
+  const laterNow = s.senders.reduce((n, m) => n + (m.scheduled ?? 0), 0);
+  const notBefore = hourWords(s.local_not_before);
   return (
     <>
       <div className={cn(card, "mt-4 p-4")} data-engine-day={day.tone}>
@@ -97,7 +100,7 @@ export function EngineStatusView({ s, now = new Date() }: { s: Snapshot; now?: D
             : s.delivery === "send"
               ? "The engine sends the emails itself."
               : review
-                ? `How a day goes: each weekday morning the engine writes the day's emails and they wait at the top of this page. Nothing is sent until an admin presses Send. Approved emails then go out within a few minutes${hours ? `, ${hours}` : ""}, each from its own person's mailbox.`
+                ? `How a day goes: each weekday morning the engine writes the day's emails and they wait at the top of this page. Nothing is sent until an admin presses Send. Approved emails then go out${hours ? ` ${hours}` : " within a few minutes"}${notBefore ? `, and never before ${notBefore} where the business is` : ""}, each from its own person's mailbox.`
                 : ""}{" "}
           {s.daily_cap !== null && `At most ${s.daily_cap} a day in all. `}
           {s.senders.some((m) => m.ramp) &&
@@ -167,11 +170,12 @@ export function EngineStatusView({ s, now = new Date() }: { s: Snapshot; now?: D
       <div className="mt-3 grid gap-3 md:grid-cols-3">
         {s.senders.map((m) => {
           const d = mailboxDay(m, s, now);
-          // the bar: sent is the bright part, waiting the pale part, the rest of today's limit the track.
+          // the bar: sent is the bright part, approved-and-going-out the middle one, waiting the pale part, the rest of today's limit the track.
           // The fill was bg-forest on bg-sand, which on the dark page are nearly one colour: a full bar looked empty.
-          const of = Math.max(m.cap, d.sent + d.waiting, 1);
+          const of = Math.max(m.cap, d.sent + d.scheduled + d.waiting, 1);
           const sentPct = Math.round((d.sent / of) * 100);
-          const waitPct = Math.min(100 - sentPct, Math.round((d.waiting / of) * 100));
+          const laterPct = Math.min(100 - sentPct, Math.round((d.scheduled / of) * 100));
+          const waitPct = Math.min(100 - sentPct - laterPct, Math.round((d.waiting / of) * 100));
           return (
             <div key={m.key} className={cn(card, "p-4")} data-engine-mailbox={m.key}>
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -192,11 +196,13 @@ export function EngineStatusView({ s, now = new Date() }: { s: Snapshot; now?: D
                     data-engine-bar
                   >
                     <div className="h-full bg-leaf" style={{ width: `${sentPct}%` }} />
+                    <div className="h-full bg-leaf/70" style={{ width: `${laterPct}%` }} />
                     <div className="h-full bg-leaf/40" style={{ width: `${waitPct}%` }} />
                   </div>
                   <p className="mt-1 text-xs text-smoke">
-                    {d.sent} sent{d.waiting > 0 ? `, ${d.waiting} waiting` : ""} · today's limit{" "}
-                    {m.cap}
+                    {d.sent} sent
+                    {d.scheduled > 0 ? `, ${d.scheduled} going out later` : ""}
+                    {d.waiting > 0 ? `, ${d.waiting} waiting` : ""} · today's limit {m.cap}
                   </p>
                 </>
               )}
@@ -231,7 +237,10 @@ export function EngineStatusView({ s, now = new Date() }: { s: Snapshot; now?: D
           <Num
             label="Waiting for your approval"
             value={waitingNow}
-            note={waitingNow ? "at the top of this page" : "nothing is waiting on you"}
+            note={
+              (waitingNow ? "at the top of this page" : "nothing is waiting on you") +
+              (laterNow ? ` · ${laterNow} approved, going out later today` : "")
+            }
           />
         ) : (
           <Num label="First emails drafted" value={s.today.first_emails_drafted} />

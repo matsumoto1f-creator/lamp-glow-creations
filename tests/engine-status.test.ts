@@ -1,6 +1,18 @@
 // deno test --node-modules-dir=none tests/engine-status.test.ts
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { freshness, jobState, MAX_BYTES, parseStatus, type Job } from "../src/lib/engine-status.ts";
+import {
+  dayLine,
+  engineClock,
+  engineDay,
+  freshness,
+  jobState,
+  mailboxDay,
+  MAX_BYTES,
+  parseStatus,
+  windowWords,
+  type Job,
+  type Snapshot,
+} from "../src/lib/engine-status.ts";
 
 // the shape outreach/emailkit/autopilot.py posts (status.json), as it looked on its first real run
 const snap = (over: Record<string, unknown> = {}) => ({
@@ -365,3 +377,247 @@ Deno.test("ramp: bad values are made safe, a top step has no next one", () => {
   );
   assertEquals(m.words.length, 300);
 });
+
+// ---- 2026-11-16: the page says which day it means, what went out, what waits and when the next emails are written ----
+// The real morning: review mode, three mailboxes on warm-up day 1 (5 a day), the drafting job ran at 08:59 and runs next Tue 08:30.
+const RAMP = {
+  day: 1,
+  step: 1,
+  steps: 4,
+  cap: 5,
+  full_cap: 30,
+  next_cap: 10,
+  next_day: 6,
+  held: false,
+  restarted: false,
+  limiting: true,
+  words: "Warm-up day 1: 5 a day, 10 a day from sending day 6",
+};
+const box = (key: string, over: Record<string, unknown> = {}) => ({
+  key,
+  name: key,
+  mailbox: `${key}@getlamp.app`,
+  on: true,
+  connected: true,
+  cap: 5,
+  used: 5,
+  why: "",
+  state: "drafting",
+  ramp: RAMP,
+  sent_today: 5,
+  waiting: 0,
+  ...over,
+});
+const morningJob = (over: Record<string, unknown> = {}) => ({
+  label: "com.ket.lamp-email-drafts",
+  step: "morning",
+  title: "Email drafter",
+  what: "writes",
+  schedule: "Mon-Fri 08:30",
+  next_run: "2026-11-17T08:30:00",
+  state: "on",
+  last: {
+    started_at: "2026-11-16T08:59:46",
+    ended_at: "2026-11-16T09:00:02",
+    ok: true,
+    summary: "15 waiting",
+  },
+  ...over,
+});
+const day = (senders: unknown[], over: Record<string, unknown> = {}): Snapshot => {
+  const r = parseStatus({
+    snapshot: snap({
+      delivery: "review",
+      window: "Mon-Fri 09:00-17:00 America/New_York",
+      senders,
+      jobs: [morningJob()],
+      ...over,
+    }),
+  });
+  if ("problem" in r) throw new Error(r.problem);
+  return r.snapshot;
+};
+const MON_0915 = new Date("2026-11-16T14:15:00Z"); // 9:15 AM in New York
+
+Deno.test("day words: dates, clock times and sending hours read as plain words", () => {
+  assertEquals(engineDay("2026-11-16T08:30:00"), "Mon Nov 16");
+  assertEquals(engineDay("2026-11-17"), "Tue Nov 17");
+  assertEquals(engineDay("soon"), "");
+  assertEquals(engineClock("2026-11-17T08:30:00"), "8:30 AM ET");
+  assertEquals(engineClock("2026-11-17T16:05"), "4:05 PM ET");
+  assertEquals(
+    windowWords("Mon-Fri 09:00-17:00 America/New_York"),
+    "Mon-Fri, 9:00 AM to 5:00 PM ET",
+  );
+  assertEquals(windowWords("weekdays, mornings"), "weekdays, mornings"); // an unknown form is shown as written, never guessed
+  assertEquals(windowWords(""), "");
+});
+
+Deno.test(
+  "parse: sent today, waiting and the sending hours come through; an older engine's snapshot leaves them unknown",
+  () => {
+    const s = day([box("asad", { sent_today: 2, waiting: 3 })]);
+    assertEquals(
+      [s.senders[0].sent_today, s.senders[0].waiting, s.window],
+      [2, 3, "Mon-Fri 09:00-17:00 America/New_York"],
+    );
+    const old = parseStatus({ snapshot: snap() });
+    assert("snapshot" in old);
+    assertEquals(
+      [old.snapshot.senders[0].sent_today, old.snapshot.senders[0].waiting, old.snapshot.window],
+      [null, null, ""],
+    );
+  },
+);
+
+Deno.test(
+  "mailbox: everything sent says done for today, names the day, and says when the next emails are written",
+  () => {
+    const s = day([box("asad")]);
+    const d = mailboxDay(s.senders[0], s, MON_0915);
+    assertEquals(d.pill, "Done for today");
+    assertEquals(d.tone, "ok");
+    assertEquals(d.today, "Today, Mon Nov 16: all 5 sent. This mailbox is finished for today.");
+    assertEquals(
+      d.next,
+      "Next: Tue Nov 17 at 8:30 AM ET, up to 5 more are written and wait for your approval at the top of this page.",
+    );
+    assertEquals([d.sent, d.waiting], [5, 0]);
+  },
+);
+
+Deno.test("mailbox: emails waiting on a person say so, and say where", () => {
+  const s = day([box("asad", { sent_today: 0, waiting: 5 })]);
+  const d = mailboxDay(s.senders[0], s, MON_0915);
+  assertEquals(d.pill, "Waiting for your approval");
+  assertEquals(d.tone, "warn");
+  assertEquals(
+    d.today,
+    "Today, Mon Nov 16: 0 sent, 5 waiting for your approval at the top of this page.",
+  );
+  // draft mode waits in Gmail, not in the portal
+  const dm = day([box("asad", { sent_today: 1, waiting: 4 })], { delivery: "draft" });
+  const g = mailboxDay(dm.senders[0], dm, MON_0915);
+  assertEquals(g.pill, "Waiting in Drafts");
+  assert(g.today.endsWith("1 sent, 4 waiting in Gmail Drafts for the rep to send."));
+  assert(g.next.endsWith("go into this mailbox's Gmail Drafts."));
+});
+
+Deno.test(
+  "mailbox: fewer sent than the limit and nothing waiting is still finished, with the real numbers",
+  () => {
+    const s = day([box("asad", { sent_today: 3, waiting: 0 })]);
+    assertEquals(
+      mailboxDay(s.senders[0], s, MON_0915).today,
+      "Today, Mon Nov 16: 3 sent of a limit of 5. Nothing else is waiting, so this mailbox is finished for today.",
+    );
+  },
+);
+
+Deno.test(
+  "mailbox: before the morning run it says when today's are written; on a day with no run it says none are",
+  () => {
+    const before = day([box("asad", { sent_today: 0, waiting: 0, used: 0 })], {
+      jobs: [morningJob({ next_run: "2026-11-16T08:30:00", last: null })],
+    });
+    const b = mailboxDay(before.senders[0], before, new Date("2026-11-16T12:00:00Z")); // 7:00 AM in New York
+    assertEquals(b.pill, "Not written yet");
+    assertEquals(
+      b.today,
+      "Today, Mon Nov 16: nothing written yet. Up to 5 are written at 8:30 AM ET and then wait for your approval at the top of this page.",
+    );
+    assertEquals(b.next, "");
+    const sat = day([box("asad", { sent_today: 0, waiting: 0, used: 0 })], {
+      jobs: [
+        morningJob({
+          last: {
+            started_at: "2026-11-13T08:30:05",
+            ended_at: "2026-11-13T08:31:00",
+            ok: true,
+            summary: "x",
+          },
+          next_run: "2026-11-16T08:30:00",
+        }),
+      ],
+    });
+    const w = mailboxDay(sat.senders[0], sat, new Date("2026-11-14T15:00:00Z")); // Saturday
+    assertEquals(w.pill, "Nothing today");
+    assertEquals(w.today, "Today, Sat Nov 14: no emails are written today.");
+    assertEquals(
+      w.next,
+      "Next: Mon Nov 16 at 8:30 AM ET, up to 5 more are written and wait for your approval at the top of this page.",
+    );
+    // the run happened and wrote nothing for this mailbox: it points at the run's own words, it does not guess a reason
+    const none = day([box("asad", { sent_today: 0, waiting: 0, used: 0 })]);
+    assert(
+      mailboxDay(none.senders[0], none, MON_0915).today.includes(
+        "no email was written for this mailbox",
+      ),
+    );
+  },
+);
+
+Deno.test("mailbox: held and off say so; a paused autopilot promises nothing next", () => {
+  const s = day([
+    box("zeus", { state: "held", why: "no phone number", sent_today: 0, waiting: 0 }),
+    box("x", { on: false, state: "off" }),
+  ]);
+  const h = mailboxDay(s.senders[0], s, MON_0915);
+  assertEquals([h.pill, h.tone, h.next], ["Held", "warn", ""]);
+  assert(h.today.startsWith("Today, Mon Nov 16: nothing is written from this mailbox until"));
+  assertEquals(mailboxDay(s.senders[1], s, MON_0915).pill, "Not on autopilot");
+  const p = day([box("asad")], { autopilot_on: false });
+  assertEquals(
+    mailboxDay(p.senders[0], p, MON_0915).next,
+    "Next: nothing while autopilot is paused.",
+  );
+});
+
+Deno.test(
+  "mailbox: the next day's number follows the warm-up, and today's sends earn the next day",
+  () => {
+    const up = { ...RAMP, day: 5, words: "Warm-up day 5" };
+    const s = day([
+      box("asad", { ramp: up }),
+      box("stevie", { ramp: up, sent_today: 0, waiting: 0 }),
+    ]);
+    assert(mailboxDay(s.senders[0], s, MON_0915).next.includes("up to 10 more")); // sent on day 5, so tomorrow is day 6
+    assert(mailboxDay(s.senders[1], s, MON_0915).next.includes("up to 5 more")); // sent nothing: still day 5 tomorrow
+  },
+);
+
+Deno.test(
+  "mailbox: an engine that does not report sent and waiting gets the old plain count, never an invented one",
+  () => {
+    const s = day([box("asad", { sent_today: undefined, waiting: undefined, used: 4 })]);
+    const d = mailboxDay(s.senders[0], s, MON_0915);
+    assertEquals([d.pill, d.today], ["On autopilot", "Today, Mon Nov 16: 4 of 5 used."]);
+  },
+);
+
+Deno.test(
+  "day line: the top of the page says today is done, or what waits on you, and what comes next",
+  () => {
+    const done = day([box("asad"), box("stevie"), box("zeus")]);
+    assertEquals(dayLine(done, MON_0915), {
+      tone: "ok",
+      today: "Today, Mon Nov 16: 15 emails sent, none waiting. Everything for today has gone out.",
+      next: "Next: Tue Nov 17 at 8:30 AM ET, up to 15 more are written and wait for your approval at the top of this page.",
+    });
+    const wait = day([
+      box("asad", { sent_today: 0, waiting: 5 }),
+      box("stevie", { sent_today: 0, waiting: 5 }),
+    ]);
+    const w = dayLine(wait, MON_0915);
+    assertEquals(w.tone, "warn");
+    assertEquals(
+      w.today,
+      "Today, Mon Nov 16: 0 sent, 10 waiting for your approval at the top of this page. Nothing goes out until you press Send.",
+    );
+    const held = day([box("asad", { state: "held", why: "x" })]);
+    assertEquals(
+      dayLine(held, MON_0915).today,
+      "Today, Mon Nov 16: no mailbox can write emails right now.",
+    );
+  },
+);

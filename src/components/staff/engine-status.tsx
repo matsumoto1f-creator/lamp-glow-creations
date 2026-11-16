@@ -5,11 +5,14 @@ import { cn } from "@/lib/utils";
 import { card } from "@/components/site/layout";
 import { chip } from "@/components/staff/field-styles";
 import {
+  dayLine,
   engineTime,
   freshness,
   INDUSTRY_LABEL,
   jobState,
+  mailboxDay,
   runState,
+  windowWords,
   type Snapshot,
 } from "@/lib/engine-status";
 import type { EngineStatus as Data } from "@/lib/engine-status.server";
@@ -18,8 +21,10 @@ import type { EngineStatus as Data } from "@/lib/engine-status.server";
  * Email engine (admins only): the War Room email autopilot as it runs. Its scheduled jobs (when
  * each runs next, what its last run did), each Lamp mailbox against its daily cap, today's numbers,
  * the sending queue, and whatever is holding it back. The engine posts this after every run
- * (/api/engine/status); this page only reads it and changes nothing. Emails go out as Gmail drafts
- * in each rep's own mailbox, and the rep presses Send.
+ * (/api/engine/status); this page only reads it and changes nothing. In review mode the day's
+ * emails wait for an admin in the card above this one; in draft mode they are Gmail drafts in each
+ * rep's own mailbox. The page names the day it is talking about and says in words what went out,
+ * what waits and when the next emails are written (2026-11-16: "Drafting" and a bar explained nothing).
  */
 async function load(): Promise<Data> {
   const sb = getSupabase();
@@ -53,6 +58,7 @@ const STEP_TITLE: Record<string, string> = {
   research: "Lead researcher",
   morning: "Email drafter",
   replies: "Reply checker",
+  send: "Email sender",
 };
 
 function Num({ label, value, note }: { label: string; value: string | number; note?: string }) {
@@ -65,10 +71,18 @@ function Num({ label, value, note }: { label: string; value: string | number; no
   );
 }
 
-export function EngineStatusView({ s }: { s: Snapshot }) {
+export function EngineStatusView({ s, now = new Date() }: { s: Snapshot; now?: Date }) {
+  const day = dayLine(s, now);
+  const review = s.delivery === "review";
+  const hours = windowWords(s.window);
+  const waitingNow = s.senders.reduce((n, m) => n + (m.waiting ?? 0), 0);
   return (
     <>
-      <div className={cn(card, "mt-4 flex flex-wrap items-center gap-3 p-4")} data-engine-switch>
+      <div className={cn(card, "mt-4 p-4")} data-engine-day={day.tone}>
+        <p className="font-semibold">{day.today}</p>
+        {day.next && <p className="mt-1 text-sm text-smoke">{day.next}</p>}
+      </div>
+      <div className={cn(card, "mt-3 flex flex-wrap items-center gap-3 p-4")} data-engine-switch>
         <span
           className={cn(
             "rounded-full px-2.5 py-0.5 text-xs font-semibold",
@@ -82,7 +96,9 @@ export function EngineStatusView({ s }: { s: Snapshot }) {
             ? "Every email is written as a Gmail draft in the rep's own mailbox. The rep presses Send; the engine never emails a business by itself."
             : s.delivery === "send"
               ? "The engine sends the emails itself."
-              : ""}{" "}
+              : review
+                ? `How a day goes: each weekday morning the engine writes the day's emails and they wait at the top of this page. Nothing is sent until an admin presses Send. Approved emails then go out within a few minutes${hours ? `, ${hours}` : ""}, each from its own person's mailbox.`
+                : ""}{" "}
           {s.daily_cap !== null && `At most ${s.daily_cap} a day in all. `}
           {s.senders.some((m) => m.ramp) &&
             "New mailboxes warm up first: a few a day, rising to their full cap as they really send. "}
@@ -150,31 +166,48 @@ export function EngineStatusView({ s }: { s: Snapshot }) {
       </h3>
       <div className="mt-3 grid gap-3 md:grid-cols-3">
         {s.senders.map((m) => {
-          const pct = m.cap ? Math.min(100, Math.round((m.used / m.cap) * 100)) : 0;
+          const d = mailboxDay(m, s, now);
+          // the bar: sent is the bright part, waiting the pale part, the rest of today's limit the track.
+          // The fill was bg-forest on bg-sand, which on the dark page are nearly one colour: a full bar looked empty.
+          const of = Math.max(m.cap, d.sent + d.waiting, 1);
+          const sentPct = Math.round((d.sent / of) * 100);
+          const waitPct = Math.min(100 - sentPct, Math.round((d.waiting / of) * 100));
           return (
             <div key={m.key} className={cn(card, "p-4")} data-engine-mailbox={m.key}>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="font-semibold">{m.name}</p>
                 <span
-                  className={cn(
-                    "rounded-full px-2.5 py-0.5 text-xs font-semibold",
-                    m.state === "off" ? TONE.idle : m.state === "held" ? TONE.warn : TONE.ok,
-                  )}
+                  className={cn("rounded-full px-2.5 py-0.5 text-xs font-semibold", TONE[d.tone])}
+                  data-engine-mailbox-pill
                 >
-                  {m.state === "off"
-                    ? "Not on autopilot"
-                    : m.state === "held"
-                      ? "Held"
-                      : "Drafting"}
+                  {d.pill}
                 </span>
               </div>
               <p className="text-xs text-smoke">{m.mailbox}</p>
-              <div className="mt-3 h-2 rounded-full bg-sand" aria-hidden>
-                <div className="h-2 rounded-full bg-forest" style={{ width: `${pct}%` }} />
-              </div>
-              <p className="mt-1 text-xs text-smoke">
-                {m.used} of {m.cap} today
+              {m.state !== "off" && (
+                <>
+                  <div
+                    className="mt-3 flex h-2.5 overflow-hidden rounded-full bg-line"
+                    aria-hidden
+                    data-engine-bar
+                  >
+                    <div className="h-full bg-leaf" style={{ width: `${sentPct}%` }} />
+                    <div className="h-full bg-leaf/40" style={{ width: `${waitPct}%` }} />
+                  </div>
+                  <p className="mt-1 text-xs text-smoke">
+                    {d.sent} sent{d.waiting > 0 ? `, ${d.waiting} waiting` : ""} · today's limit{" "}
+                    {m.cap}
+                  </p>
+                </>
+              )}
+              <p className="mt-2 text-sm" data-engine-mailbox-today>
+                {d.today}
               </p>
+              {d.next && (
+                <p className="mt-1 text-sm text-smoke" data-engine-mailbox-next>
+                  {d.next}
+                </p>
+              )}
               {m.on && m.ramp && m.ramp.limiting && (
                 <p
                   className={cn(
@@ -194,18 +227,33 @@ export function EngineStatusView({ s }: { s: Snapshot }) {
 
       <h3 className="mt-6 font-display text-base font-semibold">Today</h3>
       <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Num label="First emails drafted" value={s.today.first_emails_drafted} />
+        {review ? (
+          <Num
+            label="Waiting for your approval"
+            value={waitingNow}
+            note={waitingNow ? "at the top of this page" : "nothing is waiting on you"}
+          />
+        ) : (
+          <Num label="First emails drafted" value={s.today.first_emails_drafted} />
+        )}
         <Num label="First emails sent" value={s.today.first_emails_sent} />
-        <Num label="Follow-ups drafted" value={s.today.followups_drafted} />
+        <Num
+          label={review ? "Follow-ups written" : "Follow-ups drafted"}
+          value={s.today.followups_drafted}
+        />
         <Num label="Replies" value={s.today.replies} />
       </div>
       <h3 className="mt-6 font-display text-base font-semibold">So far</h3>
       <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Num
-          label="Waiting in Drafts"
-          value={s.totals.waiting_in_drafts}
-          note="written, not sent yet"
-        />
+        {review ? (
+          <Num label="Follow-ups sent" value={s.totals.followups_sent} />
+        ) : (
+          <Num
+            label="Waiting in Drafts"
+            value={s.totals.waiting_in_drafts}
+            note="written, not sent yet"
+          />
+        )}
         <Num label="First emails sent" value={s.totals.first_emails_sent} />
         <Num label="Businesses that replied" value={s.totals.replied} />
         <Num

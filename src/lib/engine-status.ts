@@ -34,6 +34,14 @@ export type Mailbox = {
   state: "drafting" | "held" | "off";
   /** The mailbox's warm-up ramp (2026-11-12), or null when the engine runs without one. */
   ramp: Ramp | null;
+  /** Emails this mailbox really sent today (2026-11-16); null from an engine that does not report it yet. */
+  sent_today: number | null;
+  /** Emails written from this mailbox and not sent yet: waiting for approval, or in Drafts. Null as above. */
+  waiting: number | null;
+  /** Approved and going out later today (held for sending hours or the business's own morning); null as above. */
+  scheduled: number | null;
+  /** When the last of those goes, as New York clock text, or "". */
+  scheduled_last: string;
 };
 /**
  * A new mailbox earns its daily cap by really sending: 5 a day at first, 10 from sending day 6, 20 from
@@ -56,6 +64,10 @@ export type Snapshot = {
   built_at: string;
   autopilot_on: boolean;
   delivery: string;
+  /** The sending hours as the engine holds them, "Mon-Fri 09:00-17:00 America/New_York", or "". */
+  window: string;
+  /** "09:30" when approved emails wait until that time of day where the business is; "" when they do not. */
+  local_not_before: string;
   daily_cap: number | null;
   senders: Mailbox[];
   jobs: Job[];
@@ -151,6 +163,10 @@ export function parseStatus(body: unknown): { snapshot: Snapshot } | { problem: 
     built_at: built,
     autopilot_on: bool(s["autopilot_on"]),
     delivery: txt(s["delivery"], 20),
+    window: txt(s["window"], 80),
+    local_not_before: /^\d\d:\d\d$/.test(txt(s["local_not_before"], 5))
+      ? txt(s["local_not_before"], 5)
+      : "",
     daily_cap: s["daily_cap"] === null || s["daily_cap"] === undefined ? null : num(s["daily_cap"]),
     senders: arr(s["senders"], 10).map((x) => {
       const m = obj(x);
@@ -164,6 +180,10 @@ export function parseStatus(body: unknown): { snapshot: Snapshot } | { problem: 
         used: num(m["used"]),
         why: txt(m["why"]),
         ramp: parseRamp(m["ramp"]),
+        sent_today: maybe(m["sent_today"]),
+        waiting: maybe(m["waiting"]),
+        scheduled: maybe(m["scheduled"]),
+        scheduled_last: when(m["scheduled_last"]),
         state:
           m["state"] === "drafting" || m["state"] === "held"
             ? m["state"]
@@ -353,3 +373,234 @@ export const INDUSTRY_LABEL: Record<string, string> = {
   manufacturing: "Manufacturing",
   other: "General wording",
 };
+
+/** "Mon Nov 16" for an engine time or day ("2026-11-16T08:30" or "2026-11-16"); "" when it is not one. */
+export function engineDay(naive: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(naive || "");
+  if (!m) return "";
+  const [y = 0, mo = 1, d = 1] = m.slice(1).map(Number);
+  return `${WEEKDAY[new Date(Date.UTC(y, mo - 1, d)).getUTCDay()]} ${MONTH[mo - 1]} ${d}`;
+}
+const clock12 = (h: number, mi: number) =>
+  `${h % 12 || 12}:${String(mi).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+/** "8:30 AM ET" for an engine time; "" when it is not one. */
+export function engineClock(naive: string): string {
+  const m = NAIVE.exec(naive || "");
+  return m ? `${clock12(Number(m[4]), Number(m[5]))} ET` : "";
+}
+/**
+ * The sending hours in words: "Mon-Fri 09:00-17:00 America/New_York" reads "Mon-Fri, 9:00 AM to 5:00 PM ET".
+ * Anything in another form (or another zone) comes back as it was written, so the page never invents hours.
+ */
+export function windowWords(w: string): string {
+  const m = /^([A-Za-z]{3}-[A-Za-z]{3}) (\d{2}):(\d{2})-(\d{2}):(\d{2}) (\S+)$/.exec(
+    (w || "").trim(),
+  );
+  if (!m) return (w || "").trim();
+  const zone = m[6] === ENGINE_ZONE ? "ET" : m[6];
+  return `${m[1]}, ${clock12(Number(m[2]), Number(m[3]))} to ${clock12(Number(m[4]), Number(m[5]))} ${zone}`;
+}
+
+/** "9:30 AM" for "09:30"; "" for anything else. */
+export function hourWords(hm: string): string {
+  const m = /^(\d\d):(\d\d)$/.exec(hm || "");
+  return m ? clock12(Number(m[1]), Number(m[2])) : "";
+}
+/** Approved emails that go out later today, in words: when they go, and when the last one does. */
+function laterWords(n: number, last: string, s: Snapshot): string {
+  const nb = hourWords(s.local_not_before);
+  const when_ = nb ? `at ${nb} in each business's own time zone` : "in the next sending hours";
+  return `${n} approved and going out ${when_}${last && engineClock(last) ? `, the last at ${engineClock(last)}` : ""}`;
+}
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+/** The cap a mailbox will have on its next sending day: today's sends earn the next warm-up day. */
+function nextCap(m: Mailbox, sentToday: number): number {
+  const r = m.ramp;
+  if (!r || !r.limiting || r.next_cap === null || r.next_day === null) return m.cap;
+  return r.day + (sentToday > 0 ? 1 : 0) >= r.next_day ? Math.max(m.cap, r.next_cap) : m.cap;
+}
+/** Where the drafting job stands against today (New York): did it run today, is it still due today, and when is it next. */
+function draftingDay(s: Snapshot, now: Date) {
+  const today = engineNow(now).slice(0, 10);
+  const job = s.jobs.find((j) => j.step === "morning") ?? null;
+  const next = job && job.state === "on" ? job.next_run : "";
+  return {
+    today,
+    ranToday: (job?.last?.started_at ?? "").slice(0, 10) === today,
+    dueToday: next.slice(0, 10) === today,
+    next,
+  };
+}
+const review = (s: Snapshot) => s.delivery === "review";
+
+/**
+ * One mailbox's day in words (Asad 2026-11-16: the card said only "Drafting" and a bar that looked empty when it was full).
+ * It names the day it is talking about, says what went out and what waits, and says when the next emails are written and how
+ * many. `sent` and `waiting` drive the bar. Everything comes from the snapshot: a number the engine did not report is not shown.
+ */
+export type MailboxDay = {
+  tone: "ok" | "warn" | "idle";
+  pill: string;
+  today: string;
+  next: string;
+  sent: number;
+  /** approved, going out later today */
+  scheduled: number;
+  waiting: number;
+};
+export function mailboxDay(m: Mailbox, s: Snapshot, now: Date): MailboxDay {
+  const d = draftingDay(s, now);
+  const day = `Today, ${engineDay(d.today)}`;
+  const rv = review(s);
+  const sent = m.sent_today ?? 0;
+  const waiting = m.waiting ?? 0;
+  const scheduled = m.scheduled ?? 0;
+  const base = { sent, waiting, scheduled };
+  if (m.state === "off")
+    return {
+      ...base,
+      tone: "idle",
+      pill: "Not on autopilot",
+      today: "The engine writes no emails from this mailbox.",
+      next: "",
+    };
+  if (m.state === "held")
+    return {
+      ...base,
+      tone: "warn",
+      pill: "Held",
+      today: `${day}: nothing is written from this mailbox until the reason below is cleared.${sent ? ` ${plural(sent, "email")} went out earlier today.` : ""}`,
+      next: "",
+    };
+  const then = rv
+    ? "wait for your approval at the top of this page"
+    : "go into this mailbox's Gmail Drafts";
+  const next = !s.autopilot_on
+    ? "Next: nothing while autopilot is paused."
+    : !d.next
+      ? "Next: the drafting job is not scheduled."
+      : d.dueToday
+        ? ""
+        : `Next: ${engineDay(d.next)} at ${engineClock(d.next)}, up to ${nextCap(m, sent)} more are written and ${then}.`;
+  if (m.sent_today === null || m.waiting === null)
+    return {
+      ...base,
+      sent: m.used,
+      tone: "ok",
+      pill: "On autopilot",
+      today: `${day}: ${m.used} of ${m.cap} used.`,
+      next,
+    };
+  if (scheduled > 0 && waiting === 0)
+    return {
+      ...base,
+      tone: "ok",
+      pill: "Approved, going out",
+      today: `${day}: ${sent} sent, ${laterWords(scheduled, m.scheduled_last, s)}. Nothing more is needed from you.`,
+      next,
+    };
+  if (waiting > 0)
+    return {
+      ...base,
+      tone: "warn",
+      pill: rv ? "Waiting for your approval" : "Waiting in Drafts",
+      today: `${day}: ${sent} sent, ${scheduled > 0 ? `${laterWords(scheduled, m.scheduled_last, s)}, ` : ""}${waiting} waiting ${rv ? "for your approval at the top of this page" : "in Gmail Drafts for the rep to send"}.`,
+      next,
+    };
+  if (sent > 0)
+    return {
+      ...base,
+      tone: "ok",
+      pill: "Done for today",
+      today:
+        sent >= m.cap
+          ? `${day}: all ${sent} sent. This mailbox is finished for today.`
+          : `${day}: ${sent} sent of a limit of ${m.cap}. Nothing else is waiting, so this mailbox is finished for today.`,
+      next,
+    };
+  if (d.dueToday)
+    return {
+      ...base,
+      tone: "idle",
+      pill: "Not written yet",
+      today: `${day}: nothing written yet. Up to ${m.cap} are written at ${engineClock(d.next)} and then ${then}.`,
+      next,
+    };
+  return {
+    ...base,
+    tone: "idle",
+    pill: "Nothing today",
+    today: d.ranToday
+      ? `${day}: no email was written for this mailbox. The drafting run's own words are under Latest runs.`
+      : `${day}: no emails are written today.`,
+    next,
+  };
+}
+
+/**
+ * The whole engine's day in one or two sentences, for the top of the page: what went out today across the mailboxes on
+ * autopilot, what still waits on a person, and when the next emails are written.
+ */
+export function dayLine(
+  s: Snapshot,
+  now: Date,
+): { tone: "ok" | "warn" | "idle"; today: string; next: string } {
+  const d = draftingDay(s, now);
+  const day = `Today, ${engineDay(d.today)}`;
+  const on = s.senders.filter((m) => m.state === "drafting");
+  const rv = review(s);
+  const then = rv ? "wait for your approval at the top of this page" : "go into Gmail Drafts";
+  const known = on.length > 0 && on.every((m) => m.sent_today !== null && m.waiting !== null);
+  const sent = on.reduce((n, m) => n + (m.sent_today ?? 0), 0);
+  const waiting = on.reduce((n, m) => n + (m.waiting ?? 0), 0);
+  const scheduled = on.reduce((n, m) => n + (m.scheduled ?? 0), 0);
+  const last =
+    on
+      .map((m) => (m.scheduled ? m.scheduled_last : ""))
+      .sort()
+      .pop() ?? "";
+  const later = scheduled > 0 ? `${laterWords(scheduled, last, s)}` : "";
+  const room = on.reduce((n, m) => n + nextCap(m, m.sent_today ?? 0), 0);
+  const next = !s.autopilot_on
+    ? "Autopilot is paused, so nothing more is written until it is switched back on."
+    : !d.next
+      ? "The drafting job is not scheduled."
+      : d.dueToday
+        ? `Up to ${on.reduce((n, m) => n + m.cap, 0)} are written today at ${engineClock(d.next)} and then ${then}.`
+        : `Next: ${engineDay(d.next)} at ${engineClock(d.next)}, up to ${room} more are written and ${then}.`;
+  if (!on.length)
+    return { tone: "warn", today: `${day}: no mailbox can write emails right now.`, next: "" };
+  if (!known)
+    return {
+      tone: "idle",
+      today: `${day}: ${plural(s.today.first_emails_sent, "first email")} sent.`,
+      next,
+    };
+  if (waiting > 0)
+    return {
+      tone: "warn",
+      today: `${day}: ${sent} sent, ${later ? `${later}, ` : ""}${waiting} waiting ${rv ? "for your approval at the top of this page. Nothing goes out until you press Send." : "in Gmail Drafts for the reps to send."}`,
+      next,
+    };
+  if (scheduled > 0)
+    return {
+      tone: "ok",
+      today: `${day}: ${sent} sent, ${later}. Nothing more is needed from you.`,
+      next,
+    };
+  if (sent > 0)
+    return {
+      tone: "ok",
+      today: `${day}: ${plural(sent, "email")} sent, none waiting. Everything for today has gone out.`,
+      next,
+    };
+  return {
+    tone: "idle",
+    today: d.dueToday
+      ? `${day}: nothing written yet.`
+      : d.ranToday
+        ? `${day}: no emails were written. The reason is under Holding it back or Latest runs.`
+        : `${day}: no emails are written today.`,
+    next,
+  };
+}

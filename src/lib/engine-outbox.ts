@@ -276,7 +276,7 @@ export function reviewCard(items: Item[]): Card {
       subtitle,
       pill: `${pending.length} to approve`,
       steps,
-      next: "Read them below and leave out any you don't want. Nothing is sent until you press Send. The engine then sends them within a few minutes, during sending hours, from each person's own mailbox.",
+      next: "Read them below and leave out any you don't want. Nothing is sent until you press Send. The engine then sends each one during sending hours, from each person's own mailbox; the Email engine section below says when they go.",
       primary: {
         action: "send",
         ids: pending.map((i) => i.id),
@@ -291,7 +291,7 @@ export function reviewCard(items: Item[]): Card {
       subtitle,
       pill: "Approved, going out",
       steps,
-      next: `${plural(counts.approved, "email")} approved and waiting for the engine. ${counts.sent} sent so far. This page checks again every few seconds.`,
+      next: `${plural(counts.approved, "email")} approved and waiting for the engine. ${counts.sent} sent so far. An approved email can wait for its sending time; the Email engine section below says when it goes. This page checks again every few seconds.`,
       primary: null,
       counts,
     };

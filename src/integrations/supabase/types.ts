@@ -596,73 +596,233 @@ export type Database = {
       }
       chat_members: {
         Row: {
-          added_at: string;
-          added_by: string | null;
-          thread_id: string;
-          user_id: string;
-        };
-        Insert: Record<string, never>;
-        Update: Record<string, never>;
-        Relationships: [];
-      };
-      chat_messages: {
-        Row: {
-          author: string | null;
-          author_name: string | null;
-          author_role: string;
-          body: string;
-          created_at: string;
-          document_id: string | null;
-          id: number;
-          kind: string;
-          redact_reason: string | null;
-          redacted_at: string | null;
-          redacted_by: string | null;
-          thread_id: string;
-        };
+          added_at: string
+          added_by: string | null
+          thread_id: string
+          user_id: string
+        }
         Insert: {
-          body: string;
-          thread_id: string;
-        };
-        Update: Record<string, never>;
+          added_at?: string
+          added_by?: string | null
+          thread_id: string
+          user_id: string
+        }
+        Update: {
+          added_at?: string
+          added_by?: string | null
+          thread_id?: string
+          user_id?: string
+        }
         Relationships: [
           {
-            foreignKeyName: "chat_messages_thread_id_fkey";
-            columns: ["thread_id"];
-            isOneToOne: false;
-            referencedRelation: "chat_threads";
-            referencedColumns: ["id"];
+            foreignKeyName: "chat_members_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "chat_threads"
+            referencedColumns: ["id"]
           },
-        ];
-      };
+        ]
+      }
+      chat_messages: {
+        Row: {
+          author: string | null
+          author_name: string | null
+          author_role: string
+          body: string
+          created_at: string
+          document_id: string | null
+          id: number
+          kind: string
+          redact_reason: string | null
+          redacted_at: string | null
+          redacted_by: string | null
+          thread_id: string
+        }
+        Insert: {
+          author?: string | null
+          author_name?: string | null
+          author_role?: string
+          body: string
+          created_at?: string
+          document_id?: string | null
+          id?: never
+          kind?: string
+          redact_reason?: string | null
+          redacted_at?: string | null
+          redacted_by?: string | null
+          thread_id: string
+        }
+        Update: {
+          author?: string | null
+          author_name?: string | null
+          author_role?: string
+          body?: string
+          created_at?: string
+          document_id?: string | null
+          id?: never
+          kind?: string
+          redact_reason?: string | null
+          redacted_at?: string | null
+          redacted_by?: string | null
+          thread_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_messages_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_messages_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "chat_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chat_reactions: {
+        Row: {
+          created_at: string
+          emoji: string
+          message_id: number
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          emoji: string
+          message_id: number
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          emoji?: string
+          message_id?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_reactions_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "chat_messages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       chat_reads: {
         Row: {
-          last_nudged_at: string | null;
-          last_read_at: string | null;
-          thread_id: string;
-          user_id: string;
-        };
-        Insert: Record<string, never>;
-        Update: Record<string, never>;
-        Relationships: [];
-      };
+          last_nudged_at: string | null
+          last_read_at: string | null
+          thread_id: string
+          user_id: string
+        }
+        Insert: {
+          last_nudged_at?: string | null
+          last_read_at?: string | null
+          thread_id: string
+          user_id: string
+        }
+        Update: {
+          last_nudged_at?: string | null
+          last_read_at?: string | null
+          thread_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_reads_thread_id_fkey"
+            columns: ["thread_id"]
+            isOneToOne: false
+            referencedRelation: "chat_threads"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      chat_settings: {
+        Row: {
+          id: boolean
+          klipy_app_key: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          id?: boolean
+          klipy_app_key?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          id?: boolean
+          klipy_app_key?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       chat_threads: {
         Row: {
-          application_id: string | null;
-          audience: string | null;
-          created_at: string;
-          created_by: string | null;
-          id: string;
-          kind: string;
-          last_author: string | null;
-          last_message_at: string | null;
-          team_slug: string | null;
-          title: string | null;
-        };
-        Insert: Record<string, never>;
-        Update: Record<string, never>;
-        Relationships: [];
-      };
+          application_id: string | null
+          audience: string | null
+          created_at: string
+          created_by: string | null
+          id: string
+          kind: string
+          last_author: string | null
+          last_message_at: string | null
+          team_slug: string | null
+          title: string | null
+        }
+        Insert: {
+          application_id?: string | null
+          audience?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kind: string
+          last_author?: string | null
+          last_message_at?: string | null
+          team_slug?: string | null
+          title?: string | null
+        }
+        Update: {
+          application_id?: string | null
+          audience?: string | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          kind?: string
+          last_author?: string | null
+          last_message_at?: string | null
+          team_slug?: string | null
+          title?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "chat_threads_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "applications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_threads_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "pipeline_board"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "chat_threads_team_slug_fkey"
+            columns: ["team_slug"]
+            isOneToOne: false
+            referencedRelation: "reps"
+            referencedColumns: ["slug"]
+          },
+        ]
+      }
       commission_entries: {
         Row: {
           amount: number
@@ -1025,6 +1185,93 @@ export type Database = {
             referencedColumns: ["slug"]
           },
         ]
+      }
+      engine_outbox: {
+        Row: {
+          batch_date: string
+          body: string
+          body_hash: string
+          business: string
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          decided_name: string
+          engine_id: string
+          error: string
+          id: string
+          list: string
+          sender_email: string
+          sender_name: string
+          sent_at: string | null
+          stage: number
+          status: string
+          subject: string
+          to_email: string
+          updated_at: string
+        }
+        Insert: {
+          batch_date: string
+          body: string
+          body_hash: string
+          business?: string
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          decided_name?: string
+          engine_id: string
+          error?: string
+          id?: string
+          list?: string
+          sender_email: string
+          sender_name?: string
+          sent_at?: string | null
+          stage?: number
+          status?: string
+          subject: string
+          to_email: string
+          updated_at?: string
+        }
+        Update: {
+          batch_date?: string
+          body?: string
+          body_hash?: string
+          business?: string
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          decided_name?: string
+          engine_id?: string
+          error?: string
+          id?: string
+          list?: string
+          sender_email?: string
+          sender_name?: string
+          sent_at?: string | null
+          stage?: number
+          status?: string
+          subject?: string
+          to_email?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      engine_status: {
+        Row: {
+          key: string
+          received_at: string
+          snapshot: Json
+        }
+        Insert: {
+          key: string
+          received_at?: string
+          snapshot: Json
+        }
+        Update: {
+          key?: string
+          received_at?: string
+          snapshot?: Json
+        }
+        Relationships: []
       }
       events: {
         Row: {
@@ -1571,104 +1818,131 @@ export type Database = {
       }
       private_list_entries: {
         Row: {
-          area: string | null;
-          business: string;
-          contact: string | null;
-          created_at: string;
-          email: string | null;
-          grp: string | null;
-          id: string;
-          list_id: string;
-          notes: string;
-          owner: string;
-          phone: string | null;
-          position: number;
-          status: string;
-          updated_at: string;
-          website: string | null;
-        };
+          area: string | null
+          business: string
+          contact: string | null
+          created_at: string
+          email: string | null
+          grp: string | null
+          id: string
+          list_id: string
+          notes: string
+          owner: string
+          phone: string | null
+          position: number
+          status: string
+          updated_at: string
+          website: string | null
+        }
         Insert: {
-          area?: string | null;
-          business: string;
-          contact?: string | null;
-          email?: string | null;
-          grp?: string | null;
-          list_id: string;
-          notes?: string;
-          phone?: string | null;
-          position?: number;
-          status?: string;
-          website?: string | null;
-        };
+          area?: string | null
+          business: string
+          contact?: string | null
+          created_at?: string
+          email?: string | null
+          grp?: string | null
+          id?: string
+          list_id: string
+          notes?: string
+          owner?: string
+          phone?: string | null
+          position?: number
+          status?: string
+          updated_at?: string
+          website?: string | null
+        }
         Update: {
-          area?: string | null;
-          business?: string;
-          contact?: string | null;
-          email?: string | null;
-          grp?: string | null;
-          notes?: string;
-          phone?: string | null;
-          position?: number;
-          status?: string;
-          website?: string | null;
-        };
+          area?: string | null
+          business?: string
+          contact?: string | null
+          created_at?: string
+          email?: string | null
+          grp?: string | null
+          id?: string
+          list_id?: string
+          notes?: string
+          owner?: string
+          phone?: string | null
+          position?: number
+          status?: string
+          updated_at?: string
+          website?: string | null
+        }
         Relationships: [
           {
-            foreignKeyName: "private_list_entries_list_id_fkey";
-            columns: ["list_id"];
-            isOneToOne: false;
-            referencedRelation: "private_lists";
-            referencedColumns: ["id"];
+            foreignKeyName: "private_list_entries_list_id_fkey"
+            columns: ["list_id"]
+            isOneToOne: false
+            referencedRelation: "private_lists"
+            referencedColumns: ["id"]
           },
-        ];
-      };
+        ]
+      }
       private_list_touches: {
         Row: {
-          created_at: string;
-          detail: string | null;
-          entry_id: string;
-          happened_at: string;
-          id: number;
-          kind: string;
-          owner: string;
-          to_address: string | null;
-        };
+          created_at: string
+          detail: string | null
+          entry_id: string
+          happened_at: string
+          id: number
+          kind: string
+          owner: string
+          to_address: string | null
+        }
         Insert: {
-          detail?: string | null;
-          entry_id: string;
-          happened_at?: string;
-          kind: string;
-          to_address?: string | null;
-        };
-        Update: Record<string, never>;
+          created_at?: string
+          detail?: string | null
+          entry_id: string
+          happened_at?: string
+          id?: never
+          kind: string
+          owner?: string
+          to_address?: string | null
+        }
+        Update: {
+          created_at?: string
+          detail?: string | null
+          entry_id?: string
+          happened_at?: string
+          id?: never
+          kind?: string
+          owner?: string
+          to_address?: string | null
+        }
         Relationships: [
           {
-            foreignKeyName: "private_list_touches_entry_id_fkey";
-            columns: ["entry_id"];
-            isOneToOne: false;
-            referencedRelation: "private_list_entries";
-            referencedColumns: ["id"];
+            foreignKeyName: "private_list_touches_entry_id_fkey"
+            columns: ["entry_id"]
+            isOneToOne: false
+            referencedRelation: "private_list_entries"
+            referencedColumns: ["id"]
           },
-        ];
-      };
+        ]
+      }
       private_lists: {
         Row: {
-          created_at: string;
-          id: string;
-          name: string;
-          note: string | null;
-          owner: string;
-        };
+          created_at: string
+          id: string
+          name: string
+          note: string | null
+          owner: string
+        }
         Insert: {
-          name: string;
-          note?: string | null;
-        };
+          created_at?: string
+          id?: string
+          name: string
+          note?: string | null
+          owner?: string
+        }
         Update: {
-          name?: string;
-          note?: string | null;
-        };
-        Relationships: [];
-      };
+          created_at?: string
+          id?: string
+          name?: string
+          note?: string | null
+          owner?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string
@@ -2257,6 +2531,17 @@ export type Database = {
       _num: { Args: { _t: string }; Returns: number }
       _staff_name: { Args: { _user: string }; Returns: string }
       accept_offer: { Args: { _offer_id: string }; Returns: Json }
+      ai_key: { Args: never; Returns: string }
+      ai_key_clear: { Args: never; Returns: undefined }
+      ai_key_info: {
+        Args: never
+        Returns: {
+          is_set: boolean
+          saved_at: string
+          saved_by: string
+        }[]
+      }
+      ai_key_set: { Args: { _by: string; _key: string }; Returns: undefined }
       announce: {
         Args: {
           _audience?: string
@@ -2266,8 +2551,6 @@ export type Database = {
         }
         Returns: number
       }
-      chat_text_refused: { Args: { _body: string }; Returns: boolean };
-      create_room: { Args: { _title: string; _members: string[] }; Returns: string };
       can_see_application_details: {
         Args: { _application_id: string }
         Returns: boolean
@@ -2276,8 +2559,51 @@ export type Database = {
         Args: { _application_id: string }
         Returns: boolean
       }
+      chat_author_stamp: {
+        Args: { _thread: string }
+        Returns: {
+          author_name: string
+          author_role: string
+        }[]
+      }
+      chat_can_post: {
+        Args: { _thread: string; _user?: string }
+        Returns: boolean
+      }
+      chat_can_read: {
+        Args: { _thread: string; _user?: string }
+        Returns: boolean
+      }
+      chat_can_use_file: {
+        Args: { _application_id: string; _user?: string }
+        Returns: boolean
+      }
+      chat_gif_url_ok: { Args: { _url: string }; Returns: boolean }
+      chat_mark_nudged: {
+        Args: { _thread: string; _user: string }
+        Returns: undefined
+      }
+      chat_nudge_secret: { Args: never; Returns: string }
+      chat_nudge_tick: { Args: never; Returns: undefined }
+      chat_nudges_due: {
+        Args: never
+        Returns: {
+          email: string
+          first_name: string
+          rep_slug: string
+          thread_id: string
+          user_id: string
+          waiting_since: string
+        }[]
+      }
+      chat_text_refused: { Args: { _body: string }; Returns: boolean }
       claim_applications: { Args: { _tokens?: string[] }; Returns: number }
+      create_room: {
+        Args: { _members: string[]; _title: string }
+        Returns: string
+      }
       current_rep_slug: { Args: { _user_id?: string }; Returns: string }
+      ensure_staff_rooms: { Args: never; Returns: undefined }
       funder_matches: {
         Args: { _application_id: string }
         Returns: {
@@ -2311,7 +2637,22 @@ export type Database = {
           mailbox: string
         }[]
       }
+      mark_thread_read: { Args: { _thread: string }; Returns: undefined }
       mask_owner: { Args: { _owner: Json }; Returns: Json }
+      my_chat_inbox: {
+        Args: never
+        Returns: {
+          application_id: string
+          kind: string
+          last_message_at: string
+          preview: string
+          subtitle: string
+          thread_id: string
+          title: string
+          unread: boolean
+        }[]
+      }
+      my_team_slugs: { Args: never; Returns: string[] }
       notify: {
         Args: {
           _app: string
@@ -2336,7 +2677,13 @@ export type Database = {
         Returns: undefined
       }
       offer_funder_name: { Args: { _offer_id: string }; Returns: string }
+      open_direct: { Args: { _other: string }; Returns: string }
       open_document: { Args: { _document_id: string }; Returns: Json }
+      open_file_thread: { Args: { _application_id: string }; Returns: string }
+      redact_message: {
+        Args: { _id: number; _reason: string }
+        Returns: undefined
+      }
       rep_and_lead_users: {
         Args: { _slug: string }
         Returns: {
@@ -2345,34 +2692,16 @@ export type Database = {
         }[]
       }
       rep_can_read_file: { Args: { _name: string }; Returns: boolean }
-      mark_thread_read: { Args: { _thread: string }; Returns: undefined };
-      my_chat_inbox: {
-        Args: Record<PropertyKey, never>;
-        Returns: {
-          application_id: string | null;
-          kind: string;
-          last_message_at: string | null;
-          preview: string | null;
-          subtitle: string;
-          thread_id: string;
-          title: string;
-          unread: boolean;
-        }[];
-      };
-      open_direct: { Args: { _other: string }; Returns: string };
-      open_file_thread: { Args: { _application_id: string }; Returns: string };
-      redact_message: { Args: { _id: number; _reason: string }; Returns: undefined };
       rep_can_see_application: {
         Args: { _application_id: string }
         Returns: boolean
       }
       rep_can_see_lead: { Args: { _lead_id: string }; Returns: boolean }
+      rep_can_see_user: { Args: { _user_id: string }; Returns: boolean }
       rep_can_work_application: {
         Args: { _application_id: string }
         Returns: boolean
       }
-      my_team_slugs: { Args: never; Returns: string[] }
-      rep_can_see_user: { Args: { _user_id: string }; Returns: boolean }
       reveal_application_details: {
         Args: { _application_id: string; _purpose?: string }
         Returns: Json

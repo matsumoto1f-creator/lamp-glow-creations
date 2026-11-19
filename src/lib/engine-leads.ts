@@ -494,3 +494,58 @@ export function boardBatch(data: unknown): BoardBatch | null {
   const label = typeof rawLabel === "string" ? rawLabel.trim().slice(0, 120) : "";
   return { batch, label: label || `Board batch #${batch}`, csv };
 }
+
+/**
+ * Whose leads an admin is looking at (reps only ever see their own, so they get no choice):
+ *   ""            everyone's, one list (the default)
+ *   "me"          the admin's own (their rep seat)
+ *   "none"        not given to anyone yet
+ *   "rep:<slug>"  one rep's
+ */
+export type LeadOwner = "" | "me" | "none" | `rep:${string}`;
+
+const OWNER_SLUG = /^[a-z0-9][a-z0-9-]{1,31}$/;
+
+/** What the choice means for the query: no filter, a rep_slug, or "rep_slug is null". */
+export function ownerScope(
+  owner: string,
+  mySlug: string | null,
+): { kind: "all" } | { kind: "rep"; slug: string } | { kind: "none" } {
+  if (owner === "none") return { kind: "none" };
+  if (owner === "me") return mySlug ? { kind: "rep", slug: mySlug } : { kind: "all" };
+  if (owner.startsWith("rep:")) {
+    const slug = owner.slice(4);
+    if (OWNER_SLUG.test(slug)) return { kind: "rep", slug };
+  }
+  return { kind: "all" };
+}
+
+/** A remembered choice that still makes sense: an unknown rep or "me" without a seat falls back to everyone. */
+export function savedOwner(
+  value: string | null,
+  mySlug: string | null,
+  reps: readonly { slug: string }[],
+): LeadOwner {
+  if (value === "none") return "none";
+  if (value === "me") return mySlug ? "me" : "";
+  if (value?.startsWith("rep:")) {
+    const slug = value.slice(4);
+    if (slug === mySlug) return "me";
+    if (reps.some((r) => r.slug === slug)) return value as LeadOwner;
+  }
+  return "";
+}
+
+/** The words above the list: whose leads these are. */
+export function ownerLabel(
+  owner: string,
+  mySlug: string | null,
+  reps: readonly { slug: string; name: string }[],
+): string {
+  const s = ownerScope(owner, mySlug);
+  if (s.kind === "all") return "Every engine lead";
+  if (s.kind === "none") return "Not given to anyone";
+  if (s.slug === mySlug) return "Your leads";
+  const name = reps.find((r) => r.slug === s.slug)?.name;
+  return name ? `${name}'s leads` : "One rep's leads";
+}

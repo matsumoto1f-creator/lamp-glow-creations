@@ -302,5 +302,12 @@ export async function staffUploadDocument(request: Request): Promise<Response> {
     body: `Added by the team: ${name}`,
     payload: { document_id: (idx.data as { id: string }).id, kind },
   } as never);
+  // and into the company Drive, when it's connected; a failure here never undoes the upload
+  try {
+    const { syncApplication } = await import("@/lib/drive.server");
+    await syncApplication(svc, appId);
+  } catch {
+    /* copied the next time the file is opened */
+  }
   return json(200, { outcome: "saved" satisfies DocumentOutcome });
 }

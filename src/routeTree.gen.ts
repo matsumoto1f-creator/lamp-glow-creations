@@ -32,6 +32,7 @@ import { Route as ApiServerCheckRouteImport } from './routes/api.server-check'
 import { Route as ApiStatementsRouteImport } from './routes/api.statements'
 import { Route as ApiTeamRouteImport } from './routes/api.team'
 import { Route as ApiTrackRouteImport } from './routes/api.track'
+import { Route as ApplicationIndexRouteImport } from './routes/application.index'
 import { Route as ApplicationRepRouteImport } from './routes/application.$rep'
 import { Route as ApplyRepRouteImport } from './routes/apply_.$rep'
 import { Route as UploadTokenRouteImport } from './routes/upload.$token'
@@ -180,6 +181,11 @@ const ApiTeamRoute = ApiTeamRouteImport.update({
 const ApiTrackRoute = ApiTrackRouteImport.update({
   id: '/api/track',
   path: '/api/track',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApplicationIndexRoute = ApplicationIndexRouteImport.update({
+  id: '/application/',
+  path: '/application/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApplicationRepRoute = ApplicationRepRouteImport.update({
@@ -381,6 +387,7 @@ export interface FileRoutesByFullPath {
   '/application/$rep': typeof ApplicationRepRoute
   '/apply/$rep': typeof ApplyRepRoute
   '/upload/$token': typeof UploadTokenRoute
+  '/application/': typeof ApplicationIndexRoute
   '/api/ai/activity': typeof ApiAiActivityRoute
   '/api/ai/key': typeof ApiAiKeyRoute
   '/api/application/draft': typeof ApiApplicationDraftRoute
@@ -440,6 +447,7 @@ export interface FileRoutesByTo {
   '/application/$rep': typeof ApplicationRepRoute
   '/apply/$rep': typeof ApplyRepRoute
   '/upload/$token': typeof UploadTokenRoute
+  '/application': typeof ApplicationIndexRoute
   '/api/ai/activity': typeof ApiAiActivityRoute
   '/api/ai/key': typeof ApiAiKeyRoute
   '/api/application/draft': typeof ApiApplicationDraftRoute
@@ -500,6 +508,7 @@ export interface FileRoutesById {
   '/application/$rep': typeof ApplicationRepRoute
   '/apply_/$rep': typeof ApplyRepRoute
   '/upload/$token': typeof UploadTokenRoute
+  '/application/': typeof ApplicationIndexRoute
   '/api/ai/activity': typeof ApiAiActivityRoute
   '/api/ai/key': typeof ApiAiKeyRoute
   '/api/application/draft': typeof ApiApplicationDraftRoute
@@ -561,6 +570,7 @@ export interface FileRouteTypes {
     | '/application/$rep'
     | '/apply/$rep'
     | '/upload/$token'
+    | '/application/'
     | '/api/ai/activity'
     | '/api/ai/key'
     | '/api/application/draft'
@@ -620,6 +630,7 @@ export interface FileRouteTypes {
     | '/application/$rep'
     | '/apply/$rep'
     | '/upload/$token'
+    | '/application'
     | '/api/ai/activity'
     | '/api/ai/key'
     | '/api/application/draft'
@@ -679,6 +690,7 @@ export interface FileRouteTypes {
     | '/application/$rep'
     | '/apply_/$rep'
     | '/upload/$token'
+    | '/application/'
     | '/api/ai/activity'
     | '/api/ai/key'
     | '/api/application/draft'
@@ -739,6 +751,7 @@ export interface RootRouteChildren {
   ApplicationRepRoute: typeof ApplicationRepRoute
   ApplyRepRoute: typeof ApplyRepRoute
   UploadTokenRoute: typeof UploadTokenRoute
+  ApplicationIndexRoute: typeof ApplicationIndexRoute
   ApiAiActivityRoute: typeof ApiAiActivityRoute
   ApiAiKeyRoute: typeof ApiAiKeyRoute
   ApiApplicationDraftRoute: typeof ApiApplicationDraftRoute
@@ -928,6 +941,13 @@ declare module '@tanstack/react-router' {
       path: '/api/track'
       fullPath: '/api/track'
       preLoaderRoute: typeof ApiTrackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/application/': {
+      id: '/application/'
+      path: '/application'
+      fullPath: '/application/'
+      preLoaderRoute: typeof ApplicationIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/application/$rep': {
@@ -1227,6 +1247,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApplicationRepRoute: ApplicationRepRoute,
   ApplyRepRoute: ApplyRepRoute,
   UploadTokenRoute: UploadTokenRoute,
+  ApplicationIndexRoute: ApplicationIndexRoute,
   ApiAiActivityRoute: ApiAiActivityRoute,
   ApiAiKeyRoute: ApiAiKeyRoute,
   ApiApplicationDraftRoute: ApiApplicationDraftRoute,

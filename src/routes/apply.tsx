@@ -1,19 +1,13 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { seo } from "@/lib/site";
-import { ApplyFlow } from "@/components/site/apply-flow";
+import { createFileRoute, redirect } from "@tanstack/react-router";
+import { carriedSearch } from "@/lib/apply";
 
+// /apply was the quick-questions page that ended in making an account (where most people
+// stopped). Since 2026-11-19 the website's application is getlamp.app/application: the same
+// quick questions, then the full application. Every "Check my options" button and any old link
+// or ad still pointing here is sent on, with its quick answers and utm_ tags.
 export const Route = createFileRoute("/apply")({
-  validateSearch: (search: Record<string, unknown>) => search as Record<string, string | undefined>,
-  head: () =>
-    seo({
-      path: "/apply",
-      title: "Check your options — Lamp",
-      description:
-        "Answer a few quick questions to see what your business could qualify for. About a minute, and no effect on your credit.",
-    }),
-  component: Apply,
+  beforeLoad: ({ search }) => {
+    throw redirect({ to: "/application", search: carriedSearch(search), replace: true });
+  },
+  validateSearch: (search: Record<string, unknown>) => search,
 });
-
-function Apply() {
-  return <ApplyFlow search={Route.useSearch()} />;
-}

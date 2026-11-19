@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { card } from "@/components/site/layout";
 import { STAGE_LABEL, type Stage } from "@/lib/staff";
 import { usd } from "@/lib/money";
-import { QUESTIONS } from "@/lib/apply";
+import { funnelLabel } from "@/lib/apply";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   ACTIVITY_LABEL,
@@ -755,7 +755,7 @@ export function Dashboard({ isAdmin, repSlug }: { isAdmin: boolean; repSlug: str
               <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
                 <DeltaTile label="Page views" c={web.views} vs={vs} />
                 <DeltaTile label="Visitors" c={web.visitors} vs={vs} />
-                <Tile label="Started /apply" value={String(web.apply[0]?.visitors ?? 0)} />
+                <Tile label="Started applying" value={String(web.apply[0]?.visitors ?? 0)} />
                 <Tile
                   label="Saw their options"
                   value={String(web.apply.find((s) => s.question === "result")?.visitors ?? 0)}
@@ -805,13 +805,13 @@ export function Dashboard({ isAdmin, repSlug }: { isAdmin: boolean; repSlug: str
               {web.apply.length > 0 && (
                 <div className={cn(card, "mt-3 p-5")}>
                   <p className="text-xs font-semibold uppercase tracking-[0.12em] text-smoke">
-                    /apply: how many visitors reached each question
+                    The application: how many visitors reached each step
                   </p>
                   <div className="mt-3">
                     <Funnel
                       steps={web.apply.map((s) => ({
                         key: String(s.step),
-                        label: questionLabel(s.question),
+                        label: funnelLabel(s.question),
                         count: s.visitors,
                       }))}
                     />
@@ -926,13 +926,6 @@ const when = (iso: string) =>
   });
 
 /** The /apply question's own wording, or a plain name for the last two steps. */
-function questionLabel(key: string) {
-  if (key === "contact") return "Contact details";
-  if (key === "result") return "Saw their options";
-  const q = QUESTIONS.find((x) => x.key === key);
-  return q ? q.title : key;
-}
-
 function DeltaTile({ label, c, vs }: { label: string; c: Cmp; vs: string | null }) {
   return (
     <div className={cn(card, "p-4")}>

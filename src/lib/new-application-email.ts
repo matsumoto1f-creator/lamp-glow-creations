@@ -165,11 +165,13 @@ export function startedEmail(a: {
 }): { subject: string; text: string } {
   const answered = a.answered ?? [];
   const name = `${a.first} ${a.last}`.trim();
-  const subject = `Started: ${name} opened the application${a.repName ? ` on ${a.repName}'s link` : ""}`;
+  const subject = `Started: ${name} opened the application${a.repName ? ` on ${a.repName}'s link` : " on the website"}`;
   const text = [
     `${a.repName?.split(" ")[0] || "Hi"},`,
     "",
-    `${name} just started the application on your link. They haven't signed yet, so now is the time to call.`,
+    a.repName
+      ? `${name} just started the application on your link. They haven't signed yet, so now is the time to call.`
+      : `${name} just started the application on the website (getlamp.app). No rep has them yet. They haven't signed, so now is the time to call.`,
     "",
     `Name: ${name}`,
     ...(a.business ? [`Business: ${a.business}`] : []),

@@ -38,7 +38,7 @@ export type Recipient = {
  * only the words, the button and the page it points to first change.
  *   apply   "Here's your application, as we discussed": they're ready to apply
  *   later   not looking now, or wanted something else: what Lamp is, apply on their own time
- *   options want to see what they could qualify for first: the one-minute questions
+ *   options want to see what's out there first: the full application, framed as how they see offers
  *   offer   already have an offer elsewhere: Offer Check, and the application if we can beat it
  */
 export const EMAIL_KINDS = ["apply", "later", "options", "offer"] as const;
@@ -58,7 +58,7 @@ export const EMAIL_KIND_LABEL: Record<EmailKind, { label: string; when: string }
   },
   options: {
     label: "Wants to see their options first",
-    when: "They want to know what they could qualify for before filling anything in.",
+    when: "They want to see what's out there before committing. The full application, framed as the way to see real offers side by side.",
   },
   offer: {
     label: "Already has an offer",
@@ -194,12 +194,10 @@ function linkParts(url: string): { site: string; rep: string } {
 
 /** The other pages a softer email points to first, for the rep the link belongs to. */
 export function kindLinks(url: string) {
-  const { site, rep } = linkParts(url);
+  const { site } = linkParts(url);
   return {
     site,
     howItWorks: `${site}/how-it-works`,
-    // the rep's own copy of the quick questions: whatever they answer lands with that rep
-    options: rep ? `${site}/apply/${rep}` : `${site}/apply`,
     offerCheck: `${site}/offer-check`,
   };
 }
@@ -247,15 +245,15 @@ export function emailWords(
     };
   if (kind === "options")
     return {
-      subject: `Your options${forBiz}, in about a minute`,
+      subject: `Your options${forBiz}`,
       opener:
-        "Thanks for talking with me. You wanted to see what's out there before filling anything in, which makes sense.",
+        "Thanks for talking with me. You wanted to see what's out there before committing to anything, which makes sense.",
       body: [
-        "This takes about a minute: a few quick questions, and you'll see what your business could qualify for. It has no effect on your credit.",
-        "If you like what you see, the full application is below whenever you want it. It takes about ten minutes and you sign right on the page.",
+        "The application is how funders tell us what they can actually offer you. It takes about ten minutes, and you sign right on the page.",
+        "When offers come in, you see them side by side in your account: what lands in your account, what you pay each time, and the total cost. You're never obligated to take any offer.",
       ],
-      button: { label: "Check my options", url: l.options },
-      appLine: "The full application, whenever you want it",
+      button: { label: "Open my application", url: o.url },
+      appLine: null,
     };
   if (kind === "offer")
     return {
@@ -312,16 +310,75 @@ export function inviteEmail(opts: {
     w.button.url === opts.url
       ? `${opts.filled ? "Check and sign your application" : "Open your application"}: ${opts.url}`
       : `${w.button.label}: ${w.button.url}`;
+  return renderEmail({
+    hi,
+    subject,
+    body,
+    textButton,
+    button: w.button,
+    appLine: w.appLine ? { label: w.appLine, url: opts.url } : null,
+    repName: opts.repName,
+    footer,
+  });
+}
+
+/**
+ * For a file that came in through the website's quick questions only: asks the merchant to finish
+ * the full application on their own account, so it lands on that same file (no second file). The
+ * button opens getlamp.app/account; they sign in with their email, no password.
+ */
+export function finishEmail(opts: {
+  firstName: string;
+  businessName: string;
+  repName: string;
+  site: string;
+  legalName: string;
+  address: string;
+}): { subject: string; text: string; html: string } {
+  const biz = opts.businessName.trim();
+  const forBiz = biz ? ` for ${biz}` : "";
+  const url = `${opts.site.replace(/\/$/, "")}/account`;
+  return renderEmail({
+    hi: opts.firstName.trim() ? `Hi ${opts.firstName.trim()},` : "Hi,",
+    subject: `Finish your Lamp application${forBiz}`,
+    body: [
+      `Thanks for checking your options with Lamp. To get you real offers, funders need the full application${forBiz}: the business and owner details, and your signature.`,
+      "It takes about ten minutes, and your answers so far are already saved. Sign in to your account with this email address (we'll email you a secure sign-in link, no password needed) and press Start my application.",
+      "If you have your last three months of business bank statements handy, you can add them there too.",
+    ],
+    textButton: `Finish my application: ${url}`,
+    button: { label: "Finish my application", url },
+    appLine: null,
+    repName: opts.repName,
+    footer: [
+      `You're getting this because you checked your options on getlamp.app. Not interested? Reply "stop" and we won't email you again.`,
+      [opts.legalName, opts.address].filter(Boolean).join(" · "),
+    ].filter(Boolean),
+  });
+}
+
+/** The plain-text and branded HTML versions of one Lamp email, from its parts. */
+function renderEmail(o: {
+  hi: string;
+  subject: string;
+  body: string[];
+  textButton: string;
+  button: { label: string; url: string };
+  appLine: { label: string; url: string } | null;
+  repName: string;
+  footer: string[];
+}): { subject: string; text: string; html: string } {
+  const { hi, subject, body, footer } = o;
   const text = [
     hi,
     "",
     ...body.flatMap((p) => [p, ""]),
-    textButton,
-    ...(w.appLine ? ["", `${w.appLine}: ${opts.url}`] : []),
+    o.textButton,
+    ...(o.appLine ? ["", `${o.appLine.label}: ${o.appLine.url}`] : []),
     "",
     "Any questions, just reply to this email.",
     "",
-    opts.repName,
+    o.repName,
     "Lamp · getlamp.app",
     "",
     ...footer,
@@ -329,8 +386,8 @@ export function inviteEmail(opts: {
 
   const p = (s: string) =>
     `<p style="margin:0 0 16px;font-size:16px;line-height:1.55;color:#1f2a24">${esc(s)}</p>`;
-  const appLink = w.appLine
-    ? `<p style="margin:0 0 24px;font-size:15px;line-height:1.55;color:#1f2a24">${esc(w.appLine)}: <a href="${esc(opts.url)}" style="color:#2f6f43;font-weight:700">open my application</a></p>\n`
+  const appLink = o.appLine
+    ? `<p style="margin:0 0 24px;font-size:15px;line-height:1.55;color:#1f2a24">${esc(o.appLine.label)}: <a href="${esc(o.appLine.url)}" style="color:#2f6f43;font-weight:700">open my application</a></p>\n`
     : "";
   const html = `<!doctype html><html><body style="margin:0;padding:0;background:#eef2ee">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2ee;padding:24px 12px">
@@ -344,15 +401,15 @@ export function inviteEmail(opts: {
 ${p(hi)}
 ${body.map(p).join("\n")}
 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 24px"><tr><td style="border-radius:999px;background:#4a985e">
-<a href="${esc(w.button.url)}" style="display:inline-block;padding:15px 30px;font-size:16px;font-weight:700;color:#0f1f17;text-decoration:none;border-radius:999px">${esc(w.button.label)}</a>
+<a href="${esc(o.button.url)}" style="display:inline-block;padding:15px 30px;font-size:16px;font-weight:700;color:#0f1f17;text-decoration:none;border-radius:999px">${esc(o.button.label)}</a>
 </td></tr></table>
 ${appLink}${p("Any questions, just reply to this email.")}
-<p style="margin:0 0 4px;font-size:16px;font-weight:700;color:#1f2a24">${esc(opts.repName)}</p>
+<p style="margin:0 0 4px;font-size:16px;font-weight:700;color:#1f2a24">${esc(o.repName)}</p>
 <p style="margin:0 0 28px;font-size:14px;color:#5b6b61">Lamp · getlamp.app</p>
 </td></tr>
 <tr><td style="padding:16px 28px 22px;border-top:1px solid #e3e9e4">
 ${footer.map((f) => `<p style="margin:0 0 6px;font-size:12px;line-height:1.5;color:#7a887f">${esc(f)}</p>`).join("\n")}
-<p style="margin:0;font-size:12px;line-height:1.5;color:#7a887f">If the button doesn't work, paste this into your browser: ${esc(w.button.url)}</p>
+<p style="margin:0;font-size:12px;line-height:1.5;color:#7a887f">If the button doesn't work, paste this into your browser: ${esc(o.button.url)}</p>
 </td></tr>
 </table>
 </td></tr></table>
@@ -372,7 +429,7 @@ export function inviteSms(
   if (kind === "later")
     return `${hi}it's ${repName} at Lamp. Thanks for talking today. No rush at all: here's how Lamp works (${l.howItWorks}) and your application, for whenever you're ready: ${url}`;
   if (kind === "options")
-    return `${hi}it's ${repName} at Lamp. Here's the one-minute check to see what your business could qualify for, no effect on your credit: ${l.options}`;
+    return `${hi}it's ${repName} at Lamp. Here's your application, so funders can show you real offers side by side. It takes about 10 minutes and you're never obligated to take one: ${url}`;
   if (kind === "offer")
     return `${hi}it's ${repName} at Lamp. Here's where you can see what your current offer really costs: ${l.offerCheck}. If you'd like us to try to beat it, your application is here: ${url}`;
   return `${hi}it's ${repName} at Lamp. Here's your application. It takes about 10 minutes and you sign right on the page: ${url}`;

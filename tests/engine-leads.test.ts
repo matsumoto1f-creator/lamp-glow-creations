@@ -4,6 +4,7 @@ import {
   BOARD_MAX_CSV,
   boardBatch,
   leadsFromCsv,
+  leadCardText,
   leadsToCsv,
   type LeadExport,
   leadRecords,
@@ -196,4 +197,27 @@ Deno.test("board: anything else is ignored", () => {
     boardBatch({ type: "lamp-board:leads", batch: 3, csv: BOARD_CSV })?.label,
     "Board batch #3",
   );
+});
+
+Deno.test("lead card on a phone: the line under the name, who to ask for, the reasons", () => {
+  const base = { industry: null, city: null, state: null, reason: null, contact_name: null };
+  // nothing known: a dash under the name, no one to ask for, no reasons
+  assertEquals(leadCardText(base), { sub: "—", ask: null, why: "" });
+  // industry and place on one line; the owner on record is who to ask for
+  assertEquals(
+    leadCardText({
+      ...base,
+      industry: "Auto repair",
+      city: "Paterson",
+      state: "NJ",
+      reason: "Owner: Maria Ortega (FMCSA) · 14 trucks · has phone",
+    }),
+    { sub: "Auto repair · Paterson, NJ", ask: "Maria Ortega", why: "14 trucks" },
+  );
+  // the name the rep got on the call beats the owner on record; a blank one doesn't
+  const owner = { ...base, reason: "Owner: Maria Ortega · license since 2019" };
+  assertEquals(leadCardText({ ...owner, contact_name: "Dmitri" }).ask, "Dmitri");
+  assertEquals(leadCardText({ ...owner, contact_name: "  " }).ask, "Maria Ortega");
+  // a state alone still shows where it is
+  assertEquals(leadCardText({ ...base, state: "NY" }).sub, "NY");
 });

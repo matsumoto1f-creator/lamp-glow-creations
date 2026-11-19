@@ -39,6 +39,7 @@ import {
   LEAD_TYPES,
   TIERS,
   boardBatch,
+  leadCardText,
   leadRecords,
   leadType,
   leadsFromCsv,
@@ -90,6 +91,10 @@ type Row = {
 };
 
 type ContactPatch = Pick<Row, "contact_name" | "contact_email" | "contact_phone" | "notes">;
+
+/** The list's filter boxes: as before on a computer; full width, 44px and 16px type on a phone. */
+const filterSelect =
+  "rounded-full bg-white px-4 py-2 text-sm ring-1 ring-line max-md:min-h-11 max-md:w-full max-md:text-base";
 
 const COLUMNS =
   "id,name,phone,email,city,state,industry,tier,need,reason,signals,status,notes,rep_slug,first_found,pushed_at,worked_at,contact_name,contact_email,contact_phone,contact_updated_at";
@@ -288,16 +293,12 @@ export function EngineLeads({
 
   return (
     <div className="mt-8">
-      <div className="flex flex-wrap items-end gap-3">
+      <div className="grid grid-cols-2 items-end gap-3 md:flex md:flex-wrap">
         <label className="text-sm">
           <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-smoke">
             Tier
           </span>
-          <select
-            className="rounded-full bg-white px-4 py-2 text-sm ring-1 ring-line"
-            value={tier}
-            onChange={(e) => setTier(e.target.value)}
-          >
+          <select className={filterSelect} value={tier} onChange={(e) => setTier(e.target.value)}>
             {TIERS.map((t) => (
               <option key={t} value={t}>
                 {t === "A" ? "A — dial first" : t}
@@ -311,7 +312,7 @@ export function EngineLeads({
             Status
           </span>
           <select
-            className="rounded-full bg-white px-4 py-2 text-sm ring-1 ring-line"
+            className={filterSelect}
             value={status}
             onChange={(e) => setStatus(e.target.value)}
           >
@@ -323,12 +324,12 @@ export function EngineLeads({
             <option value="">Any status</option>
           </select>
         </label>
-        <label className="text-sm">
+        <label className="col-span-2 text-sm">
           <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-smoke">
             Type
           </span>
           <select
-            className="rounded-full bg-white px-4 py-2 text-sm ring-1 ring-line"
+            className={filterSelect}
             value={kind}
             onChange={(e) => {
               setKind(e.target.value as LeadType | "");
@@ -344,7 +345,7 @@ export function EngineLeads({
             ))}
           </select>
         </label>
-        <label className="min-w-[14rem] flex-1 text-sm sm:max-w-sm">
+        <label className="col-span-2 min-w-[14rem] flex-1 text-sm sm:max-w-sm">
           <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-smoke">
             Search
           </span>
@@ -352,7 +353,7 @@ export function EngineLeads({
             <Search className="pointer-events-none absolute left-3.5 top-1/2 z-10 size-4 -translate-y-1/2 text-smoke" />
             <input
               type="search"
-              className="w-full rounded-full bg-white py-2 pl-10 pr-4 text-sm ring-1 ring-line"
+              className="w-full rounded-full bg-white py-2 pl-10 pr-4 text-sm ring-1 ring-line max-md:min-h-11 max-md:text-base"
               placeholder="Business, phone, email, city, industry"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -362,12 +363,12 @@ export function EngineLeads({
         </label>
         <button
           type="button"
-          className="rounded-full px-4 py-2 text-sm font-semibold text-smoke ring-1 ring-line hover:text-ink"
+          className="rounded-full px-4 py-2 text-sm font-semibold text-smoke ring-1 ring-line hover:text-ink max-md:min-h-11 max-md:justify-self-start"
           onClick={() => setReload((n) => n + 1)}
         >
           Refresh
         </button>
-        <p className="ml-auto text-sm text-smoke">
+        <p className="ml-auto text-sm text-smoke max-md:self-center max-md:justify-self-end">
           {isAdmin ? "Every engine lead" : "Your leads"}
           {rows && ` · ${rows.length}${rows.length === LIMIT ? "+" : ""}`}
           {rows && kind && ` · ${shown?.length ?? 0} ${LEAD_TYPE_LABEL[kind].toLowerCase()}`}
@@ -418,198 +419,237 @@ export function EngineLeads({
                 : "No leads assigned to you here yet."}
           </p>
         ) : (
-          <table className="w-full min-w-[940px] text-left text-sm">
-            <thead className="border-b border-line text-xs uppercase tracking-wide text-smoke">
-              <tr>
-                <th className="w-10 py-3 pl-4 pr-0">
-                  <input
-                    type="checkbox"
-                    aria-label="Select every lead on this page"
-                    className="size-4 align-middle"
-                    disabled={pickable.length === 0}
-                    checked={allPicked}
-                    ref={(el) => {
-                      if (el) el.indeterminate = somePicked && !allPicked;
-                    }}
-                    onChange={(e) => pickPage(e.target.checked)}
-                  />
-                </th>
-                <th className="px-4 py-3 font-semibold">Tier</th>
-                <th className="px-4 py-3 font-semibold">Type</th>
-                <th className="px-4 py-3 font-semibold">Business</th>
-                <th className="px-4 py-3 font-semibold">Phone</th>
-                <th className="px-4 py-3 font-semibold">Where</th>
-                <th className="px-4 py-3 font-semibold">Why</th>
-                <th className="px-4 py-3 font-semibold">Signals</th>
-                <th className="px-4 py-3 font-semibold">Found</th>
-                <th className="px-4 py-3 font-semibold">Status</th>
-                <th className="px-4 py-3 font-semibold">Rep</th>
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((r) => (
-                <tr
-                  key={r.id}
-                  data-engine-lead={r.id}
-                  className={cn(
-                    "cursor-pointer border-b border-line last:border-0 hover:bg-sand",
-                    (selected.has(r.id) || openId === r.id) && "bg-sand",
-                  )}
-                  // a click anywhere on the lead opens its page; its own controls keep working
-                  onClick={(e) => {
-                    if ((e.target as HTMLElement).closest("input,select,a,button,label")) return;
-                    setOpenId(r.id);
+          <>
+            {/* On a phone each lead is a card: the number to tap, the status to set after the
+              call and the lead's page, with nothing to scroll sideways for. */}
+            <div className="md:hidden" data-lead-cards>
+              <label className="flex min-h-11 items-center gap-3 border-b border-line px-4 text-sm text-smoke">
+                <input
+                  type="checkbox"
+                  className="size-5"
+                  disabled={pickable.length === 0}
+                  checked={allPicked}
+                  ref={(el) => {
+                    if (el) el.indeterminate = somePicked && !allPicked;
                   }}
-                >
-                  <td className="w-10 py-3 pl-4 pr-0">
+                  onChange={(e) => pickPage(e.target.checked)}
+                />
+                Select all {pickable.length}
+              </label>
+              <ul>
+                {shown.map((r) => (
+                  <LeadCard
+                    key={r.id}
+                    row={r}
+                    isAdmin={isAdmin}
+                    reps={reps}
+                    picked={selected.has(r.id)}
+                    open={openId === r.id}
+                    canPick={canPick(r)}
+                    saving={saving === r.id}
+                    onPick={(on) => pick(r.id, on)}
+                    onOpen={() => setOpenId(r.id)}
+                    onStatus={(next) => void setLeadStatus(r, next)}
+                    onRep={(slug) => void assignRep(r, slug)}
+                  />
+                ))}
+              </ul>
+            </div>
+            <table className="hidden w-full min-w-[940px] text-left text-sm md:table">
+              <thead className="border-b border-line text-xs uppercase tracking-wide text-smoke">
+                <tr>
+                  <th className="w-10 py-3 pl-4 pr-0">
                     <input
                       type="checkbox"
-                      className="size-4 align-middle disabled:opacity-40"
-                      aria-label={`Select ${r.name ?? "lead"}`}
-                      title={canPick(r) ? undefined : "Marked do not call"}
-                      disabled={!canPick(r)}
-                      checked={selected.has(r.id)}
-                      onChange={(e) => pick(r.id, e.target.checked)}
+                      aria-label="Select every lead on this page"
+                      className="size-4 align-middle"
+                      disabled={pickable.length === 0}
+                      checked={allPicked}
+                      ref={(el) => {
+                        if (el) el.indeterminate = somePicked && !allPicked;
+                      }}
+                      onChange={(e) => pickPage(e.target.checked)}
                     />
-                  </td>
-                  <td className="px-4 py-3 font-semibold tabular-nums">
-                    {r.tier ?? "—"}
-                    {r.need != null && <span className="ml-1 text-xs text-smoke">{r.need}</span>}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-xs">
-                    {(() => {
-                      const t = leadType(r.signals);
-                      return t ? (
-                        <span className="rounded-full bg-sand px-2.5 py-1 font-semibold">
-                          {LEAD_TYPE_LABEL[t]}
-                        </span>
-                      ) : (
-                        <span className="text-smoke">—</span>
-                      );
-                    })()}
-                    {tookMca(r.signals) && leadType(r.signals) !== "ucc" && (
-                      <div
-                        className="mt-1 text-smoke"
-                        title="A UCC filing by an MCA funder is on record"
-                      >
-                        Took an MCA
-                      </div>
+                  </th>
+                  <th className="px-4 py-3 font-semibold">Tier</th>
+                  <th className="px-4 py-3 font-semibold">Type</th>
+                  <th className="px-4 py-3 font-semibold">Business</th>
+                  <th className="px-4 py-3 font-semibold">Phone</th>
+                  <th className="px-4 py-3 font-semibold">Where</th>
+                  <th className="px-4 py-3 font-semibold">Why</th>
+                  <th className="px-4 py-3 font-semibold">Signals</th>
+                  <th className="px-4 py-3 font-semibold">Found</th>
+                  <th className="px-4 py-3 font-semibold">Status</th>
+                  <th className="px-4 py-3 font-semibold">Rep</th>
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((r) => (
+                  <tr
+                    key={r.id}
+                    data-engine-lead={r.id}
+                    className={cn(
+                      "cursor-pointer border-b border-line last:border-0 hover:bg-sand",
+                      (selected.has(r.id) || openId === r.id) && "bg-sand",
                     )}
-                  </td>
-                  <td className="max-w-[16rem] px-4 py-3 font-medium">
-                    <div className="truncate">{r.name || "Unnamed business"}</div>
-                    {r.industry && <div className="truncate text-xs text-smoke">{r.industry}</div>}
-                    <button
-                      type="button"
-                      className="mt-1 inline-flex items-center gap-0.5 text-xs font-semibold text-forest hover:underline"
-                      onClick={() => setOpenId(r.id)}
-                      data-open-lead={r.id}
-                    >
-                      Open lead <ChevronRight className="size-3.5" />
-                    </button>
-                  </td>
-                  <td className="px-4 py-3 tabular-nums">
-                    {r.phone ? (
-                      <a
-                        href={`tel:${tel(r.phone)}`}
-                        className="underline-offset-4 hover:text-forest hover:underline"
+                    // a click anywhere on the lead opens its page; its own controls keep working
+                    onClick={(e) => {
+                      if ((e.target as HTMLElement).closest("input,select,a,button,label")) return;
+                      setOpenId(r.id);
+                    }}
+                  >
+                    <td className="w-10 py-3 pl-4 pr-0">
+                      <input
+                        type="checkbox"
+                        className="size-4 align-middle disabled:opacity-40"
+                        aria-label={`Select ${r.name ?? "lead"}`}
+                        title={canPick(r) ? undefined : "Marked do not call"}
+                        disabled={!canPick(r)}
+                        checked={selected.has(r.id)}
+                        onChange={(e) => pick(r.id, e.target.checked)}
+                      />
+                    </td>
+                    <td className="px-4 py-3 font-semibold tabular-nums">
+                      {r.tier ?? "—"}
+                      {r.need != null && <span className="ml-1 text-xs text-smoke">{r.need}</span>}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 text-xs">
+                      {(() => {
+                        const t = leadType(r.signals);
+                        return t ? (
+                          <span className="rounded-full bg-sand px-2.5 py-1 font-semibold">
+                            {LEAD_TYPE_LABEL[t]}
+                          </span>
+                        ) : (
+                          <span className="text-smoke">—</span>
+                        );
+                      })()}
+                      {tookMca(r.signals) && leadType(r.signals) !== "ucc" && (
+                        <div
+                          className="mt-1 text-smoke"
+                          title="A UCC filing by an MCA funder is on record"
+                        >
+                          Took an MCA
+                        </div>
+                      )}
+                    </td>
+                    <td className="max-w-[16rem] px-4 py-3 font-medium">
+                      <div className="truncate">{r.name || "Unnamed business"}</div>
+                      {r.industry && (
+                        <div className="truncate text-xs text-smoke">{r.industry}</div>
+                      )}
+                      <button
+                        type="button"
+                        className="mt-1 inline-flex items-center gap-0.5 text-xs font-semibold text-forest hover:underline"
+                        onClick={() => setOpenId(r.id)}
+                        data-open-lead={r.id}
                       >
-                        {r.phone}
-                      </a>
-                    ) : (
-                      "—"
-                    )}
-                    {r.contact_phone && (
-                      <div className="text-xs text-smoke">
-                        Best:{" "}
+                        Open lead <ChevronRight className="size-3.5" />
+                      </button>
+                    </td>
+                    <td className="px-4 py-3 tabular-nums">
+                      {r.phone ? (
                         <a
-                          href={`tel:${tel(r.contact_phone)}`}
+                          href={`tel:${tel(r.phone)}`}
                           className="underline-offset-4 hover:text-forest hover:underline"
                         >
-                          {r.contact_phone}
+                          {r.phone}
                         </a>
-                      </div>
-                    )}
-                    {(r.contact_email || r.email) && (
-                      <div className="max-w-[12rem] truncate text-xs text-smoke">
-                        {r.contact_email || r.email}
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-smoke">
-                    {[r.city, r.state].filter(Boolean).join(", ") || "—"}
-                  </td>
-                  <td className="max-w-[18rem] px-4 py-3 text-smoke">
-                    {(() => {
-                      const w = splitWhy(r.reason);
-                      const rest = w.points.map((p) => p.text).join(" · ");
-                      return (
-                        <button
-                          type="button"
-                          className="block text-left hover:text-ink"
-                          onClick={() => setOpenId(r.id)}
-                          title="Open the lead"
-                        >
-                          {(r.contact_name || w.owner) && (
-                            <span className="block truncate font-semibold text-ink">
-                              Ask for {r.contact_name || w.owner}
-                            </span>
-                          )}
-                          <span className="line-clamp-2">{rest || (w.owner ? "" : "—")}</span>
-                        </button>
-                      );
-                    })()}
-                  </td>
-                  <td className="max-w-[14rem] px-4 py-3 text-xs text-smoke">
-                    <span className="line-clamp-2">{signalSummary(r.signals) || "—"}</span>
-                  </td>
-                  <td className="px-4 py-3 tabular-nums text-smoke">
-                    {r.first_found ?? age(r.pushed_at)}
-                  </td>
-                  <td className="px-4 py-3">
-                    <select
-                      className="rounded-full bg-white px-3 py-1.5 text-xs ring-1 ring-line"
-                      value={r.status}
-                      disabled={saving === r.id}
-                      onChange={(e) => void setLeadStatus(r, e.target.value as EngineStatus)}
-                      aria-label={`Status for ${r.name ?? "lead"}`}
-                    >
-                      {ENGINE_STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {ENGINE_STATUS_LABEL[s]}
-                        </option>
-                      ))}
-                    </select>
-                    {r.worked_at && (
-                      <span className="ml-2 text-xs tabular-nums text-smoke">
-                        {age(r.worked_at)}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-smoke">
-                    {isAdmin ? (
+                      ) : (
+                        "—"
+                      )}
+                      {r.contact_phone && (
+                        <div className="text-xs text-smoke">
+                          Best:{" "}
+                          <a
+                            href={`tel:${tel(r.contact_phone)}`}
+                            className="underline-offset-4 hover:text-forest hover:underline"
+                          >
+                            {r.contact_phone}
+                          </a>
+                        </div>
+                      )}
+                      {(r.contact_email || r.email) && (
+                        <div className="max-w-[12rem] truncate text-xs text-smoke">
+                          {r.contact_email || r.email}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-smoke">
+                      {[r.city, r.state].filter(Boolean).join(", ") || "—"}
+                    </td>
+                    <td className="max-w-[18rem] px-4 py-3 text-smoke">
+                      {(() => {
+                        const w = splitWhy(r.reason);
+                        const rest = w.points.map((p) => p.text).join(" · ");
+                        return (
+                          <button
+                            type="button"
+                            className="block text-left hover:text-ink"
+                            onClick={() => setOpenId(r.id)}
+                            title="Open the lead"
+                          >
+                            {(r.contact_name || w.owner) && (
+                              <span className="block truncate font-semibold text-ink">
+                                Ask for {r.contact_name || w.owner}
+                              </span>
+                            )}
+                            <span className="line-clamp-2">{rest || (w.owner ? "" : "—")}</span>
+                          </button>
+                        );
+                      })()}
+                    </td>
+                    <td className="max-w-[14rem] px-4 py-3 text-xs text-smoke">
+                      <span className="line-clamp-2">{signalSummary(r.signals) || "—"}</span>
+                    </td>
+                    <td className="px-4 py-3 tabular-nums text-smoke">
+                      {r.first_found ?? age(r.pushed_at)}
+                    </td>
+                    <td className="px-4 py-3">
                       <select
                         className="rounded-full bg-white px-3 py-1.5 text-xs ring-1 ring-line"
-                        value={r.rep_slug ?? ""}
+                        value={r.status}
                         disabled={saving === r.id}
-                        onChange={(e) => void assignRep(r, e.target.value)}
-                        aria-label={`Rep for ${r.name ?? "lead"}`}
+                        onChange={(e) => void setLeadStatus(r, e.target.value as EngineStatus)}
+                        aria-label={`Status for ${r.name ?? "lead"}`}
                       >
-                        <option value="">Unassigned</option>
-                        {reps.map((p) => (
-                          <option key={p.slug} value={p.slug}>
-                            {p.name}
+                        {ENGINE_STATUSES.map((s) => (
+                          <option key={s} value={s}>
+                            {ENGINE_STATUS_LABEL[s]}
                           </option>
                         ))}
                       </select>
-                    ) : (
-                      (repName(r.rep_slug) ?? "—")
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                      {r.worked_at && (
+                        <span className="ml-2 text-xs tabular-nums text-smoke">
+                          {age(r.worked_at)}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-smoke">
+                      {isAdmin ? (
+                        <select
+                          className="rounded-full bg-white px-3 py-1.5 text-xs ring-1 ring-line"
+                          value={r.rep_slug ?? ""}
+                          disabled={saving === r.id}
+                          onChange={(e) => void assignRep(r, e.target.value)}
+                          aria-label={`Rep for ${r.name ?? "lead"}`}
+                        >
+                          <option value="">Unassigned</option>
+                          {reps.map((p) => (
+                            <option key={p.slug} value={p.slug}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        (repName(r.rep_slug) ?? "—")
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
         )}
       </div>
 
@@ -681,6 +721,144 @@ export function EngineLeads({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * One lead on a phone: who it is and who to ask for, a full-width button that dials, the status
+ * to set after the call, and the way into its page. Everything a rep needs is on screen at 375px;
+ * every control is at least 44px tall and selects use 16px type so iPhones don't zoom in.
+ */
+function LeadCard({
+  row: r,
+  isAdmin,
+  reps,
+  picked,
+  open,
+  canPick,
+  saving,
+  onPick,
+  onOpen,
+  onStatus,
+  onRep,
+}: {
+  row: Row;
+  isAdmin: boolean;
+  reps: { slug: string; name: string }[];
+  picked: boolean;
+  open: boolean;
+  canPick: boolean;
+  saving: boolean;
+  onPick: (on: boolean) => void;
+  onOpen: () => void;
+  onStatus: (next: EngineStatus) => void;
+  onRep: (slug: string) => void;
+}) {
+  const type = leadType(r.signals);
+  const { sub, ask, why: rest } = leadCardText(r);
+  const phoneSelect =
+    "min-h-11 w-full rounded-full bg-white px-4 text-base ring-1 ring-line disabled:opacity-50";
+  return (
+    <li
+      className={cn("border-b border-line px-4 py-4 last:border-0", (picked || open) && "bg-sand")}
+      data-engine-lead-card={r.id}
+    >
+      <div className="flex items-start gap-3">
+        <input
+          type="checkbox"
+          className="mt-1 size-5 shrink-0 disabled:opacity-40"
+          aria-label={`Select ${r.name ?? "lead"}`}
+          title={canPick ? undefined : "Marked do not call"}
+          disabled={!canPick}
+          checked={picked}
+          onChange={(e) => onPick(e.target.checked)}
+        />
+        <button type="button" className="min-h-11 min-w-0 flex-1 text-left" onClick={onOpen}>
+          <span className="block font-semibold leading-snug">{r.name || "Unnamed business"}</span>
+          <span className="mt-0.5 block text-xs text-smoke">{sub}</span>
+        </button>
+        <span className="shrink-0 text-sm font-semibold tabular-nums">
+          {r.tier ?? "—"}
+          {r.need != null && <span className="ml-1 text-xs font-normal text-smoke">{r.need}</span>}
+        </span>
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-2 pl-8 text-xs">
+        {type && (
+          <span className="rounded-full bg-sand px-2.5 py-1 font-semibold">
+            {LEAD_TYPE_LABEL[type]}
+          </span>
+        )}
+        {tookMca(r.signals) && type !== "ucc" && (
+          <span className="text-smoke" title="A UCC filing by an MCA funder is on record">
+            Took an MCA
+          </span>
+        )}
+        <span className="text-smoke tabular-nums">Found {r.first_found ?? age(r.pushed_at)}</span>
+      </div>
+
+      {(ask || rest) && (
+        <p className="mt-2 pl-8 text-sm text-smoke">
+          {ask && <span className="block font-semibold text-ink">Ask for {ask}</span>}
+          {rest && <span className="line-clamp-2">{rest}</span>}
+        </p>
+      )}
+
+      <div className="mt-3 grid gap-2 pl-8">
+        {r.phone && (
+          <a href={`tel:${tel(r.phone)}`} className={cn(btnPrimary, "min-h-11 px-4 py-2")}>
+            <Phone className="size-4" /> Call {r.phone}
+          </a>
+        )}
+        {r.contact_phone && (
+          <a href={`tel:${tel(r.contact_phone)}`} className={cn(btnOutline, "min-h-11 px-4 py-2")}>
+            <Phone className="size-4" /> Best number: {r.contact_phone}
+          </a>
+        )}
+        <div className="grid grid-cols-[1fr_auto] items-center gap-2">
+          <select
+            className={phoneSelect}
+            value={r.status}
+            disabled={saving}
+            onChange={(e) => onStatus(e.target.value as EngineStatus)}
+            aria-label={`Status for ${r.name ?? "lead"}`}
+          >
+            {ENGINE_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {ENGINE_STATUS_LABEL[s]}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="inline-flex min-h-11 items-center gap-0.5 rounded-full px-3 text-sm font-semibold text-forest ring-1 ring-line"
+            onClick={onOpen}
+            data-open-lead-card={r.id}
+          >
+            Open <ChevronRight className="size-4" />
+          </button>
+        </div>
+        {r.worked_at && (
+          <p className="text-xs tabular-nums text-smoke">Status set {age(r.worked_at)}</p>
+        )}
+        {isAdmin ? (
+          <select
+            className={phoneSelect}
+            value={r.rep_slug ?? ""}
+            disabled={saving}
+            onChange={(e) => onRep(e.target.value)}
+            aria-label={`Rep for ${r.name ?? "lead"}`}
+          >
+            <option value="">Unassigned</option>
+            {reps.map((p) => (
+              <option key={p.slug} value={p.slug}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        ) : null}
+      </div>
+    </li>
   );
 }
 
@@ -821,17 +999,23 @@ function LeadPage({
 
       <div className="mt-5 flex flex-wrap items-center gap-2">
         {row.phone && (
-          <a href={`tel:${tel(row.phone)}`} className={cn(btnPrimary, "px-4 py-2")}>
+          <a
+            href={`tel:${tel(row.phone)}`}
+            className={cn(btnPrimary, "px-4 py-2 max-md:min-h-11 max-md:w-full")}
+          >
             <Phone className="size-4" /> {row.phone}
           </a>
         )}
         {row.contact_phone && (
-          <a href={`tel:${tel(row.contact_phone)}`} className={cn(btnOutline, "px-4 py-2")}>
+          <a
+            href={`tel:${tel(row.contact_phone)}`}
+            className={cn(btnOutline, "px-4 py-2 max-md:min-h-11 max-md:w-full")}
+          >
             <Phone className="size-4" /> Best: {row.contact_phone}
           </a>
         )}
         <select
-          className="rounded-full bg-white px-3 py-2 text-sm ring-1 ring-line"
+          className="rounded-full bg-white px-3 py-2 text-sm ring-1 ring-line max-md:min-h-11 max-md:flex-1 max-md:text-base"
           value={row.status}
           disabled={saving}
           onChange={(e) => onStatus(e.target.value as EngineStatus)}
@@ -845,7 +1029,7 @@ function LeadPage({
         </select>
         {isAdmin ? (
           <select
-            className="rounded-full bg-white px-3 py-2 text-sm ring-1 ring-line"
+            className="rounded-full bg-white px-3 py-2 text-sm ring-1 ring-line max-md:min-h-11 max-md:flex-1 max-md:text-base"
             value={row.rep_slug ?? ""}
             disabled={saving}
             onChange={(e) => onRep(e.target.value)}
@@ -938,7 +1122,7 @@ function LeadPage({
           {onSend && (
             <button
               type="button"
-              className={cn(btnPrimary, "px-5 py-2")}
+              className={cn(btnPrimary, "px-5 py-2 max-md:min-h-11")}
               disabled={starting || busy || !!problem}
               onClick={() => void startApplication()}
               data-start-application
@@ -953,7 +1137,7 @@ function LeadPage({
           )}
           <button
             type="button"
-            className={cn(btnOutline, "px-5 py-2")}
+            className={cn(btnOutline, "px-5 py-2 max-md:min-h-11")}
             disabled={busy || !changed || !!problem}
             onClick={() => void save()}
             data-contact-save
@@ -963,7 +1147,7 @@ function LeadPage({
           {onSend && (
             <button
               type="button"
-              className={cn(btnOutline, "px-5 py-2")}
+              className={cn(btnOutline, "px-5 py-2 max-md:min-h-11")}
               disabled={changed}
               title={changed ? "Save first" : undefined}
               onClick={onSend}

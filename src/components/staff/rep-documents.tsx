@@ -127,6 +127,7 @@ export function RepDocumentsGate({
     setAgreed(false);
     setName("");
     setError("");
+    setBusy(false);
   }, [doc.id]);
 
   async function sign() {
@@ -139,10 +140,10 @@ export function RepDocumentsGate({
     setError("");
     try {
       await call("POST", { action: "sign", document_id: doc.id, typed_name: name, agreed });
+      // stays busy until the next document (or the staff page) replaces this one
       onSigned();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Couldn't save your signature.");
-    } finally {
       setBusy(false);
     }
   }
@@ -469,7 +470,11 @@ export function RepDocumentsAdmin() {
                       disabled={busy}
                       onClick={() =>
                         void act(
-                          { action: "publish", document_id: confirm.id },
+                          {
+                            action: "publish",
+                            document_id: confirm.id,
+                            updated_at: confirm.updated_at,
+                          },
                           `Published version ${confirm.version}.`,
                         )
                       }
@@ -523,6 +528,7 @@ export function RepDocumentsAdmin() {
 
       {editing ? (
         <DocEditor
+          key={editing.doc_key ?? "new"}
           editing={editing}
           busy={busy}
           onCancel={() => setEditing(null)}

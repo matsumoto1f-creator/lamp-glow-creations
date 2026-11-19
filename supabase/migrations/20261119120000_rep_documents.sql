@@ -9,8 +9,9 @@
 --     its title, text and version never change and it is never deleted (only "stop asking",
 --     retired_at, can be set or cleared), so what a rep signed is always the text they saw;
 --   * rep_document_signatures: one row per person per version: the typed name, when, the
---     address and browser it came from, and a SHA-256 of the exact text. Never changed, never
---     deleted, and no link to auth.users, so removing a login does not remove the record;
+--     address and browser it came from, and a SHA-256 of the exact text (computed here, by the
+--     database, when the version is published). Never changed, never deleted or emptied, and no
+--     link to auth.users, so removing a login does not remove the record;
 --   * reading: staff read published documents; each person reads their own signatures; admins
 --     read everything. Writing goes only through /api/rep-documents (the service key), which
 --     checks who is asking. No table here takes a write from the browser.
@@ -61,13 +62,22 @@ language plpgsql
 set search_path = public
 as $$
 begin
+  -- the fingerprint is always computed here, from the text being stored, never taken from outside
+  if tg_op = 'INSERT' then
+    new.body_sha256 := case when new.published_at is null then null
+      else encode(sha256(convert_to(new.body, 'UTF8')), 'hex') end;
+    return new;
+  end if;
   if tg_op = 'DELETE' then
     if old.published_at is not null then
       raise exception 'A published document is kept for the record and cannot be deleted.';
     end if;
     return old;
   end if;
-  if old.published_at is not null then
+  if old.published_at is null then
+    new.body_sha256 := case when new.published_at is null then null
+      else encode(sha256(convert_to(new.body, 'UTF8')), 'hex') end;
+  else
     if new.doc_key is distinct from old.doc_key
       or new.version is distinct from old.version
       or new.title is distinct from old.title
@@ -87,7 +97,7 @@ $$;
 
 drop trigger if exists rep_documents_guard on public.rep_documents;
 create trigger rep_documents_guard
-  before update or delete on public.rep_documents
+  before insert or update or delete on public.rep_documents
   for each row execute function public.rep_documents_guard();
 
 create or replace function public.rep_document_signatures_guard()
@@ -104,6 +114,26 @@ drop trigger if exists rep_document_signatures_guard on public.rep_document_sign
 create trigger rep_document_signatures_guard
   before update or delete on public.rep_document_signatures
   for each row execute function public.rep_document_signatures_guard();
+
+-- row triggers don't see TRUNCATE: refuse it on both tables, for every role
+create or replace function public.rep_documents_no_truncate()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  raise exception 'Agreements and signatures are kept for the record and cannot be emptied.';
+end;
+$$;
+
+drop trigger if exists rep_documents_no_truncate on public.rep_documents;
+create trigger rep_documents_no_truncate
+  before truncate on public.rep_documents
+  for each statement execute function public.rep_documents_no_truncate();
+drop trigger if exists rep_document_signatures_no_truncate on public.rep_document_signatures;
+create trigger rep_document_signatures_no_truncate
+  before truncate on public.rep_document_signatures
+  for each statement execute function public.rep_documents_no_truncate();
 
 -- a signature only for a published, current version
 create or replace function public.rep_document_signatures_check()
@@ -136,6 +166,8 @@ alter table public.rep_document_signatures enable row level security;
 
 revoke insert, update, delete, truncate on public.rep_documents from anon, authenticated;
 revoke insert, update, delete, truncate on public.rep_document_signatures from anon, authenticated;
+revoke truncate on public.rep_documents from service_role;
+revoke truncate on public.rep_document_signatures from service_role;
 revoke all on public.rep_documents from anon;
 revoke all on public.rep_document_signatures from anon;
 grant select on public.rep_documents to authenticated;
@@ -154,10 +186,11 @@ create policy "Own signatures, admins all"
   on public.rep_document_signatures for select to authenticated
   using (user_id = (select auth.uid()) or (select public.has_role('admin')));
 
--- read-only summary for the person running this: both tables (2) and the three triggers (3)
+-- read-only summary for the person running this: both tables (2) and the five triggers (5)
 select
   (select count(*) from pg_tables where schemaname = 'public'
      and tablename in ('rep_documents', 'rep_document_signatures')) as tables_present,
   (select count(*) from pg_trigger where not tgisinternal and tgname in (
-     'rep_documents_guard', 'rep_document_signatures_guard', 'rep_document_signatures_check'))
+     'rep_documents_guard', 'rep_document_signatures_guard', 'rep_document_signatures_check',
+     'rep_documents_no_truncate', 'rep_document_signatures_no_truncate'))
     as triggers_present;

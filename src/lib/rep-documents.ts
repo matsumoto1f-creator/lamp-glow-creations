@@ -44,6 +44,14 @@ export const SIGNATURE_COLUMNS =
   "id,document_id,user_id,signer_email,typed_name,body_sha256,signed_at";
 
 export const MAX_TITLE = 120;
+
+/**
+ * True only when the agreements tables don't exist yet (the SQL hasn't been run): Postgres
+ * 42P01, or PostgREST's PGRST205. Any other error, such as PGRST002 while the database
+ * restarts, is a failure, and the staff page stays closed to anyone who still has to sign.
+ */
+export const tableMissing = (e: { code?: string } | null | undefined) =>
+  !!e && (e.code === "42P01" || e.code === "PGRST205");
 export const MAX_BODY = 100_000;
 
 /** The version in force for each document: its newest published one, unless switched off. */

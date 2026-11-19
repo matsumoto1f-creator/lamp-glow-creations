@@ -15,6 +15,7 @@ import {
   normaliseBody,
   signatureProblem,
   signedName,
+  tableMissing,
   type RepDocument,
   type RepPerson,
   type RepSignature,
@@ -24,13 +25,6 @@ type Svc = ReturnType<typeof service>;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const KEY = /^[a-z0-9][a-z0-9-]{1,40}$/;
-
-/** The table isn't there yet: the SQL hasn't been run. */
-const missing = (e: { code?: string; message?: string } | null) =>
-  !!e &&
-  (e.code === "42P01" ||
-    e.code === "PGRST205" ||
-    /does not exist|schema cache/i.test(e.message ?? ""));
 
 async function who(
   request: Request,
@@ -53,11 +47,6 @@ async function who(
   };
 }
 
-async function sha256(text: string): Promise<string> {
-  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
 async function allDocs(svc: Svc) {
   return svc.from("rep_documents").select(DOC_COLUMNS).order("doc_key").order("version");
 }
@@ -72,7 +61,7 @@ export async function listRepDocuments(request: Request): Promise<Response> {
   if (w instanceof Response) return w;
   const { svc, userId, isAdmin } = w;
   const docs = await allDocs(svc);
-  if (missing(docs.error)) return json(200, { ready: false, docs: [], signatures: [] });
+  if (tableMissing(docs.error)) return json(200, { ready: false, docs: [], signatures: [] });
   if (docs.error) return json(500, { error: "Couldn't load the agreements. Try again." });
   let sigQ = svc.from("rep_document_signatures").select(SIGNATURE_COLUMNS).order("signed_at");
   if (!isAdmin) sigQ = sigQ.eq("user_id", userId);
@@ -111,13 +100,14 @@ type Body = {
   typed_name?: unknown;
   agreed?: unknown;
   retired?: unknown;
+  updated_at?: unknown;
 };
 
 /**
  * POST /api/rep-documents:
  *   { action: "sign", document_id, typed_name, agreed: true }   anyone on the team
  *   { action: "save", doc_key?, title, body }                    admins: write or update a draft
- *   { action: "publish", document_id }                           admins: put a draft in force
+ *   { action: "publish", document_id, updated_at }               admins: put the draft they read in force
  *   { action: "discard", document_id }                           admins: throw a draft away
  *   { action: "retire", doc_key, retired: boolean }              admins: stop (or resume) asking
  */
@@ -128,7 +118,7 @@ export async function changeRepDocuments(request: Request): Promise<Response> {
   const body = await readJson<Body>(request, 200_000);
   if (body instanceof Response) return body;
   const docs = await allDocs(svc);
-  if (missing(docs.error))
+  if (tableMissing(docs.error))
     return json(409, {
       error: "Agreements aren't switched on yet: the database step hasn't been run.",
     });
@@ -214,18 +204,23 @@ export async function changeRepDocuments(request: Request): Promise<Response> {
   if (body.action === "publish") {
     if (!doc) return json(404, { error: "That draft isn't there anymore. Refresh the page." });
     if (doc.published_at) return json(409, { error: "That version is already published." });
-    const text = normaliseBody(doc.body);
+    // publish exactly the draft the admin read: if it changed since, refuse
+    const seen = typeof body.updated_at === "string" ? body.updated_at : "";
+    if (!seen || Date.parse(seen) !== Date.parse(doc.updated_at))
+      return json(409, {
+        error: "Someone changed this draft since you opened it. Read it again, then publish.",
+      });
+    // the database computes the fingerprint from the stored text as it publishes
     const res = await svc
       .from("rep_documents")
       .update({
-        body: text,
-        body_sha256: await sha256(text),
         published_at: new Date().toISOString(),
         published_by: userId,
         retired_at: null,
       } as never)
       .eq("id", doc.id)
       .is("published_at", null)
+      .eq("updated_at", doc.updated_at)
       .select(DOC_COLUMNS)
       .maybeSingle();
     if (res.error || !res.data) return json(500, { error: "Couldn't publish it. Try again." });

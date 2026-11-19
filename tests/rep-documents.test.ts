@@ -12,6 +12,7 @@ import {
   signedCopy,
   signedName,
   signingStatus,
+  tableMissing,
   toSign,
   type RepDocument,
   type RepSignature,
@@ -104,6 +105,19 @@ Deno.test("signature: a ticked box and a first and last name", () => {
   assertEquals(signedName("  Dana   Rep "), "Dana Rep");
 });
 
+Deno.test(
+  "only a missing table means 'not switched on'; any other error keeps the gate shut",
+  () => {
+    assert(tableMissing({ code: "42P01" }));
+    assert(tableMissing({ code: "PGRST205" }));
+    // the database restarting, a renamed column, a timeout: failures, not "nothing to sign"
+    assert(!tableMissing({ code: "PGRST002" }));
+    assert(!tableMissing({ code: "42703" }));
+    assert(!tableMissing({ code: "57014" }));
+    assert(!tableMissing(null));
+  },
+);
+
 Deno.test("keys and versions for new documents", () => {
   assertEquals(keyFromTitle("Independent Sales Rep Agreement"), "independent-sales-rep-agreement");
   assertEquals(keyFromTitle("!!"), "document");
@@ -188,6 +202,13 @@ Deno.test(
         "revoke insert, update, delete, truncate on public.rep_document_signatures from anon, authenticated",
       ),
     );
+    // TRUNCATE skips row triggers: refused by statement triggers, and not granted to the service role
+    assert(sql.includes("before truncate on public.rep_documents"));
+    assert(sql.includes("before truncate on public.rep_document_signatures"));
+    assert(sql.includes("revoke truncate on public.rep_document_signatures from service_role"));
+    // the fingerprint is computed by the database from the stored text, on insert and on publish
+    assert(sql.includes("before insert or update or delete on public.rep_documents"));
+    assert(sql.split("encode(sha256(convert_to(new.body, 'utf8')), 'hex')").length === 3);
     // a deleted login doesn't take its signatures with it
     assert(!/user_id uuid not null references auth\.users/.test(sql));
   },
@@ -205,6 +226,15 @@ Deno.test("the server signs only the version in force, and only admins change do
   }
   assert(server.slice(signAt, adminAt).includes("inForce(rows).some((d) => d.id === doc.id)"));
   assert(server.slice(signAt, adminAt).includes("signatureProblem(typed, body.agreed === true)"));
+  // publish: only the draft the admin read, and the server never rewrites its text or hash
+  const pub = server.slice(
+    server.indexOf('body.action === "publish"'),
+    server.indexOf('body.action === "discard"'),
+  );
+  assert(pub.includes('.eq("updated_at", doc.updated_at)'));
+  assert(!pub.includes("body:") && !pub.includes("body_sha256"));
+  // an unknown database error is a 500, not "not switched on"
+  assert(!/schema cache|does not exist/.test(server));
 });
 
 Deno.test(

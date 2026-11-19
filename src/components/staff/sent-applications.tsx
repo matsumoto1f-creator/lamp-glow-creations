@@ -454,6 +454,7 @@ function OutcomeLine({
           email={r.email ?? ""}
           phone={r.phone ?? ""}
           repName={repName}
+          kind={res.kind ?? "apply"}
         />
       </div>
     );

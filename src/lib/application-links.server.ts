@@ -34,6 +34,9 @@ import {
 import { paperLink } from "@/lib/spoken-notes";
 import {
   applicationUrl,
+  isEmailKind,
+  linkDays,
+  type EmailKind,
   buildAltMime,
   cleanEmail,
   EMAIL_RE,
@@ -66,6 +69,20 @@ import {
   type Duplicate,
 } from "@/lib/new-application-email";
 import { dailyEmailLimit, limitReached, newYorkDayStart, roomLeft } from "@/lib/invite-limit";
+
+/** The kind of email a link went with; "apply" for links sent before kinds existed, or before
+ *  the email_kind column was added (20261119150000_invite_email_kind.sql). */
+async function storedKind(svc: ReturnType<typeof service>, id: string): Promise<EmailKind> {
+  const r = await svc.from("application_invites").select("email_kind").eq("id", id).maybeSingle();
+  const k = (r.data as { email_kind?: unknown } | null)?.email_kind;
+  return !r.error && isEmailKind(k) ? k : "apply";
+}
+
+/** The column isn't there yet: PostgREST's unknown-column codes. */
+const noKindColumn = (e: { code?: string } | null) =>
+  !!e && (e.code === "PGRST204" || e.code === "42703");
+
+const days = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString();
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SLUG = /^[a-z0-9][a-z0-9-]{1,31}$/;
@@ -441,6 +458,8 @@ export async function applicationInvites(request: Request): Promise<Response> {
     if (!rep) return json(409, { error: "That rep is gone." });
     const token = newToken();
     const note = typeof body.note === "string" ? body.note.slice(0, MAX_NOTE) : (inv.note ?? "");
+    // a resend keeps the words the link first went out with
+    const kind = await storedKind(svc, inv.id);
     const upd = await svc
       .from("application_invites")
       .update({
@@ -448,7 +467,7 @@ export async function applicationInvites(request: Request): Promise<Response> {
         channel,
         note: note || null,
         sent_at: new Date().toISOString(),
-        expires_at: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+        expires_at: days(linkDays(kind)),
         cancelled_at: null,
         last_error: null,
         sent_by: who.userId,
@@ -468,6 +487,7 @@ export async function applicationInvites(request: Request): Promise<Response> {
             detail: "New link made; the old one stopped working.",
             invite_id: inv.id,
             url,
+            kind,
           },
         ],
       });
@@ -489,6 +509,7 @@ export async function applicationInvites(request: Request): Promise<Response> {
       url,
       legalName: SITE.legalName,
       address: SITE.address,
+      kind,
     });
     const sent = await gmailSend(access.access, {
       to: inv.email!,
@@ -516,6 +537,9 @@ export async function applicationInvites(request: Request): Promise<Response> {
   if (body.action !== "send") return json(400, { error: "Unknown action." });
   const recipients = Array.isArray(body.recipients) ? body.recipients : [];
   if (recipients.length === 0) return json(400, { error: "Pick at least one person." });
+  if (body.kind !== undefined && !isEmailKind(body.kind))
+    return json(400, { error: "Unknown kind of email." });
+  const kind: EmailKind = body.kind ?? "apply";
   if (recipients.length > MAX_RECIPIENTS)
     return json(400, { error: `At most ${MAX_RECIPIENTS} at a time.` });
 
@@ -648,23 +672,28 @@ export async function applicationInvites(request: Request): Promise<Response> {
     }
 
     const token = newToken();
-    const ins = await svc
+    const row = {
+      token_hash: await hashToken(token),
+      rep_slug: rep.slug,
+      sent_by: who.userId,
+      engine_lead_id: lead?.id ?? null,
+      first_name: firstName || null,
+      last_name: lastName || null,
+      business_name: business || null,
+      email: email || null,
+      phone: phone || null,
+      channel,
+      note: note || null,
+      expires_at: days(linkDays(kind)),
+    };
+    let ins = await svc
       .from("application_invites")
-      .insert({
-        token_hash: await hashToken(token),
-        rep_slug: rep.slug,
-        sent_by: who.userId,
-        engine_lead_id: lead?.id ?? null,
-        first_name: firstName || null,
-        last_name: lastName || null,
-        business_name: business || null,
-        email: email || null,
-        phone: phone || null,
-        channel,
-        note: note || null,
-      })
+      .insert((kind === "apply" ? row : { ...row, email_kind: kind }) as never)
       .select("id")
       .single();
+    // before the email_kind column exists the link still goes out; a resend then uses "apply"
+    if (kind !== "apply" && noKindColumn(ins.error))
+      ins = await svc.from("application_invites").insert(row).select("id").single();
     if (ins.error || !ins.data) {
       results.push({ index, status: "failed", detail: "Couldn't record the link." });
       continue;
@@ -679,6 +708,7 @@ export async function applicationInvites(request: Request): Promise<Response> {
         detail: "Link ready to copy.",
         invite_id: inviteId,
         url,
+        kind,
       });
       continue;
     }
@@ -700,6 +730,7 @@ export async function applicationInvites(request: Request): Promise<Response> {
       url,
       legalName: SITE.legalName,
       address: SITE.address,
+      kind,
     });
     const sent = await gmailSend(access.access, {
       to: email,

@@ -1,6 +1,7 @@
 // deno test --node-modules-dir=none tests/email-kinds.test.ts
 import { assert, assertEquals } from "jsr:@std/assert@1";
 import {
+  buildAltMime,
   EMAIL_KIND_LABEL,
   EMAIL_KINDS,
   emailWords,
@@ -135,10 +136,45 @@ Deno.test(
   },
 );
 
-Deno.test("an admin sends in their own name, never their team lead's", () => {
-  // server: the lead's name is used only for a sender who is not an admin
-  assert(server.includes("if (rep.admin_slug && !isAdmin) {"));
-  assert(/\.eq\("role", "admin"\)/.test(server.slice(server.indexOf("async function repBySlug"))));
-  // the panel's preview follows the same rule for an admin sending as themselves
-  assert(panel.includes("!(isAdmin && sender === repSlug)"));
+Deno.test("the merchant sees the rep who sent it; whoever they report to is copied in", () => {
+  // the name on every application email, the application page and the PDF's rep box is the rep's own
+  assert(
+    server.includes(
+      "const facing = (r: Rep) => ({ name: r.name, title: r.title, user_id: r.user_id });",
+    ),
+  );
+  // every application email copies the person the rep reports to, for admins and reps alike
+  assertEquals(server.split("cc: await ccFor(svc, rep),").length - 1, 4);
+  assert(!server.includes("!isAdmin) {"));
+  // the panel previews the rep's own name and says who is copied
+  assert(panel.includes("const facingName = senderName;"));
+  assert(panel.includes("copied to ${leadName}"));
+});
+
+Deno.test("the email carries the copy as a Cc header, and refuses a broken address", () => {
+  const raw = buildAltMime({
+    from: "Zeus at Lamp <partners@getlamp.app>",
+    to: "merchant@example.com",
+    cc: "stevie@getlamp.app",
+    replyTo: "zeus@getlamp.app, stevie@getlamp.app",
+    subject: "Your Lamp application",
+    text: "Hi",
+  });
+  assert(raw.includes("\r\nCc: stevie@getlamp.app\r\n"));
+  assert(
+    !buildAltMime({ from: "a <b@c.d>", to: "x@y.z", subject: "s", text: "t" }).includes("Cc:"),
+  );
+  let threw = false;
+  try {
+    buildAltMime({
+      from: "a <b@c.d>",
+      to: "x@y.z",
+      cc: "evil@x.z\r\nBcc: all@x.z",
+      subject: "s",
+      text: "t",
+    });
+  } catch {
+    threw = true;
+  }
+  assert(threw, "a header break in the copy is refused");
 });

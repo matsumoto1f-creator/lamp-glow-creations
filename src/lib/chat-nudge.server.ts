@@ -41,12 +41,10 @@ async function nudgeSecret(svc: Svc): Promise<string> {
   return value;
 }
 
-/** The name the merchant knows: the rep's team lead when there is an active one, else the rep. */
+/** The name the merchant knows: the file's own rep (never the person they report to). */
 function facingName(slug: string | null, reps: Map<string, RepRow>): string {
   const rep = slug ? reps.get(slug) : undefined;
-  if (!rep) return "Your Lamp rep";
-  const lead = rep.admin_slug ? reps.get(rep.admin_slug) : undefined;
-  return (lead?.active ? lead.name : rep.name) || "Your Lamp rep";
+  return rep?.name || "Your Lamp rep";
 }
 
 export async function chatNudge(request: Request): Promise<Response> {

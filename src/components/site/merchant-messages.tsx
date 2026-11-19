@@ -7,7 +7,7 @@ import { FileThread } from "@/components/chat/file-thread";
 
 /**
  * The merchant's conversation with Lamp about this file, on the account page. Headed with the same
- * contact the application emails name (the rep's team lead when there is one). Hidden until the
+ * contact the application emails name (the file's own rep). Hidden until the
  * conversation's SQL has run.
  */
 export function MerchantMessages({

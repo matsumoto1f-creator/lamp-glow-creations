@@ -110,13 +110,13 @@ Deno.test(
   },
 );
 
-Deno.test("the merchant sees the same contact the application emails name", () => {
+Deno.test("the merchant sees the file's own rep, never the person they report to", () => {
   const reps = [
     { slug: "darrell", name: "Darrell Jones", admin_slug: "zeus" },
     { slug: "zeus", name: "Zeus Smith", admin_slug: null },
     { slug: "solo", name: "Sam Solo", admin_slug: null },
   ];
-  assertEquals(contactName("darrell", reps), "Zeus");
+  assertEquals(contactName("darrell", reps), "Darrell");
   assertEquals(contactName("solo", reps), "Sam");
   assertEquals(contactName(null, reps), "the Lamp team");
   assertEquals(contactName("gone", reps), "the Lamp team");

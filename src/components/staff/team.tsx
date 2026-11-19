@@ -11,7 +11,7 @@ import type { DiscordMember } from "@/lib/team-alerts";
 /**
  * Team (admins only): add reps by name and email, pick the admin each one reports to, make
  * someone an admin, switch a rep off, resend the welcome email. A rep who reports to an admin
- * sends applications in that admin's name; the signed file still lands in the rep's own files,
+ * sends applications in their own name with that admin copied in; the signed file lands in the rep's own files,
  * so the rep works the deal and the admin sees on every file which rep sent it. The Discord
  * column matches each rep to their account in the Lamp Discord server, so their alerts come as
  * DMs and /lamp knows who's asking, without them typing /lamp link.
@@ -131,9 +131,10 @@ export function Team({ onChanged }: { onChanged?: () => void }) {
         <h2 className="font-display text-lg font-semibold">Add a rep</h2>
         <p className="mt-1 max-w-3xl text-sm text-smoke">
           Lamp emails them from partners@getlamp.app with how to sign in and their two application
-          links. If they report to someone, the applications they send go out in that person's name,
-          and the signed files land in the rep's own files. A team lead who isn't an admin sees
-          their team's files and changes nothing on them: untick Admin and they keep the team.
+          links. The applications they send always go out in their own name, and the signed files
+          land in their own files. If they report to someone, that person is copied on those emails.
+          A team lead who isn't an admin sees their team's files and changes nothing on them: untick
+          Admin and they keep the team.
         </p>
         <form
           onSubmit={add}
@@ -174,7 +175,7 @@ export function Team({ onChanged }: { onChanged?: () => void }) {
               value={lead}
               onChange={(e) => setLead(e.target.value)}
             >
-              <option value="">Nobody (sends in their own name)</option>
+              <option value="">Nobody</option>
               {admins.map((a) => (
                 <option key={a.slug} value={a.slug}>
                   {a.name}

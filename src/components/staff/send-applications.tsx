@@ -9,7 +9,11 @@ import { chip, input, textarea } from "@/components/staff/field-styles";
 import {
   applicationUrl,
   cleanEmail,
+  EMAIL_KIND_LABEL,
+  EMAIL_KINDS,
   EMAIL_RE,
+  emailWords,
+  type EmailKind,
   inviteEmail,
   inviteSms,
   MAX_NOTE,
@@ -102,6 +106,8 @@ export function SendApplications({
   const [rows, setRows] = useState<Row[]>(() => (seed.length ? seed : [{}]).map(toRow));
   const [sendAs, setSendAs] = useState(repSlug ?? "");
   const [note, setNote] = useState("");
+  // which email goes with the links, to match what was said on the call
+  const [kind, setKind] = useState<EmailKind>("apply");
   const [busy, setBusy] = useState(false);
   const [tried, setTried] = useState(false);
   const [error, setError] = useState("");
@@ -115,9 +121,12 @@ export function SendApplications({
   const sender = isAdmin ? sendAs : (repSlug ?? "");
   const senderRep = reps.find((r) => r.slug === sender);
   const senderName = senderRep?.name ?? "";
-  // a rep on an admin's team sends in the admin's name (the server does the same)
+  // a rep on an admin's team sends in the admin's name (the server does the same); an admin
+  // sending as themselves always uses their own name
   const facingName =
-    (senderRep?.admin_slug && reps.find((r) => r.slug === senderRep.admin_slug)?.name) ||
+    (!(isAdmin && sender === repSlug) &&
+      senderRep?.admin_slug &&
+      reps.find((r) => r.slug === senderRep.admin_slug)?.name) ||
     senderName;
   const pending = rows.filter((r) => !isDone(r) && !isBlank(r));
   const open = rows.filter((r) => !isDone(r));
@@ -154,6 +163,7 @@ export function SendApplications({
         action: "send",
         ...(isAdmin ? { rep_slug: sender } : {}),
         note: note.trim(),
+        ...(kind === "apply" ? {} : { kind }),
         recipients,
       });
       // results carry the index into this request's recipients, not into the panel's rows
@@ -181,6 +191,7 @@ export function SendApplications({
     url: `${applicationUrl(origin(), sender || "you")}?i=…`,
     legalName: SITE.legalName,
     address: SITE.address,
+    kind,
   });
 
   return (
@@ -275,6 +286,37 @@ export function SendApplications({
         <Plus className="size-3.5" /> Add someone who isn't on the list
       </button>
 
+      <fieldset className="mt-5" data-email-kind>
+        <legend className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-smoke">
+          Which email
+        </legend>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {EMAIL_KINDS.map((k) => (
+            <label
+              key={k}
+              className={cn(
+                "flex min-h-11 cursor-pointer items-start gap-3 rounded-xl p-3 text-sm ring-1",
+                kind === k ? "bg-white ring-forest" : "ring-line hover:ring-ink/30",
+              )}
+            >
+              <input
+                type="radio"
+                name="email-kind"
+                className="mt-0.5 size-4 shrink-0"
+                value={k}
+                checked={kind === k}
+                disabled={busy || rows.some(isDone)}
+                onChange={() => setKind(k)}
+              />
+              <span>
+                <span className="block font-semibold">{EMAIL_KIND_LABEL[k].label}</span>
+                <span className="mt-0.5 block text-xs text-smoke">{EMAIL_KIND_LABEL[k].when}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
       <label className="mt-5 block text-sm">
         <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-smoke">
           Personal note (optional)
@@ -284,7 +326,9 @@ export function SendApplications({
           maxLength={MAX_NOTE}
           value={note}
           disabled={busy}
-          placeholder="Great talking today. Here's the application we discussed."
+          placeholder={`Replaces the first line: "${
+            emailWords(kind, { businessName: sample?.business_name ?? "", url: "" }).opener
+          }"`}
           onChange={(e) => setNote(e.target.value)}
         />
         <span className="mt-1 block text-right text-xs text-smoke">
@@ -319,7 +363,7 @@ export function SendApplications({
           >
             {busy ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
             {pending.length
-              ? `Send ${pending.length} application${pending.length === 1 ? "" : "s"}`
+              ? `Send ${pending.length} ${kind === "apply" ? "application" : "email"}${pending.length === 1 ? "" : "s"}`
               : "Send"}
           </button>
         )}
@@ -437,6 +481,7 @@ function DoneRow({ row: r, repName }: { row: Row; repName: string }) {
           email={cleanEmail(r.email)}
           phone={r.phone}
           repName={repName}
+          kind={r.result!.kind ?? "apply"}
         />
       )}
     </>
@@ -451,6 +496,7 @@ export function LinkTools({
   email,
   phone,
   repName,
+  kind = "apply",
 }: {
   url: string;
   firstName: string;
@@ -458,8 +504,10 @@ export function LinkTools({
   email: string;
   phone: string;
   repName: string;
+  /** The words the link went out with, so the text and email match the call. */
+  kind?: EmailKind;
 }) {
-  const text = inviteSms(firstName, repName || "your rep", url);
+  const text = inviteSms(firstName, repName || "your rep", url, kind);
   const subject = inviteEmail({
     firstName,
     businessName,
@@ -468,6 +516,7 @@ export function LinkTools({
     url,
     legalName: SITE.legalName,
     address: SITE.address,
+    kind,
   }).subject;
   const to = encodeURIComponent(email).replace(/%40/g, "@");
   return (

@@ -4,7 +4,7 @@
 // routes (application-links.server.ts). Pure functions and types only.
 //
 // Merchant copy: never the word "loan".
-import { b64 } from "@/lib/funder-send";
+import { b64 } from "./funder-send.ts";
 
 export const LINK_TTL_DAYS = 30;
 /** Per request, so one click can't send hundreds of emails. */
@@ -32,8 +32,52 @@ export type Recipient = {
   channel: Channel;
 };
 
+/**
+ * What kind of email goes with the link, so the words match what the rep said on the call. Every
+ * kind carries the same personal application link (a signed file still lands in the rep's files);
+ * only the words, the button and the page it points to first change.
+ *   apply   "Here's your application, as we discussed": they're ready to apply
+ *   later   not looking now, or wanted something else: what Lamp is, apply on their own time
+ *   options want to see what they could qualify for first: the one-minute questions
+ *   offer   already have an offer elsewhere: Offer Check, and the application if we can beat it
+ */
+export const EMAIL_KINDS = ["apply", "later", "options", "offer"] as const;
+export type EmailKind = (typeof EMAIL_KINDS)[number];
+export const isEmailKind = (v: unknown): v is EmailKind =>
+  typeof v === "string" && (EMAIL_KINDS as readonly string[]).includes(v);
+
+/** For the staff picker: what each kind is for, in the rep's words. */
+export const EMAIL_KIND_LABEL: Record<EmailKind, { label: string; when: string }> = {
+  apply: {
+    label: "The application, as we discussed",
+    when: "They're ready to apply.",
+  },
+  later: {
+    label: "Not right now: Lamp for later",
+    when: "Wrong time, or they wanted something you don't have. A thank-you, what Lamp is, and the application whenever they're ready.",
+  },
+  options: {
+    label: "Wants to see their options first",
+    when: "They want to know what they could qualify for before filling anything in.",
+  },
+  offer: {
+    label: "Already has an offer",
+    when: "They have an offer from someone else. Offer Check shows what it really costs.",
+  },
+};
+
+/** Days a personal link stays open: longer for the kinds that say "whenever you're ready". */
+export const linkDays = (kind: EmailKind) => (kind === "apply" ? LINK_TTL_DAYS : 90);
+
 export type SendRequest =
-  | { action: "send"; rep_slug?: string; note?: string; recipients: Recipient[] }
+  | {
+      action: "send";
+      rep_slug?: string;
+      note?: string;
+      /** Which email; missing means "apply". */
+      kind?: EmailKind;
+      recipients: Recipient[];
+    }
   | { action: "resend"; invite_id: string; channel: Channel; note?: string }
   | { action: "cancel"; invite_id: string };
 
@@ -45,6 +89,8 @@ export type SendResult = {
   invite_id?: string;
   /** Only for channel "link": the personal link to copy or text. Never returned for email. */
   url?: string;
+  /** The kind of email this link went with, so copied text uses the same words. */
+  kind?: EmailKind;
 };
 
 export type OpenState = "open" | "signed" | "expired" | "cancelled" | "not_found" | "unknown_rep";
@@ -140,6 +186,101 @@ export const BLANK_APPLICATION_PDF = "/forms/lamp-application.pdf";
 const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
+/** The site and rep a personal link belongs to: https://getlamp.app/application/<rep>?i=... */
+function linkParts(url: string): { site: string; rep: string } {
+  const m = /^(https?:\/\/[^/]+)\/application\/([^/?#]+)/.exec(url);
+  return m ? { site: m[1]!, rep: m[2]! } : { site: "https://getlamp.app", rep: "" };
+}
+
+/** The other pages a softer email points to first, for the rep the link belongs to. */
+export function kindLinks(url: string) {
+  const { site, rep } = linkParts(url);
+  return {
+    site,
+    howItWorks: `${site}/how-it-works`,
+    // the rep's own copy of the quick questions: whatever they answer lands with that rep
+    options: rep ? `${site}/apply/${rep}` : `${site}/apply`,
+    offerCheck: `${site}/offer-check`,
+  };
+}
+
+type EmailWords = {
+  subject: string;
+  /** The opening line, unless the rep wrote their own note. */
+  opener: string;
+  body: string[];
+  button: { label: string; url: string };
+  /** A line under the button that names the personal application link, when the button goes elsewhere. */
+  appLine: string | null;
+};
+
+/** The words for each kind. Facts here come from the site's own pages; never the word "loan". */
+export function emailWords(
+  kind: EmailKind,
+  o: { businessName: string; url: string; filled?: boolean },
+): EmailWords {
+  const biz = o.businessName.trim();
+  const forBiz = biz ? ` for ${biz}` : "";
+  const l = kindLinks(o.url);
+  if (o.filled)
+    return {
+      subject: `Your Lamp application${forBiz}: ready to sign`,
+      opener: `Here's the application${forBiz} we filled in together on the phone.`,
+      body: [
+        "Open it, check everything over, and add your SSN and date of birth (we don't save those for you). Then sign right on the page, on your phone or computer, and it comes straight to me.",
+        "If you have your last four months of business bank statements handy, you can add them before you sign. If not, you can send them later.",
+      ],
+      button: { label: "Check and sign", url: o.url },
+      appLine: null,
+    };
+  if (kind === "later")
+    return {
+      subject: "Thanks for taking my call",
+      opener:
+        "Thanks for taking the time to talk today. I know it wasn't the right time, so I'll keep this short.",
+      body: [
+        "Lamp helps businesses find funding: working capital, equipment financing, invoice factoring, SBA and term funding. We work with a group of funders, so when you're ready you see what's actually available to you and what it costs in plain numbers, before you commit to anything.",
+        `Whenever it suits you, you can make an account on getlamp.app with just your email, and fill in your application${forBiz} on your own time. It takes about ten minutes, and any offers show up in your account as they come in.`,
+      ],
+      button: { label: "See how Lamp works", url: l.howItWorks },
+      appLine: "Your application, ready whenever you are",
+    };
+  if (kind === "options")
+    return {
+      subject: `Your options${forBiz}, in about a minute`,
+      opener:
+        "Thanks for talking with me. You wanted to see what's out there before filling anything in, which makes sense.",
+      body: [
+        "This takes about a minute: a few quick questions, and you'll see what your business could qualify for. It has no effect on your credit.",
+        "If you like what you see, the full application is below whenever you want it. It takes about ten minutes and you sign right on the page.",
+      ],
+      button: { label: "Check my options", url: l.options },
+      appLine: "The full application, whenever you want it",
+    };
+  if (kind === "offer")
+    return {
+      subject: "A quick way to check the offer you have",
+      opener:
+        "Thanks for talking with me. Since you already have an offer in hand, here's a quick way to see what it really costs before you sign anything.",
+      body: [
+        "Enter the amount, the payback and the term, and Offer Check shows the real cost in dollars, an estimated yearly rate, and how much it takes out of your deposits each week. You can compare up to three offers side by side.",
+        `If you'd like us to try to beat it, your application${forBiz} is below. It takes about ten minutes, and you're never obligated to take any offer.`,
+      ],
+      button: { label: "Check my offer", url: l.offerCheck },
+      appLine: "Your application, if you'd like us to try to beat it",
+    };
+  return {
+    subject: `Your Lamp application${forBiz}`,
+    opener: `Here's your funding application${forBiz}, as we discussed.`,
+    body: [
+      "It takes about ten minutes. You sign it right on the page, on your phone or computer, and it comes straight to me.",
+      "If you have your last four months of business bank statements handy, you can add them at the end. If not, you can send them later.",
+    ],
+    button: { label: "Open my application", url: o.url },
+    appLine: null,
+  };
+}
+
 /** The email a merchant gets. Plain text and a simple branded HTML version of the same words. */
 export function inviteEmail(opts: {
   firstName: string;
@@ -151,33 +292,32 @@ export function inviteEmail(opts: {
   address: string;
   /** Filled in with them on the phone: they only check it, add the private numbers and sign. */
   filled?: boolean;
+  /** Which words; missing means "apply". */
+  kind?: EmailKind;
 }): { subject: string; text: string; html: string } {
   const hi = opts.firstName.trim() ? `Hi ${opts.firstName.trim()},` : "Hi,";
-  const forBiz = opts.businessName.trim() ? ` for ${opts.businessName.trim()}` : "";
-  const subject = opts.filled
-    ? `Your Lamp application${forBiz}: ready to sign`
-    : `Your Lamp application${forBiz}`;
+  const w = emailWords(opts.kind ?? "apply", {
+    businessName: opts.businessName,
+    url: opts.url,
+    ...(opts.filled ? { filled: true } : {}),
+  });
+  const subject = w.subject;
   const note = opts.note.trim();
-  const body = opts.filled
-    ? [
-        note || `Here's the application${forBiz} we filled in together on the phone.`,
-        "Open it, check everything over, and add your SSN and date of birth (we don't save those for you). Then sign right on the page, on your phone or computer, and it comes straight to me.",
-        "If you have your last four months of business bank statements handy, you can add them before you sign. If not, you can send them later.",
-      ]
-    : [
-        note || `Here's your funding application${forBiz}, as we discussed.`,
-        "It takes about ten minutes. You sign it right on the page, on your phone or computer, and it comes straight to me.",
-        "If you have your last four months of business bank statements handy, you can add them at the end. If not, you can send them later.",
-      ];
+  const body = [note || w.opener, ...w.body];
   const footer = [
     `You're getting this because you spoke with ${opts.repName} at Lamp. Not interested? Reply "stop" and we won't email you again.`,
     [opts.legalName, opts.address].filter(Boolean).join(" · "),
   ].filter(Boolean);
+  const textButton =
+    w.button.url === opts.url
+      ? `${opts.filled ? "Check and sign your application" : "Open your application"}: ${opts.url}`
+      : `${w.button.label}: ${w.button.url}`;
   const text = [
     hi,
     "",
     ...body.flatMap((p) => [p, ""]),
-    `${opts.filled ? "Check and sign your application" : "Open your application"}: ${opts.url}`,
+    textButton,
+    ...(w.appLine ? ["", `${w.appLine}: ${opts.url}`] : []),
     "",
     "Any questions, just reply to this email.",
     "",
@@ -189,6 +329,9 @@ export function inviteEmail(opts: {
 
   const p = (s: string) =>
     `<p style="margin:0 0 16px;font-size:16px;line-height:1.55;color:#1f2a24">${esc(s)}</p>`;
+  const appLink = w.appLine
+    ? `<p style="margin:0 0 24px;font-size:15px;line-height:1.55;color:#1f2a24">${esc(w.appLine)}: <a href="${esc(opts.url)}" style="color:#2f6f43;font-weight:700">open my application</a></p>\n`
+    : "";
   const html = `<!doctype html><html><body style="margin:0;padding:0;background:#eef2ee">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef2ee;padding:24px 12px">
 <tr><td align="center">
@@ -201,15 +344,15 @@ export function inviteEmail(opts: {
 ${p(hi)}
 ${body.map(p).join("\n")}
 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 24px"><tr><td style="border-radius:999px;background:#4a985e">
-<a href="${esc(opts.url)}" style="display:inline-block;padding:15px 30px;font-size:16px;font-weight:700;color:#0f1f17;text-decoration:none;border-radius:999px">${opts.filled ? "Check and sign" : "Open my application"}</a>
+<a href="${esc(w.button.url)}" style="display:inline-block;padding:15px 30px;font-size:16px;font-weight:700;color:#0f1f17;text-decoration:none;border-radius:999px">${esc(w.button.label)}</a>
 </td></tr></table>
-${p("Any questions, just reply to this email.")}
+${appLink}${p("Any questions, just reply to this email.")}
 <p style="margin:0 0 4px;font-size:16px;font-weight:700;color:#1f2a24">${esc(opts.repName)}</p>
 <p style="margin:0 0 28px;font-size:14px;color:#5b6b61">Lamp · getlamp.app</p>
 </td></tr>
 <tr><td style="padding:16px 28px 22px;border-top:1px solid #e3e9e4">
 ${footer.map((f) => `<p style="margin:0 0 6px;font-size:12px;line-height:1.5;color:#7a887f">${esc(f)}</p>`).join("\n")}
-<p style="margin:0;font-size:12px;line-height:1.5;color:#7a887f">If the button doesn't work, paste this into your browser: ${esc(opts.url)}</p>
+<p style="margin:0;font-size:12px;line-height:1.5;color:#7a887f">If the button doesn't work, paste this into your browser: ${esc(w.button.url)}</p>
 </td></tr>
 </table>
 </td></tr></table>
@@ -217,9 +360,21 @@ ${footer.map((f) => `<p style="margin:0 0 6px;font-size:12px;line-height:1.5;col
   return { subject, text, html };
 }
 
-/** The text a rep pastes into a text message. */
-export function inviteSms(firstName: string, repName: string, url: string): string {
+/** The text a rep pastes into a text message, in the same words as the email kind. */
+export function inviteSms(
+  firstName: string,
+  repName: string,
+  url: string,
+  kind: EmailKind = "apply",
+): string {
   const hi = firstName.trim() ? `Hi ${firstName.trim()}, ` : "";
+  const l = kindLinks(url);
+  if (kind === "later")
+    return `${hi}it's ${repName} at Lamp. Thanks for talking today. No rush at all: here's how Lamp works (${l.howItWorks}) and your application, for whenever you're ready: ${url}`;
+  if (kind === "options")
+    return `${hi}it's ${repName} at Lamp. Here's the one-minute check to see what your business could qualify for, no effect on your credit: ${l.options}`;
+  if (kind === "offer")
+    return `${hi}it's ${repName} at Lamp. Here's where you can see what your current offer really costs: ${l.offerCheck}. If you'd like us to try to beat it, your application is here: ${url}`;
   return `${hi}it's ${repName} at Lamp. Here's your application. It takes about 10 minutes and you sign right on the page: ${url}`;
 }
 

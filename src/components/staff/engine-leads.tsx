@@ -45,6 +45,10 @@ import {
   leadsFromCsv,
   leadsToCsv,
   searchFilter,
+  ownerLabel,
+  ownerScope,
+  savedOwner,
+  type LeadOwner,
   signalSummary,
   splitWhy,
   tel,
@@ -99,6 +103,8 @@ const filterSelect =
 const COLUMNS =
   "id,name,phone,email,city,state,industry,tier,need,reason,signals,status,notes,rep_slug,first_found,pushed_at,worked_at,contact_name,contact_email,contact_phone,contact_updated_at";
 const LIMIT = 300;
+/** This browser remembers whose leads an admin last picked. */
+const OWNER_KEY = "lamp.engine-leads.owner";
 
 export function EngineLeads({
   isAdmin,
@@ -111,6 +117,35 @@ export function EngineLeads({
 }) {
   const [tier, setTier] = useState<string>(isAdmin ? "A" : "");
   const [status, setStatus] = useState<string>("new");
+  // admins only: whose leads (reps see only their own, the database decides)
+  const [owner, setOwnerState] = useState<LeadOwner>("");
+  const [ownerReady, setOwnerReady] = useState(!isAdmin);
+  useEffect(() => {
+    if (!isAdmin) return;
+    let saved: string | null = null;
+    try {
+      saved = window.localStorage.getItem(OWNER_KEY);
+    } catch {
+      /* storage off: start on everyone */
+    }
+    // until the team list has loaded, a remembered rep is trusted as is; once it has, a rep
+    // who's no longer on it falls back to everyone
+    setOwnerState(
+      !reps.length && saved?.startsWith("rep:") && ownerScope(saved, repSlug).kind === "rep"
+        ? (saved as LeadOwner)
+        : savedOwner(saved, repSlug, reps),
+    );
+    setOwnerReady(true);
+  }, [isAdmin, repSlug, reps]);
+  function setOwner(next: LeadOwner) {
+    setOwnerState(next);
+    setOwnerReady(true);
+    try {
+      window.localStorage.setItem(OWNER_KEY, next);
+    } catch {
+      /* not remembered: fine */
+    }
+  }
   // "" shows every type in one list; a type narrows the loaded list without a reload
   const [kind, setKind] = useState<LeadType | "">("");
   const [search, setSearch] = useState("");
@@ -133,7 +168,7 @@ export function EngineLeads({
 
   useEffect(() => {
     const sb = getSupabase();
-    if (!sb) return;
+    if (!sb || !ownerReady) return;
     let live = true;
     setRows(null);
     setError("");
@@ -142,6 +177,11 @@ export function EngineLeads({
       let q = sb.from("engine_leads").select(COLUMNS).not("phone", "is", null).neq("phone", "");
       if (tier) q = q.eq("tier", tier);
       if (status) q = q.eq("status", status);
+      if (isAdmin) {
+        const who = ownerScope(owner, repSlug);
+        if (who.kind === "rep") q = q.eq("rep_slug", who.slug);
+        if (who.kind === "none") q = q.is("rep_slug", null);
+      }
       const match = searchFilter(query);
       if (match) q = q.or(match);
       const { data, error: err } = await q
@@ -160,7 +200,7 @@ export function EngineLeads({
     return () => {
       live = false;
     };
-  }, [tier, status, query, reload]);
+  }, [tier, status, query, reload, owner, ownerReady, isAdmin, repSlug]);
 
   async function setLeadStatus(row: Row, next: EngineStatus) {
     const sb = getSupabase();
@@ -324,6 +364,30 @@ export function EngineLeads({
             <option value="">Any status</option>
           </select>
         </label>
+        {isAdmin && (
+          <label className="col-span-2 text-sm">
+            <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-smoke">
+              Whose leads
+            </span>
+            <select
+              className={filterSelect}
+              value={owner}
+              onChange={(e) => setOwner(e.target.value as LeadOwner)}
+              data-lead-owner
+            >
+              <option value="">Everyone&apos;s</option>
+              {repSlug && <option value="me">Mine</option>}
+              <option value="none">Not given to anyone</option>
+              {reps
+                .filter((r) => r.slug !== repSlug)
+                .map((r) => (
+                  <option key={r.slug} value={`rep:${r.slug}`}>
+                    {r.name}
+                  </option>
+                ))}
+            </select>
+          </label>
+        )}
         <label className="col-span-2 text-sm">
           <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-smoke">
             Type
@@ -369,7 +433,7 @@ export function EngineLeads({
           Refresh
         </button>
         <p className="ml-auto text-sm text-smoke max-md:self-center max-md:justify-self-end">
-          {isAdmin ? "Every engine lead" : "Your leads"}
+          {isAdmin ? ownerLabel(owner, repSlug, reps) : "Your leads"}
           {rows && ` · ${rows.length}${rows.length === LIMIT ? "+" : ""}`}
           {rows && kind && ` · ${shown?.length ?? 0} ${LEAD_TYPE_LABEL[kind].toLowerCase()}`}
         </p>

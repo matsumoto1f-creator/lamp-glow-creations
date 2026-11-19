@@ -440,12 +440,14 @@ export function buildAltMime(opts: {
   from: string;
   to: string;
   replyTo?: string | null;
+  /** Copied in: the person the sending rep reports to. */
+  cc?: string | null;
   subject: string;
   text: string;
   html?: string | null;
   boundary?: string;
 }): string {
-  for (const v of [opts.from, opts.to, opts.replyTo ?? ""]) {
+  for (const v of [opts.from, opts.to, opts.replyTo ?? "", opts.cc ?? ""]) {
     if (/[\r\n]/.test(v)) throw new Error("bad address");
   }
   const boundary = opts.boundary ?? `lamp-${crypto.randomUUID()}`;
@@ -453,6 +455,7 @@ export function buildAltMime(opts: {
   const head = [
     `From: ${opts.from}`,
     `To: ${opts.to}`,
+    ...(opts.cc ? [`Cc: ${opts.cc}`] : []),
     ...(opts.replyTo ? [`Reply-To: ${opts.replyTo}`] : []),
     `Subject: ${/^[\x20-\x7e]*$/.test(subject) ? subject : `=?UTF-8?B?${b64(new TextEncoder().encode(subject), false)}?=`}`,
     "MIME-Version: 1.0",

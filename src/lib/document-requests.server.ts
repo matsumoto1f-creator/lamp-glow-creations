@@ -224,24 +224,12 @@ export async function documentRequestInfo(request: Request): Promise<Response> {
     business_name: string | null;
     rep_slug: string | null;
   } | null;
-  // the name the merchant knows: a team rep's admin, else the rep (as on their application)
+  // the name the merchant knows: the file's own rep (as on their application)
   let from = "Lamp";
   if (a?.rep_slug) {
-    const rep = await svc
-      .from("reps")
-      .select("name,admin_slug")
-      .eq("slug", a.rep_slug)
-      .maybeSingle();
-    const r = rep.data as { name: string; admin_slug: string | null } | null;
-    if (r?.admin_slug) {
-      const lead = await svc
-        .from("reps")
-        .select("name,active")
-        .eq("slug", r.admin_slug)
-        .maybeSingle();
-      const l = lead.data as { name: string; active: boolean } | null;
-      from = l?.active ? l.name : r.name;
-    } else if (r) from = r.name;
+    const rep = await svc.from("reps").select("name").eq("slug", a.rep_slug).maybeSingle();
+    const r = rep.data as { name: string } | null;
+    if (r?.name) from = r.name;
   }
   const got = await svc
     .from("documents")

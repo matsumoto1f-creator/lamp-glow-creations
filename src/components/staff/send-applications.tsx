@@ -121,13 +121,10 @@ export function SendApplications({
   const sender = isAdmin ? sendAs : (repSlug ?? "");
   const senderRep = reps.find((r) => r.slug === sender);
   const senderName = senderRep?.name ?? "";
-  // a rep on an admin's team sends in the admin's name (the server does the same); an admin
-  // sending as themselves always uses their own name
-  const facingName =
-    (!(isAdmin && sender === repSlug) &&
-      senderRep?.admin_slug &&
-      reps.find((r) => r.slug === senderRep.admin_slug)?.name) ||
-    senderName;
+  // the merchant always sees the rep who sends it; whoever that rep reports to is copied in
+  const facingName = senderName;
+  const leadName =
+    (senderRep?.admin_slug && reps.find((r) => r.slug === senderRep.admin_slug)?.name) || "";
   const pending = rows.filter((r) => !isDone(r) && !isBlank(r));
   const open = rows.filter((r) => !isDone(r));
   const over = pending.length > MAX_RECIPIENTS;
@@ -245,12 +242,9 @@ export function SendApplications({
 
       <p className="mt-4 text-xs text-smoke">
         <span className="font-semibold">Email it</span>: Lamp emails the link from{" "}
-        partners@getlamp.app as "{facingName || "the rep"} at Lamp", and replies go to{" "}
-        {facingName && facingName !== senderName
-          ? `${facingName} and ${isAdmin ? senderName : "you"}`
-          : isAdmin
-            ? "the rep"
-            : "you"}
+        partners@getlamp.app as "{facingName || "the rep"} at Lamp"
+        {leadName ? `, copied to ${leadName}` : ""}, and replies go to{" "}
+        {leadName ? `${isAdmin ? senderName : "you"} and ${leadName}` : isAdmin ? "the rep" : "you"}
         . <span className="font-semibold">Copy link</span>: you get the link to text or email
         yourself.
       </p>

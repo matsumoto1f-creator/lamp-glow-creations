@@ -229,6 +229,8 @@ export async function gmailSend(
     to: string;
     fromName: string;
     replyTo: string | null;
+    /** Copied in (the person the sending rep reports to). */
+    cc?: string | null;
     subject: string;
     text: string;
     html?: string;
@@ -240,6 +242,7 @@ export async function gmailSend(
       from: `${fromName(msg.fromName)} <${MAILBOX()}>`,
       to: msg.to,
       replyTo: msg.replyTo,
+      cc: msg.cc ?? null,
       subject: msg.subject,
       text: msg.text,
       html: msg.html ?? null,
@@ -269,7 +272,7 @@ type Rep = {
   user_id: string | null;
   active: boolean;
   admin_slug: string | null;
-  /** The admin this rep reports to, when that admin is active: the name merchants see. */
+  /** Who this rep reports to, when active: copied on the rep's application emails. */
   lead: { name: string; title: string | null; user_id: string | null } | null;
 };
 
@@ -284,19 +287,7 @@ async function repBySlug(svc: Svc, slug: string): Promise<Rep | null> {
   const rep = r.data as Omit<Rep, "lead"> | null;
   if (!rep) return null;
   let lead: Rep["lead"] = null;
-  // an admin always sends in their own name: their seat may "report to" another admin, but the
-  // emails they send say who they are (Asad, 2026-11-19: partners@ mail from him says Asad)
-  const isAdmin = rep.user_id
-    ? !!(
-        await svc
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", rep.user_id)
-          .eq("role", "admin")
-          .maybeSingle()
-      ).data
-    : false;
-  if (rep.admin_slug && !isAdmin) {
+  if (rep.admin_slug) {
     const a = await svc
       .from("reps")
       .select("name,title,user_id,active")
@@ -309,12 +300,19 @@ async function repBySlug(svc: Svc, slug: string): Promise<Rep | null> {
 }
 
 /**
- * Who merchants see: the admin a rep reports to, or the rep themselves (always themselves when
- * they are an admin). Application emails,
- * the application page and the signed PDF's "Lamp rep" box use this name; the file itself
- * still lands with the rep who sent it.
+ * Who merchants see: always the rep who sent it (Asad, 2026-11-19: "their rep is the person that
+ * sent the application"). Application emails, the application page and the signed PDF's "Lamp
+ * rep" box use this name. The person the rep reports to is copied on the emails (ccFor), not shown.
  */
-const facing = (r: Rep) => r.lead ?? { name: r.name, title: r.title, user_id: r.user_id };
+const facing = (r: Rep) => ({ name: r.name, title: r.title, user_id: r.user_id });
+
+/** The address the rep's application emails are copied to: whoever the rep reports to. */
+async function ccFor(svc: Svc, rep: Rep | null): Promise<string | null> {
+  if (!rep?.lead) return null;
+  const lead = await emailOf(svc, rep.lead.user_id);
+  const own = await emailOf(svc, rep.user_id);
+  return lead && lead !== own ? lead : null;
+}
 
 /** Replies go to the admin and the rep, so either can answer; else to whoever sent it. */
 async function replyToFor(svc: Svc, rep: Rep, senderId: string): Promise<string | null> {
@@ -527,6 +525,7 @@ export async function applicationInvites(request: Request): Promise<Response> {
       kind,
     });
     const sent = await gmailSend(access.access, {
+      cc: await ccFor(svc, rep),
       to: inv.email!,
       fromName: `${facing(rep).name} at Lamp`,
       replyTo,
@@ -748,6 +747,7 @@ export async function applicationInvites(request: Request): Promise<Response> {
       kind,
     });
     const sent = await gmailSend(access.access, {
+      cc: await ccFor(svc, rep),
       to: email,
       fromName: `${facing(rep).name} at Lamp`,
       replyTo,
@@ -988,6 +988,7 @@ export async function applicationDraft(request: Request): Promise<Response> {
       filled: true,
     });
     const sent = await gmailSend(access.access, {
+      cc: await ccFor(svc, rep),
       to,
       fromName: `${facing(rep).name} at Lamp`,
       replyTo: await replyToFor(svc, rep, who.userId),
@@ -1604,6 +1605,7 @@ export async function finishApplicationNudge(request: Request): Promise<Response
     address: SITE.address,
   });
   const sent = await gmailSend(access.access, {
+    cc: await ccFor(svc, rep),
     to,
     fromName: `${name} at Lamp`,
     replyTo: rep ? await replyToFor(svc, rep, who.userId) : await emailOf(svc, who.userId),

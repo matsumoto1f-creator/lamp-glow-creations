@@ -29,6 +29,7 @@ import { CameIn } from "@/components/staff/came-in";
 import { watching } from "@/lib/team-lead";
 import { FileOffers } from "@/components/staff/file-offers";
 import { FileSend } from "@/components/staff/file-send";
+import { StaffDocUpload } from "@/components/staff/staff-doc-upload";
 
 type FileRow = {
   id: string;
@@ -609,6 +610,7 @@ export function FileView({
                 admins.
               </p>
             )}
+            {!watch && <StaffDocUpload fileId={fileId} onDone={() => void load()} />}
             {docs.length === 0 ? (
               <p className="mt-2 text-sm text-smoke">Nothing uploaded yet.</p>
             ) : (

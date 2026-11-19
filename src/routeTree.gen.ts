@@ -25,6 +25,7 @@ import { Route as ApiActivityRouteImport } from './routes/api.activity'
 import { Route as ApiApplicationDetailsRouteImport } from './routes/api.application-details'
 import { Route as ApiApplicationInvitesRouteImport } from './routes/api.application-invites'
 import { Route as ApiDocumentsRouteImport } from './routes/api.documents'
+import { Route as ApiDriveRouteImport } from './routes/api.drive'
 import { Route as ApiLeadsRouteImport } from './routes/api.leads'
 import { Route as ApiRepDocumentsRouteImport } from './routes/api.rep-documents'
 import { Route as ApiServerCheckRouteImport } from './routes/api.server-check'
@@ -143,6 +144,11 @@ const ApiApplicationInvitesRoute = ApiApplicationInvitesRouteImport.update({
 const ApiDocumentsRoute = ApiDocumentsRouteImport.update({
   id: '/api/documents',
   path: '/api/documents',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiDriveRoute = ApiDriveRouteImport.update({
+  id: '/api/drive',
+  path: '/api/drive',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiLeadsRoute = ApiLeadsRouteImport.update({
@@ -359,6 +365,7 @@ export interface FileRoutesByFullPath {
   '/api/application-details': typeof ApiApplicationDetailsRoute
   '/api/application-invites': typeof ApiApplicationInvitesRoute
   '/api/documents': typeof ApiDocumentsRouteWithChildren
+  '/api/drive': typeof ApiDriveRoute
   '/api/leads': typeof ApiLeadsRoute
   '/api/rep-documents': typeof ApiRepDocumentsRoute
   '/api/server-check': typeof ApiServerCheckRoute
@@ -416,6 +423,7 @@ export interface FileRoutesByTo {
   '/api/application-details': typeof ApiApplicationDetailsRoute
   '/api/application-invites': typeof ApiApplicationInvitesRoute
   '/api/documents': typeof ApiDocumentsRouteWithChildren
+  '/api/drive': typeof ApiDriveRoute
   '/api/leads': typeof ApiLeadsRoute
   '/api/rep-documents': typeof ApiRepDocumentsRoute
   '/api/server-check': typeof ApiServerCheckRoute
@@ -474,6 +482,7 @@ export interface FileRoutesById {
   '/api/application-details': typeof ApiApplicationDetailsRoute
   '/api/application-invites': typeof ApiApplicationInvitesRoute
   '/api/documents': typeof ApiDocumentsRouteWithChildren
+  '/api/drive': typeof ApiDriveRoute
   '/api/leads': typeof ApiLeadsRoute
   '/api/rep-documents': typeof ApiRepDocumentsRoute
   '/api/server-check': typeof ApiServerCheckRoute
@@ -533,6 +542,7 @@ export interface FileRouteTypes {
     | '/api/application-details'
     | '/api/application-invites'
     | '/api/documents'
+    | '/api/drive'
     | '/api/leads'
     | '/api/rep-documents'
     | '/api/server-check'
@@ -590,6 +600,7 @@ export interface FileRouteTypes {
     | '/api/application-details'
     | '/api/application-invites'
     | '/api/documents'
+    | '/api/drive'
     | '/api/leads'
     | '/api/rep-documents'
     | '/api/server-check'
@@ -647,6 +658,7 @@ export interface FileRouteTypes {
     | '/api/application-details'
     | '/api/application-invites'
     | '/api/documents'
+    | '/api/drive'
     | '/api/leads'
     | '/api/rep-documents'
     | '/api/server-check'
@@ -705,6 +717,7 @@ export interface RootRouteChildren {
   ApiApplicationDetailsRoute: typeof ApiApplicationDetailsRoute
   ApiApplicationInvitesRoute: typeof ApiApplicationInvitesRoute
   ApiDocumentsRoute: typeof ApiDocumentsRouteWithChildren
+  ApiDriveRoute: typeof ApiDriveRoute
   ApiLeadsRoute: typeof ApiLeadsRoute
   ApiRepDocumentsRoute: typeof ApiRepDocumentsRoute
   ApiServerCheckRoute: typeof ApiServerCheckRoute
@@ -853,6 +866,13 @@ declare module '@tanstack/react-router' {
       path: '/api/documents'
       fullPath: '/api/documents'
       preLoaderRoute: typeof ApiDocumentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/drive': {
+      id: '/api/drive'
+      path: '/api/drive'
+      fullPath: '/api/drive'
+      preLoaderRoute: typeof ApiDriveRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/leads': {
@@ -1177,6 +1197,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiApplicationDetailsRoute: ApiApplicationDetailsRoute,
   ApiApplicationInvitesRoute: ApiApplicationInvitesRoute,
   ApiDocumentsRoute: ApiDocumentsRouteWithChildren,
+  ApiDriveRoute: ApiDriveRoute,
   ApiLeadsRoute: ApiLeadsRoute,
   ApiRepDocumentsRoute: ApiRepDocumentsRoute,
   ApiServerCheckRoute: ApiServerCheckRoute,

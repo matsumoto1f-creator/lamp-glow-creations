@@ -67,7 +67,9 @@ export function StartedLeads({
     void load();
   }, [load]);
 
-  const repName = (slug: string | null) => reps.find((r) => r.slug === slug)?.name ?? slug ?? "—";
+  // no rep: they started on the website's own application (getlamp.app/application)
+  const repName = (slug: string | null) =>
+    slug ? (reps.find((r) => r.slug === slug)?.name ?? slug) : "Website";
 
   return (
     <section className={cn(card, "mt-4 p-5")} data-started-leads>

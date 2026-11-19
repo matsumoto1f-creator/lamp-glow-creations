@@ -52,9 +52,19 @@ import { SignBlock } from "@/components/application/sign-block";
 import { emptySigning, uploadType, type Signing } from "@/components/application/form-kit";
 import { F, inputCls, Text } from "@/components/application/fields";
 import { getSupabase } from "@/lib/supabase";
-import { cleanChoices, PHONE_CONSENT_TEXT, QUESTIONS, type ChoiceKey } from "@/lib/apply";
+import {
+  cleanChoices,
+  estimate,
+  funnelStep,
+  labelFor,
+  money,
+  PHONE_CONSENT_TEXT,
+  QUESTIONS,
+  type ChoiceKey,
+} from "@/lib/apply";
 import { QuickQuestion } from "@/components/site/quick-question";
 import { reportStage, saveProgressToken } from "@/lib/application-progress";
+import { track } from "@/lib/track";
 
 /**
  * The full application from a link: getlamp.app/application/<rep>?i=<token> (a personal link a
@@ -169,14 +179,21 @@ export function LinkApplication({
   repSlug,
   token,
   filling = false,
+  prefill = {},
 }: {
+  /** "" is the website's own application (getlamp.app/application): no rep, the file is unassigned. */
   repSlug: string;
   token: string | null;
   /** A rep filling it in with the merchant on the phone (Start application). */
   filling?: boolean;
+  /** Quick answers from the link (?amount=50-100k&industry=trucking): those questions are skipped. */
+  prefill?: Partial<Record<ChoiceKey, string>>;
 }) {
   // only a personal link can be filled in for someone
   const phoneMode = filling && Boolean(token);
+  const website = !token && repSlug === "";
+  // what this browser keeps between visits is keyed by the rep, or by "website"
+  const store = website ? "website" : repSlug;
   const [synced, setSynced] = useState<{ at: string } | { error: string } | null>(null);
   const [open, setOpen] = useState<OpenResponse | "error" | null>(null);
   const [d, setD] = useState<Details>(emptyDetails);
@@ -190,10 +207,18 @@ export function LinkApplication({
   const [done, setDone] = useState<Done | null>(null);
   const [uploading, setUploading] = useState<string | null>(null);
   // a public link asks for name, phone and email first; a personal link already knows who it's for
-  const [contactDone, setContactDone] = useState(Boolean(token) || hasStarted(repSlug));
-  // before that, the front page's quick questions, one tap each (kept in this browser)
-  const [quick, setQuick] = useState<Partial<Record<ChoiceKey, string>>>(() => loadQuick(repSlug));
-  const [quickStep, setQuickStep] = useState(() => firstUnanswered(loadQuick(repSlug)));
+  const [contactDone, setContactDone] = useState(Boolean(token) || hasStarted(store));
+  // before that, the front page's quick questions, one tap each (kept in this browser; answers
+  // the link carries win)
+  const [quick, setQuick] = useState<Partial<Record<ChoiceKey, string>>>(() => ({
+    ...loadQuick(store),
+    ...prefill,
+  }));
+  const [quickStep, setQuickStep] = useState(() =>
+    firstUnanswered({ ...loadQuick(store), ...prefill }),
+  );
+  // after the contact screen on a public link: the rough range from their answers, once
+  const [showRange, setShowRange] = useState(false);
   const honeypot = useRef<HTMLInputElement | null>(null);
   const started = useRef(false);
   const topRef = useRef<HTMLDivElement | null>(null);
@@ -204,7 +229,7 @@ export function LinkApplication({
     src: Parameters<typeof downloadApplicationPdf>[0];
     values: Parameters<typeof downloadApplicationPdf>[1];
   } | null>(null);
-  const key = draftKey(open && open !== "error" ? open.draft : null, repSlug);
+  const key = draftKey(open && open !== "error" ? open.draft : null, store);
 
   // the application is always the light look (the head script does it on a fresh load; this
   // covers arriving here from another page of the site)
@@ -229,7 +254,7 @@ export function LinkApplication({
         }
         setOpen(o);
         if (o.state !== "open") return;
-        const local = loadDraft(draftKey(o.draft, repSlug));
+        const local = loadDraft(draftKey(o.draft, store));
         // answers a rep filled in on the phone, when they're newer than this browser's own
         const serverAt = o.answers_saved_at ? Date.parse(o.answers_saved_at) : 0;
         const saved =
@@ -279,6 +304,7 @@ export function LinkApplication({
     return () => {
       live = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- store follows repSlug
   }, [token, repSlug]);
 
   const update: Update = (fn) => {
@@ -323,11 +349,21 @@ export function LinkApplication({
     }, 1200);
     return () => window.clearTimeout(t);
   }, [d, step, phoneMode, token, open, contactDone]);
+  // a public application's drop-off, step by step, for the staff dashboard (staff browsers are
+  // left out by track itself)
+  useEffect(() => {
+    if (token || !open || open === "error" || open.state !== "open") return;
+    track(
+      "apply_step",
+      funnelStep({ quickStep, contactDone, showRange, part: step, signed: Boolean(done) }),
+    );
+  }, [token, open, quickStep, contactDone, showRange, step, done]);
+
   const allMissing = useMemo(() => missing(d), [d]);
   const current = STEPS[step]!;
   const rep = open && open !== "error" ? open.rep : null;
-  const repName = rep?.name ?? "your Lamp rep";
-  const repFirst = repName.split(" ")[0] ?? repName;
+  const repName = rep?.name ?? (website ? "the Lamp team" : "your Lamp rep");
+  const repFirst = rep ? (rep.name.split(" ")[0] ?? rep.name) : website ? "Lamp" : "your rep";
 
   const lastStep = STEPS.length - 1;
 
@@ -338,7 +374,7 @@ export function LinkApplication({
     setVisited((v) => Math.max(v, to));
     // a public link's lead: the furthest step reached (the server keeps the furthest)
     if (!token && to > 0)
-      reportStage(repSlug, STEPS[to]!.id as Exclude<StepId, "business">, "online");
+      reportStage(store, STEPS[to]!.id as Exclude<StepId, "business">, "online");
     setShowMissing(false);
     saveDraft(key, d, to);
     window.requestAnimationFrame(() => {
@@ -531,6 +567,7 @@ export function LinkApplication({
               repName={repName}
               title={rep?.title ?? null}
               firstName={d.owners[0]?.first ?? ""}
+              website={website}
             />
 
             {phoneMode && token && (
@@ -548,7 +585,7 @@ export function LinkApplication({
                 onChoose={(key, id) => {
                   const next = { ...quick, [key]: id };
                   setQuick(next);
-                  saveQuick(repSlug, next);
+                  saveQuick(store, next);
                   // brief pause so the selection registers before the next question
                   window.setTimeout(() => setQuickStep((n) => n + 1), 180);
                 }}
@@ -557,11 +594,12 @@ export function LinkApplication({
             ) : !contactDone ? (
               <ContactGate
                 repSlug={rep?.slug ?? repSlug}
+                store={store}
                 repFirst={repFirst}
                 quick={quick}
                 onBack={() => setQuickStep(QUESTIONS.length - 1)}
                 onDone={(c) => {
-                  markStarted(repSlug);
+                  markStarted(store);
                   update((x) => {
                     const y = withQuickAnswers(x, { ...quick, businessName: c.business });
                     return {
@@ -584,6 +622,17 @@ export function LinkApplication({
                     };
                   });
                   setContactDone(true);
+                  // a public link shows the rough range first, when the answers give one
+                  if (!token && estimate(quick)) setShowRange(true);
+                  window.scrollTo({ top: 0 });
+                }}
+              />
+            ) : showRange ? (
+              <RangeCard
+                quick={quick}
+                firstName={d.owners[0]?.first ?? ""}
+                onContinue={() => {
+                  setShowRange(false);
                   window.scrollTo({ top: 0 });
                 }}
               />
@@ -840,12 +889,16 @@ function QuickQuestions({
  */
 function ContactGate({
   repSlug,
+  store,
   repFirst,
   quick,
   onBack,
   onDone,
 }: {
+  /** The rep the lead goes to; "" for the website (no rep). */
   repSlug: string;
+  /** This browser's key for the progress token. */
+  store: string;
   repFirst: string;
   quick: Partial<Record<ChoiceKey, string>>;
   onBack: () => void;
@@ -900,7 +953,7 @@ function ContactGate({
       }
       // how far they get from here is reported against this lead (see application-progress)
       const j = (await res.json().catch(() => ({}))) as { progress?: unknown };
-      if (res.ok && typeof j.progress === "string") saveProgressToken(repSlug, j.progress);
+      if (res.ok && typeof j.progress === "string") saveProgressToken(store, j.progress);
       // saved, or the network or limit got in the way: either way they carry on with the form
     } catch {
       /* carry on */
@@ -985,6 +1038,72 @@ function ContactGate({
   );
 }
 
+/**
+ * After the contact screen on a public link: the rough range from their quick answers (the same
+ * estimate the old website flow showed), then straight on into the full application. Never an
+ * approval or an offer: real offers come from funders after they see the statements.
+ */
+function RangeCard({
+  quick,
+  firstName,
+  onContinue,
+}: {
+  quick: Partial<Record<ChoiceKey, string>>;
+  firstName: string;
+  onContinue: () => void;
+}) {
+  const est = estimate(quick);
+  if (!est) return null;
+  const name = firstName || "there";
+  return (
+    <div className="rise ll-glass mt-6 rounded-[1.75rem] p-5 ring-1 ring-line sm:p-9" data-range>
+      <h2 className="font-display text-2xl font-bold tracking-tight sm:text-3xl">
+        {est.fit === "limited"
+          ? `Thanks, ${name}. Let's see what's realistic.`
+          : `You have options, ${name}.`}
+      </h2>
+      <div className="mt-6 rounded-2xl bg-ink p-6 text-paper">
+        <p className="text-mist">Businesses like yours often see</p>
+        <p className="mt-1 font-display text-4xl font-bold tabular-nums tracking-tight text-leaf">
+          {money(est.low)} – {money(est.high)}
+        </p>
+        <dl className="mt-5 grid grid-cols-2 gap-3">
+          {(
+            [
+              ["Looking for", labelFor("amount", quick.amount)],
+              ["Monthly deposits", labelFor("revenue", quick.revenue)],
+              ["In business", labelFor("tib", quick.tib)],
+              ["Needed", labelFor("timeline", quick.timeline)],
+            ] as const
+          ).map(([k, v]) => (
+            <div key={k} className="rounded-xl bg-white/5 px-3 py-2.5 ring-1 ring-white/10">
+              <dt className="text-sm text-mist">{k}</dt>
+              <dd className="font-semibold">{v ?? "—"}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-4 text-sm leading-relaxed text-mist">
+          {est.fit === "limited"
+            ? "Newer or smaller businesses have fewer options, but some funders still work with them. We'll be honest about what's out there."
+            : "This is a rough estimate from your answers, not an offer. Real offers come from funders after they review your statements."}
+        </p>
+      </div>
+      <p className="mt-6 leading-relaxed text-smoke">
+        To get real offers, finish the application and add your last few bank statements. It saves
+        as you go.
+      </p>
+      <button
+        type="button"
+        onClick={onContinue}
+        className={cn(btnPrimary, "mt-5 w-full py-4 text-base")}
+      >
+        Finish my application · about 10 minutes
+        <ArrowRight className="size-4" aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
 const STEP_HEADLINE: Record<StepId, string> = {
   business: "Tell us about your business",
   owners: "Who owns it",
@@ -999,13 +1118,16 @@ function Header({
   repName,
   title,
   firstName,
+  website = false,
 }: {
   repSlug: string;
   repName: string;
   title: string | null;
   firstName: string;
+  /** The website's own application: no rep yet, so the card shows the Lamp team. */
+  website?: boolean;
 }) {
-  const photo = findRep(repSlug)?.photo;
+  const photo = website ? undefined : findRep(repSlug)?.photo;
   const initials = repName
     .split(" ")
     .map((w) => w[0])
@@ -1020,7 +1142,7 @@ function Header({
       </h1>
       <p className="mt-4 max-w-xl text-lg leading-relaxed text-smoke">
         About ten minutes. Sign right on the page when you're done and it goes straight to{" "}
-        {repName.split(" ")[0]}.
+        {website ? "the Lamp team" : repName.split(" ")[0]}.
       </p>
       <div className="ll-glass mt-7 flex items-center gap-4 rounded-2xl px-4 py-3.5 ring-1 ring-line">
         {photo ? (
@@ -1030,13 +1152,13 @@ function Header({
             aria-hidden="true"
             className="grid size-12 shrink-0 place-items-center rounded-full bg-forest font-display font-bold text-leaf ring-1 ring-leaf/40"
           >
-            {initials || "L"}
+            {website ? "L" : initials || "L"}
           </span>
         )}
         <p className="text-[0.95rem] leading-snug">
-          <span className="text-smoke">Your Lamp rep</span>
+          <span className="text-smoke">{website ? "Reviewed by" : "Your Lamp rep"}</span>
           <span className="block font-semibold">
-            {repName}
+            {website ? "The Lamp team" : repName}
             {title ? <span className="font-normal text-smoke"> · {title}</span> : null}
           </span>
         </p>
@@ -1320,8 +1442,9 @@ export function DoneScreen({
   const [email, setEmail] = useState(done.email);
   const [state, setState] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [err, setErr] = useState("");
-  const rep = done.rep_name || "your rep";
-  const repFirst = rep.split(" ")[0] ?? rep;
+  // the website's own application has no rep yet: the Lamp team has it
+  const rep = done.rep_name || "the Lamp team";
+  const repFirst = done.rep_name ? (done.rep_name.split(" ")[0] ?? done.rep_name) : "Lamp";
   const failed = done.uploads.filter((u) => !u.ok);
 
   return (
@@ -1473,7 +1596,7 @@ export function ClosedLink({
     >
       Check the link, or start a new application.
       <Link
-        to="/apply"
+        to="/application"
         className="mt-6 inline-flex font-semibold text-forest underline underline-offset-4"
       >
         Start an application

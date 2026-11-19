@@ -863,6 +863,14 @@ export async function openApplication(request: Request): Promise<Response> {
   }
 
   const slug = typeof body.rep === "string" ? body.rep.toLowerCase() : "";
+  // "" is the website's own application: open, with no rep (the file lands unassigned)
+  if (slug === "")
+    return json(200, {
+      state: "open",
+      draft: null,
+      rep: null,
+      prefill: null,
+    } satisfies OpenResponse);
   if (!SLUG.test(slug)) return none("unknown_rep");
   const rep = await repBySlug(svc, slug).catch(() => undefined);
   if (rep === undefined) return tryAgain();
@@ -1046,7 +1054,9 @@ export async function submitApplication(request: Request): Promise<Response> {
   const token = body.token == null ? null : body.token;
   if (token !== null && !isToken(token)) return json(404, { error: ERR["link_not_found"]![1] });
   const rep = typeof body.rep === "string" ? body.rep.toLowerCase() : "";
-  if (token === null && !SLUG.test(rep)) return json(404, { error: ERR["unknown_rep"]![1] });
+  // with no token, "" is the website's own application (no rep); anything else must be a rep
+  if (token === null && rep !== "" && !SLUG.test(rep))
+    return json(404, { error: ERR["unknown_rep"]![1] });
 
   const d = cleanDetails(fromRow((body.details ?? {}) as Record<string, unknown>));
   const paper = body.form === "pdf";
@@ -1299,7 +1309,7 @@ export async function notifyNewApplication(request: Request): Promise<Response> 
   const svc = service();
   const app = await svc
     .from("applications")
-    .select("id,user_id,claim_token_hash,rep_slug,business_name")
+    .select("id,user_id,claim_token_hash,rep_slug,business_name,utm")
     .eq("id", appId)
     .maybeSingle();
   const a = app.data as {
@@ -1307,6 +1317,7 @@ export async function notifyNewApplication(request: Request): Promise<Response> 
     claim_token_hash: string | null;
     rep_slug: string | null;
     business_name: string | null;
+    utm: { source?: string } | null;
   } | null;
   if (!a) return json(404, { error: "We couldn't find that application." });
   let allowed =
@@ -1445,7 +1456,12 @@ export async function notifyNewApplication(request: Request): Promise<Response> 
   const balances = d.balances ?? [];
   const m = newApplicationEmail({
     repName: rep?.name ?? null,
-    via: a.user_id && !claim ? "their Lamp account" : "an application link",
+    via:
+      a.user_id && !claim
+        ? "their Lamp account"
+        : a.utm?.source === "website_application"
+          ? "the website's application"
+          : "an application link",
     signer: d.signed_name ?? "",
     business,
     owner,

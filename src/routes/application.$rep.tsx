@@ -1,16 +1,19 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { findRep, seo } from "@/lib/site";
 import { isToken } from "@/lib/application-links";
+import { carriedSearch, quickFromParams } from "@/lib/apply";
 import { LinkApplication } from "@/components/application/link-application";
 
 // The full application from a link. getlamp.app/application/<rep>?i=<token> is a personal link a
 // rep sent (their details filled in, tracked as opened and started); getlamp.app/application/<rep>
-// is the rep's public link. Either way the signed file lands with that rep.
+// is the rep's public link (quick answers and utm_ tags in the link are kept, as on the website's
+// /application). Either way the signed file lands with that rep.
 export const Route = createFileRoute("/application/$rep")({
   // fill=rep: a rep filling it in with the merchant on the phone (Start application)
   validateSearch: (
     s: Record<string, unknown>,
-  ): { i?: string | undefined; fill?: "rep" | undefined } => ({
+  ): Record<string, string | undefined> & { i?: string | undefined; fill?: "rep" | undefined } => ({
+    ...carriedSearch(s),
     i: isToken(s["i"]) ? s["i"] : undefined,
     fill: s["fill"] === "rep" ? "rep" : undefined,
   }),
@@ -29,6 +32,14 @@ export const Route = createFileRoute("/application/$rep")({
 
 function Application() {
   const { rep } = Route.useParams();
-  const { i, fill } = Route.useSearch();
-  return <LinkApplication repSlug={rep.toLowerCase()} token={i ?? null} filling={fill === "rep"} />;
+  const search = Route.useSearch();
+  const { i, fill } = search;
+  return (
+    <LinkApplication
+      repSlug={rep.toLowerCase()}
+      token={i ?? null}
+      filling={fill === "rep"}
+      prefill={i ? {} : quickFromParams(search)}
+    />
+  );
 }

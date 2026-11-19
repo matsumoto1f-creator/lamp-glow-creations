@@ -57,28 +57,36 @@ export async function startApplication(request: Request): Promise<Response> {
   const consent = text(body.phone_consent, 600);
   const businessName = text(body.business_name, 200);
   const quick = cleanChoices(body.answers);
-  if (!SLUG.test(rep)) return json(400, { error: "That link isn't right." });
+  // "" is the website's own application (getlamp.app/application): no rep, the file is unassigned
+  const website = rep === "";
+  if (!website && !SLUG.test(rep)) return json(400, { error: "That link isn't right." });
   if (!first || !last) return json(400, { error: "Add your first and last name." });
   if (!EMAIL_RE.test(email)) return json(400, { error: "Enter a valid email." });
   if (digits.length < 10 || digits.length > 11)
     return json(400, { error: "Enter a 10-digit phone number." });
 
   const svc = service();
-  const repRow = await svc
-    .from("reps")
-    .select("slug,name,user_id,active")
-    .eq("slug", rep)
-    .maybeSingle();
-  const r = repRow.data as { name: string; user_id: string | null; active: boolean } | null;
-  if (!r?.active) return json(404, { error: "That link isn't active." });
+  type RepRow = { name: string; user_id: string | null; active: boolean };
+  let r: RepRow | null = null;
+  if (!website) {
+    const repRow = await svc
+      .from("reps")
+      .select("slug,name,user_id,active")
+      .eq("slug", rep)
+      .maybeSingle();
+    const found = repRow.data as RepRow | null;
+    if (!found?.active) return json(404, { error: "That link isn't active." });
+    r = found;
+  }
 
   // the same person on the same link today: one lead, one heads-up
-  const again = await svc
+  // (on the website, "the same link" is the website: leads with no rep)
+  const recent = svc
     .from("leads")
     .select("id", { count: "exact", head: true })
     .eq("email", email)
-    .eq("rep_slug", rep)
     .gte("created_at", new Date(Date.now() - DAY_MS).toISOString());
+  const again = await (website ? recent.is("rep_slug", null) : recent.eq("rep_slug", rep));
   const form = body.form === "pdf" ? "pdf" : "online";
   if ((again.count ?? 0) > 0) {
     // the same person again today: keep the lead, hand this browser a way to report progress
@@ -92,7 +100,8 @@ export async function startApplication(request: Request): Promise<Response> {
   if (!allowed.error && allowed.data === false)
     return json(429, { error: "Too many tries from this network. Try again in an hour." });
 
-  const utm: Record<string, string> = { ref: rep };
+  // a rep's link carries ref (leads_before_insert gives the lead that rep); the website none
+  const utm: Record<string, string> = website ? { utm_source: "website" } : { ref: rep };
   if (body.utm && typeof body.utm === "object" && !Array.isArray(body.utm)) {
     for (const [k, v] of Object.entries(body.utm as Record<string, unknown>).slice(0, 10))
       if (/^utm_[a-z]{1,20}$/.test(k) && typeof v === "string") utm[k] = v.slice(0, 200);
@@ -106,6 +115,7 @@ export async function startApplication(request: Request): Promise<Response> {
       answers: {
         ...quick,
         source: "application_link",
+        ...(website ? { website: true } : {}),
         form,
         lastName: last,
         ...(businessName ? { businessName } : {}),
@@ -117,7 +127,8 @@ export async function startApplication(request: Request): Promise<Response> {
 
   // the heads-up: best effort, the lead is saved either way
   try {
-    const profile = r.user_id
+    // a rep's lead goes to the rep with the copy list on cc; a website lead to the copy list
+    const profile = r?.user_id
       ? await svc.from("profiles").select("email").eq("id", r.user_id).maybeSingle()
       : null;
     const repEmail = (profile?.data as { email?: string } | null)?.email ?? null;
@@ -125,7 +136,7 @@ export async function startApplication(request: Request): Promise<Response> {
     const access = to ? await gmailAccessToken(svc) : null;
     if (to && access && !("error" in access)) {
       const m = startedEmail({
-        repName: r.name,
+        repName: r ? r.name : null,
         first,
         last,
         business: businessName,
@@ -168,11 +179,8 @@ async function linkProgress(
   form: "online" | "pdf",
 ): Promise<string | null> {
   try {
-    const got = await svc
-      .from("leads")
-      .select("id,answers")
-      .eq("email", email)
-      .eq("rep_slug", rep)
+    const q = svc.from("leads").select("id,answers").eq("email", email);
+    const got = await (rep ? q.eq("rep_slug", rep) : q.is("rep_slug", null))
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();

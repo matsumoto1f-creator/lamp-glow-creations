@@ -26,6 +26,13 @@ import { AiActivity } from "@/components/staff/ai-activity";
 import { NotificationsBell } from "@/components/staff/notifications";
 import { AppLinks } from "@/components/staff/app-links";
 import { Training } from "@/components/staff/training";
+import {
+  MySignedDocuments,
+  RepDocumentsAdmin,
+  RepDocumentsGate,
+  useRepDocuments,
+} from "@/components/staff/rep-documents";
+import { toSign } from "@/lib/rep-documents";
 import { ChatDock, useChatDock } from "@/components/chat/chat-dock";
 import { CHAT_OPEN_EVENT } from "@/lib/chat-dock";
 import { useChatUnread } from "@/hooks/use-chat-unread";
@@ -126,6 +133,8 @@ function Staff() {
   const [listsTick, setListsTick] = useState(0);
 
   const isStaff = access.state === "staff";
+  // the agreements a rep signs before anything else (admins sign nothing)
+  const { docs: repDocs, reload: reloadRepDocs } = useRepDocuments(isStaff);
   const chatUnread = useChatUnread(isStaff);
   const dock = useChatDock();
   // an old Staff > Messages link: open the side panel (on its conversation), then drop it from the address
@@ -185,6 +194,45 @@ function Staff() {
             </Link>
           )}
         </div>
+      </PageShell>
+    );
+  }
+
+  // a rep who hasn't signed what is in force sees only that until they do. If the check
+  // itself fails they wait and retry: the page doesn't open on a guess.
+  if (!access.isAdmin && repDocs.state !== "ok") {
+    return (
+      <PageShell member wide footer={false} tone="night">
+        <div
+          className="mx-auto max-w-xl px-5 py-24 text-center"
+          data-rep-gate-state={repDocs.state}
+        >
+          {repDocs.state === "loading" ? (
+            <Loader2 className="mx-auto size-6 animate-spin text-smoke" />
+          ) : (
+            <>
+              <p className="text-smoke">{repDocs.message}</p>
+              <button
+                type="button"
+                className="mt-4 min-h-11 font-semibold text-forest underline"
+                onClick={reloadRepDocs}
+              >
+                Try again
+              </button>
+            </>
+          )}
+        </div>
+      </PageShell>
+    );
+  }
+  const unsigned =
+    repDocs.state === "ok" && repDocs.ready
+      ? toSign(repDocs.docs, repDocs.signatures, access.isAdmin)
+      : [];
+  if (unsigned.length) {
+    return (
+      <PageShell member wide footer={false} tone="night">
+        <RepDocumentsGate pending={unsigned} email={user?.email ?? null} onSigned={reloadRepDocs} />
       </PageShell>
     );
   }
@@ -287,10 +335,16 @@ function Staff() {
         ) : view === "money" ? (
           <Money isAdmin={access.isAdmin} userId={access.userId} reps={reps} />
         ) : view === "training" ? (
-          <Training isAdmin={access.isAdmin} />
+          <>
+            <MySignedDocuments />
+            <Training isAdmin={access.isAdmin} />
+          </>
         ) : view === "team" ? (
           access.isAdmin ? (
-            <Team onChanged={() => setRepsTick((t) => t + 1)} />
+            <>
+              <Team onChanged={() => setRepsTick((t) => t + 1)} />
+              <RepDocumentsAdmin />
+            </>
           ) : (
             <p className="mt-8 text-sm text-smoke">Only admins manage the team.</p>
           )

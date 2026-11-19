@@ -15,7 +15,7 @@ export const Route = createFileRoute("/application/")({
       path: "/application",
       title: "Check your options — Lamp",
       description:
-        "Answer a few quick questions, see a rough range, and finish your application in about ten minutes. Checking has no effect on your credit.",
+        "Answer a few quick questions, see a rough range, and finish your application in about ten minutes.",
     }),
   component: WebsiteApplication,
 });

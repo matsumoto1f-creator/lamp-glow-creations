@@ -35,6 +35,7 @@ import { Route as ApiTrackRouteImport } from './routes/api.track'
 import { Route as ApplicationIndexRouteImport } from './routes/application.index'
 import { Route as ApplicationRepRouteImport } from './routes/application.$rep'
 import { Route as ApplyRepRouteImport } from './routes/apply_.$rep'
+import { Route as RemindersStopRouteImport } from './routes/reminders.stop'
 import { Route as UploadTokenRouteImport } from './routes/upload.$token'
 import { Route as ApiAiActivityRouteImport } from './routes/api.ai.activity'
 import { Route as ApiAiKeyRouteImport } from './routes/api.ai.key'
@@ -43,6 +44,8 @@ import { Route as ApiApplicationFinishRouteImport } from './routes/api.applicati
 import { Route as ApiApplicationNotifyRouteImport } from './routes/api.application.notify'
 import { Route as ApiApplicationOpenRouteImport } from './routes/api.application.open'
 import { Route as ApiApplicationProgressRouteImport } from './routes/api.application.progress'
+import { Route as ApiApplicationRemindRouteImport } from './routes/api.application.remind'
+import { Route as ApiApplicationRemindersRouteImport } from './routes/api.application.reminders'
 import { Route as ApiApplicationStartRouteImport } from './routes/api.application.start'
 import { Route as ApiApplicationSubmitRouteImport } from './routes/api.application.submit'
 import { Route as ApiApplicationUploadRouteImport } from './routes/api.application.upload'
@@ -198,6 +201,11 @@ const ApplyRepRoute = ApplyRepRouteImport.update({
   path: '/apply/$rep',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RemindersStopRoute = RemindersStopRouteImport.update({
+  id: '/reminders/stop',
+  path: '/reminders/stop',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const UploadTokenRoute = UploadTokenRouteImport.update({
   id: '/upload/$token',
   path: '/upload/$token',
@@ -236,6 +244,16 @@ const ApiApplicationOpenRoute = ApiApplicationOpenRouteImport.update({
 const ApiApplicationProgressRoute = ApiApplicationProgressRouteImport.update({
   id: '/api/application/progress',
   path: '/api/application/progress',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiApplicationRemindRoute = ApiApplicationRemindRouteImport.update({
+  id: '/api/application/remind',
+  path: '/api/application/remind',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiApplicationRemindersRoute = ApiApplicationRemindersRouteImport.update({
+  id: '/api/application/reminders',
+  path: '/api/application/reminders',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiApplicationStartRoute = ApiApplicationStartRouteImport.update({
@@ -386,6 +404,7 @@ export interface FileRoutesByFullPath {
   '/api/track': typeof ApiTrackRoute
   '/application/$rep': typeof ApplicationRepRoute
   '/apply/$rep': typeof ApplyRepRoute
+  '/reminders/stop': typeof RemindersStopRoute
   '/upload/$token': typeof UploadTokenRoute
   '/application/': typeof ApplicationIndexRoute
   '/api/ai/activity': typeof ApiAiActivityRoute
@@ -395,6 +414,8 @@ export interface FileRoutesByFullPath {
   '/api/application/notify': typeof ApiApplicationNotifyRoute
   '/api/application/open': typeof ApiApplicationOpenRoute
   '/api/application/progress': typeof ApiApplicationProgressRoute
+  '/api/application/remind': typeof ApiApplicationRemindRoute
+  '/api/application/reminders': typeof ApiApplicationRemindersRoute
   '/api/application/start': typeof ApiApplicationStartRoute
   '/api/application/submit': typeof ApiApplicationSubmitRoute
   '/api/application/upload': typeof ApiApplicationUploadRoute
@@ -446,6 +467,7 @@ export interface FileRoutesByTo {
   '/api/track': typeof ApiTrackRoute
   '/application/$rep': typeof ApplicationRepRoute
   '/apply/$rep': typeof ApplyRepRoute
+  '/reminders/stop': typeof RemindersStopRoute
   '/upload/$token': typeof UploadTokenRoute
   '/application': typeof ApplicationIndexRoute
   '/api/ai/activity': typeof ApiAiActivityRoute
@@ -455,6 +477,8 @@ export interface FileRoutesByTo {
   '/api/application/notify': typeof ApiApplicationNotifyRoute
   '/api/application/open': typeof ApiApplicationOpenRoute
   '/api/application/progress': typeof ApiApplicationProgressRoute
+  '/api/application/remind': typeof ApiApplicationRemindRoute
+  '/api/application/reminders': typeof ApiApplicationRemindersRoute
   '/api/application/start': typeof ApiApplicationStartRoute
   '/api/application/submit': typeof ApiApplicationSubmitRoute
   '/api/application/upload': typeof ApiApplicationUploadRoute
@@ -507,6 +531,7 @@ export interface FileRoutesById {
   '/api/track': typeof ApiTrackRoute
   '/application/$rep': typeof ApplicationRepRoute
   '/apply_/$rep': typeof ApplyRepRoute
+  '/reminders/stop': typeof RemindersStopRoute
   '/upload/$token': typeof UploadTokenRoute
   '/application/': typeof ApplicationIndexRoute
   '/api/ai/activity': typeof ApiAiActivityRoute
@@ -516,6 +541,8 @@ export interface FileRoutesById {
   '/api/application/notify': typeof ApiApplicationNotifyRoute
   '/api/application/open': typeof ApiApplicationOpenRoute
   '/api/application/progress': typeof ApiApplicationProgressRoute
+  '/api/application/remind': typeof ApiApplicationRemindRoute
+  '/api/application/reminders': typeof ApiApplicationRemindersRoute
   '/api/application/start': typeof ApiApplicationStartRoute
   '/api/application/submit': typeof ApiApplicationSubmitRoute
   '/api/application/upload': typeof ApiApplicationUploadRoute
@@ -569,6 +596,7 @@ export interface FileRouteTypes {
     | '/api/track'
     | '/application/$rep'
     | '/apply/$rep'
+    | '/reminders/stop'
     | '/upload/$token'
     | '/application/'
     | '/api/ai/activity'
@@ -578,6 +606,8 @@ export interface FileRouteTypes {
     | '/api/application/notify'
     | '/api/application/open'
     | '/api/application/progress'
+    | '/api/application/remind'
+    | '/api/application/reminders'
     | '/api/application/start'
     | '/api/application/submit'
     | '/api/application/upload'
@@ -629,6 +659,7 @@ export interface FileRouteTypes {
     | '/api/track'
     | '/application/$rep'
     | '/apply/$rep'
+    | '/reminders/stop'
     | '/upload/$token'
     | '/application'
     | '/api/ai/activity'
@@ -638,6 +669,8 @@ export interface FileRouteTypes {
     | '/api/application/notify'
     | '/api/application/open'
     | '/api/application/progress'
+    | '/api/application/remind'
+    | '/api/application/reminders'
     | '/api/application/start'
     | '/api/application/submit'
     | '/api/application/upload'
@@ -689,6 +722,7 @@ export interface FileRouteTypes {
     | '/api/track'
     | '/application/$rep'
     | '/apply_/$rep'
+    | '/reminders/stop'
     | '/upload/$token'
     | '/application/'
     | '/api/ai/activity'
@@ -698,6 +732,8 @@ export interface FileRouteTypes {
     | '/api/application/notify'
     | '/api/application/open'
     | '/api/application/progress'
+    | '/api/application/remind'
+    | '/api/application/reminders'
     | '/api/application/start'
     | '/api/application/submit'
     | '/api/application/upload'
@@ -750,6 +786,7 @@ export interface RootRouteChildren {
   ApiTrackRoute: typeof ApiTrackRoute
   ApplicationRepRoute: typeof ApplicationRepRoute
   ApplyRepRoute: typeof ApplyRepRoute
+  RemindersStopRoute: typeof RemindersStopRoute
   UploadTokenRoute: typeof UploadTokenRoute
   ApplicationIndexRoute: typeof ApplicationIndexRoute
   ApiAiActivityRoute: typeof ApiAiActivityRoute
@@ -759,6 +796,8 @@ export interface RootRouteChildren {
   ApiApplicationNotifyRoute: typeof ApiApplicationNotifyRoute
   ApiApplicationOpenRoute: typeof ApiApplicationOpenRoute
   ApiApplicationProgressRoute: typeof ApiApplicationProgressRoute
+  ApiApplicationRemindRoute: typeof ApiApplicationRemindRoute
+  ApiApplicationRemindersRoute: typeof ApiApplicationRemindersRoute
   ApiApplicationStartRoute: typeof ApiApplicationStartRoute
   ApiApplicationSubmitRoute: typeof ApiApplicationSubmitRoute
   ApiApplicationUploadRoute: typeof ApiApplicationUploadRoute
@@ -964,6 +1003,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApplyRepRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/reminders/stop': {
+      id: '/reminders/stop'
+      path: '/reminders/stop'
+      fullPath: '/reminders/stop'
+      preLoaderRoute: typeof RemindersStopRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/upload/$token': {
       id: '/upload/$token'
       path: '/upload/$token'
@@ -1018,6 +1064,20 @@ declare module '@tanstack/react-router' {
       path: '/api/application/progress'
       fullPath: '/api/application/progress'
       preLoaderRoute: typeof ApiApplicationProgressRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/application/remind': {
+      id: '/api/application/remind'
+      path: '/api/application/remind'
+      fullPath: '/api/application/remind'
+      preLoaderRoute: typeof ApiApplicationRemindRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/application/reminders': {
+      id: '/api/application/reminders'
+      path: '/api/application/reminders'
+      fullPath: '/api/application/reminders'
+      preLoaderRoute: typeof ApiApplicationRemindersRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/application/start': {
@@ -1246,6 +1306,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiTrackRoute: ApiTrackRoute,
   ApplicationRepRoute: ApplicationRepRoute,
   ApplyRepRoute: ApplyRepRoute,
+  RemindersStopRoute: RemindersStopRoute,
   UploadTokenRoute: UploadTokenRoute,
   ApplicationIndexRoute: ApplicationIndexRoute,
   ApiAiActivityRoute: ApiAiActivityRoute,
@@ -1255,6 +1316,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiApplicationNotifyRoute: ApiApplicationNotifyRoute,
   ApiApplicationOpenRoute: ApiApplicationOpenRoute,
   ApiApplicationProgressRoute: ApiApplicationProgressRoute,
+  ApiApplicationRemindRoute: ApiApplicationRemindRoute,
+  ApiApplicationRemindersRoute: ApiApplicationRemindersRoute,
   ApiApplicationStartRoute: ApiApplicationStartRoute,
   ApiApplicationSubmitRoute: ApiApplicationSubmitRoute,
   ApiApplicationUploadRoute: ApiApplicationUploadRoute,

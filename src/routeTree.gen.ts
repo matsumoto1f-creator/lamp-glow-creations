@@ -38,6 +38,7 @@ import { Route as UploadTokenRouteImport } from './routes/upload.$token'
 import { Route as ApiAiActivityRouteImport } from './routes/api.ai.activity'
 import { Route as ApiAiKeyRouteImport } from './routes/api.ai.key'
 import { Route as ApiApplicationDraftRouteImport } from './routes/api.application.draft'
+import { Route as ApiApplicationFinishRouteImport } from './routes/api.application.finish'
 import { Route as ApiApplicationNotifyRouteImport } from './routes/api.application.notify'
 import { Route as ApiApplicationOpenRouteImport } from './routes/api.application.open'
 import { Route as ApiApplicationProgressRouteImport } from './routes/api.application.progress'
@@ -211,6 +212,11 @@ const ApiApplicationDraftRoute = ApiApplicationDraftRouteImport.update({
   path: '/api/application/draft',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiApplicationFinishRoute = ApiApplicationFinishRouteImport.update({
+  id: '/api/application/finish',
+  path: '/api/application/finish',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiApplicationNotifyRoute = ApiApplicationNotifyRouteImport.update({
   id: '/api/application/notify',
   path: '/api/application/notify',
@@ -378,6 +384,7 @@ export interface FileRoutesByFullPath {
   '/api/ai/activity': typeof ApiAiActivityRoute
   '/api/ai/key': typeof ApiAiKeyRoute
   '/api/application/draft': typeof ApiApplicationDraftRoute
+  '/api/application/finish': typeof ApiApplicationFinishRoute
   '/api/application/notify': typeof ApiApplicationNotifyRoute
   '/api/application/open': typeof ApiApplicationOpenRoute
   '/api/application/progress': typeof ApiApplicationProgressRoute
@@ -436,6 +443,7 @@ export interface FileRoutesByTo {
   '/api/ai/activity': typeof ApiAiActivityRoute
   '/api/ai/key': typeof ApiAiKeyRoute
   '/api/application/draft': typeof ApiApplicationDraftRoute
+  '/api/application/finish': typeof ApiApplicationFinishRoute
   '/api/application/notify': typeof ApiApplicationNotifyRoute
   '/api/application/open': typeof ApiApplicationOpenRoute
   '/api/application/progress': typeof ApiApplicationProgressRoute
@@ -495,6 +503,7 @@ export interface FileRoutesById {
   '/api/ai/activity': typeof ApiAiActivityRoute
   '/api/ai/key': typeof ApiAiKeyRoute
   '/api/application/draft': typeof ApiApplicationDraftRoute
+  '/api/application/finish': typeof ApiApplicationFinishRoute
   '/api/application/notify': typeof ApiApplicationNotifyRoute
   '/api/application/open': typeof ApiApplicationOpenRoute
   '/api/application/progress': typeof ApiApplicationProgressRoute
@@ -555,6 +564,7 @@ export interface FileRouteTypes {
     | '/api/ai/activity'
     | '/api/ai/key'
     | '/api/application/draft'
+    | '/api/application/finish'
     | '/api/application/notify'
     | '/api/application/open'
     | '/api/application/progress'
@@ -613,6 +623,7 @@ export interface FileRouteTypes {
     | '/api/ai/activity'
     | '/api/ai/key'
     | '/api/application/draft'
+    | '/api/application/finish'
     | '/api/application/notify'
     | '/api/application/open'
     | '/api/application/progress'
@@ -671,6 +682,7 @@ export interface FileRouteTypes {
     | '/api/ai/activity'
     | '/api/ai/key'
     | '/api/application/draft'
+    | '/api/application/finish'
     | '/api/application/notify'
     | '/api/application/open'
     | '/api/application/progress'
@@ -730,6 +742,7 @@ export interface RootRouteChildren {
   ApiAiActivityRoute: typeof ApiAiActivityRoute
   ApiAiKeyRoute: typeof ApiAiKeyRoute
   ApiApplicationDraftRoute: typeof ApiApplicationDraftRoute
+  ApiApplicationFinishRoute: typeof ApiApplicationFinishRoute
   ApiApplicationNotifyRoute: typeof ApiApplicationNotifyRoute
   ApiApplicationOpenRoute: typeof ApiApplicationOpenRoute
   ApiApplicationProgressRoute: typeof ApiApplicationProgressRoute
@@ -957,6 +970,13 @@ declare module '@tanstack/react-router' {
       path: '/api/application/draft'
       fullPath: '/api/application/draft'
       preLoaderRoute: typeof ApiApplicationDraftRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/application/finish': {
+      id: '/api/application/finish'
+      path: '/api/application/finish'
+      fullPath: '/api/application/finish'
+      preLoaderRoute: typeof ApiApplicationFinishRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/application/notify': {
@@ -1210,6 +1230,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAiActivityRoute: ApiAiActivityRoute,
   ApiAiKeyRoute: ApiAiKeyRoute,
   ApiApplicationDraftRoute: ApiApplicationDraftRoute,
+  ApiApplicationFinishRoute: ApiApplicationFinishRoute,
   ApiApplicationNotifyRoute: ApiApplicationNotifyRoute,
   ApiApplicationOpenRoute: ApiApplicationOpenRoute,
   ApiApplicationProgressRoute: ApiApplicationProgressRoute,

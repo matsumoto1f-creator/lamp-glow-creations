@@ -47,18 +47,17 @@ Deno.test("each kind's button goes where its words say", () => {
   assertEquals(l, {
     site: "https://getlamp.app",
     howItWorks: "https://getlamp.app/how-it-works",
-    // the rep's own quick questions, so the answers land with that rep
-    options: "https://getlamp.app/apply/zeus",
     offerCheck: "https://getlamp.app/offer-check",
   });
   const button = (kind: (typeof EMAIL_KINDS)[number]) =>
     emailWords(kind, { businessName: "", url: URL_ }).button.url;
   assertEquals(button("apply"), URL_);
   assertEquals(button("later"), l.howItWorks);
-  assertEquals(button("options"), l.options);
+  // every link a rep sends is the full application (Asad, 2026-11-19), never the quick questions
+  assertEquals(button("options"), URL_);
   assertEquals(button("offer"), l.offerCheck);
   // the softer kinds still name the application, under the button
-  for (const k of ["later", "options", "offer"] as const) {
+  for (const k of ["later", "offer"] as const) {
     const m = inviteEmail({ ...base, kind: k });
     assert(m.html.includes(`href="${URL_}"`), `${k}: application link missing from the html`);
     assert(m.html.includes(`href="${button(k)}"`), `${k}: button link missing`);
@@ -76,7 +75,12 @@ Deno.test("the words match the call: 'later' never says 'as we discussed'", () =
     ),
   );
   const options = inviteEmail({ ...base, kind: "options" });
-  assert(options.text.includes("no effect on your credit"));
+  assert(options.text.includes("side by side"));
+  assert(!options.text.includes("/apply/"), "no quick-form link in a rep's email");
+  assert(
+    !/credit/i.test(options.text),
+    "the full application authorises a credit check: no credit claim",
+  );
   const offer = inviteEmail({ ...base, kind: "offer" });
   assert(offer.text.includes("compare up to three offers side by side"));
   assert(offer.text.includes("never obligated to take any offer"));
@@ -101,7 +105,9 @@ Deno.test("a personal note replaces the first line, whichever kind", () => {
 Deno.test("text messages follow the kind, and HTML in a name is escaped", () => {
   assert(inviteSms("Dana", "Zeus", URL_).includes(URL_));
   assert(inviteSms("Dana", "Zeus", URL_, "later").includes("No rush"));
-  assert(inviteSms("Dana", "Zeus", URL_, "options").includes("https://getlamp.app/apply/zeus"));
+  assert(inviteSms("Dana", "Zeus", URL_, "options").includes(URL_));
+  for (const kind of EMAIL_KINDS)
+    assert(!inviteSms("Dana", "Zeus", URL_, kind).includes("/apply/"));
   assert(inviteSms("Dana", "Zeus", URL_, "offer").includes("https://getlamp.app/offer-check"));
   for (const kind of EMAIL_KINDS)
     assert(!/\bloans?\b/i.test(inviteSms("Dana", "Zeus", URL_, kind)));

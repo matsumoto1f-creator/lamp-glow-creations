@@ -73,12 +73,14 @@ export function useFullApplication(fileId: string, reload = 0) {
     if (!getSupabase()) return;
     let live = true;
     (async () => {
-      let next: FullApplication | typeof RESTRICTED | null;
+      // null means the file has no full application; undefined means we couldn't tell (an error),
+      // so a failed check never reads as "the merchant didn't fill it in"
+      let next: FullApplication | typeof RESTRICTED | null | undefined;
       try {
         const r = await ask(fileId);
-        next = r.data.refused ? RESTRICTED : toFull(r.ok ? (r.data.details ?? null) : null);
+        next = r.data.refused ? RESTRICTED : r.ok ? toFull(r.data.details ?? null) : undefined;
       } catch {
-        next = null;
+        next = undefined;
       }
       if (live) setFull(next);
     })();

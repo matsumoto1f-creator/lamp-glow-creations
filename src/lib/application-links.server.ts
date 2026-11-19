@@ -15,6 +15,7 @@ import {
   service,
   SITE_URL,
   SUPABASE_URL,
+  mayWork,
 } from "@/lib/funder-send.server";
 import {
   b64url,
@@ -43,6 +44,7 @@ import {
   fromName,
   hashToken,
   inviteEmail,
+  finishEmail,
   isToken,
   MAX_LINK_UPLOADS,
   MAX_NOTE,
@@ -1498,4 +1500,108 @@ export async function notifyNewApplication(request: Request): Promise<Response> 
     visible_to_merchant: false,
   });
   return json(200, { ok: true, sent: sentOk });
+}
+
+// ---------- POST /api/application/finish (the file's rep or an admin) ----------
+
+/**
+ * A file that came in through the website's quick questions has no full application. This emails
+ * the merchant (from partners@, in the sender's name) to finish it on their own account, so the
+ * full application lands on the same file. Refused when the file already has one, has no
+ * account or email, is marked do not contact, or was sent this email in the last day.
+ */
+export async function finishApplicationNudge(request: Request): Promise<Response> {
+  const nr = notReady();
+  if (nr) return nr;
+  const who = await caller(request);
+  if (!who) return json(401, { error: "Sign in first." });
+  let body: { application_id?: unknown };
+  try {
+    body = (await request.json()) as { application_id?: unknown };
+  } catch {
+    return json(400, { error: "Send JSON." });
+  }
+  const appId = typeof body.application_id === "string" ? body.application_id : "";
+  if (!UUID.test(appId)) return json(400, { error: "application_id is required." });
+  if (!(await mayWork(who, appId)))
+    return json(403, { error: "Only the file's rep or an admin can send this." });
+
+  const svc = service();
+  const [appRow, details, recent] = await Promise.all([
+    svc
+      .from("applications")
+      .select("id,user_id,rep_slug,first_name,business_name,email,phone")
+      .eq("id", appId)
+      .maybeSingle(),
+    svc
+      .from("application_details")
+      .select("application_id")
+      .eq("application_id", appId)
+      .maybeSingle(),
+    svc
+      .from("events")
+      .select("id")
+      .eq("application_id", appId)
+      .eq("kind", "email")
+      .like("body", "Asked to finish the full application%")
+      .gte("created_at", new Date(Date.now() - 86_400_000).toISOString())
+      .limit(1),
+  ]);
+  if (appRow.error || details.error || recent.error) return tryAgain();
+  const app = appRow.data as {
+    id: string;
+    user_id: string | null;
+    rep_slug: string | null;
+    first_name: string | null;
+    business_name: string | null;
+    email: string | null;
+    phone: string | null;
+  } | null;
+  if (!app) return json(404, { error: "We couldn't find that file." });
+  if (details.data) return json(409, { error: "This file already has the full application." });
+  if (!app.user_id)
+    return json(409, {
+      error:
+        "This merchant has no account yet, so send the application from Staff > Applications instead.",
+    });
+  if ((recent.data ?? []).length) return json(429, { error: "Already sent in the last day." });
+  const to = cleanEmail(app.email) || (await emailOf(svc, app.user_id)) || "";
+  if (!EMAIL_RE.test(to)) return json(409, { error: "This file has no email address." });
+  const dnc = await doNotContact(svc, to, app.phone ?? "");
+  if (dnc === null) return tryAgain();
+  if (dnc) return json(409, { error: "Marked do not contact." });
+
+  // who it's from: the file's rep (in their admin's name when they report to one), else the sender
+  const mine = await who.client.rpc("current_rep_slug");
+  const slug = app.rep_slug ?? ((mine.data as string | null) || null);
+  const rep = slug ? await repBySlug(svc, slug).catch(() => undefined) : null;
+  if (rep === undefined) return tryAgain();
+  const name = rep ? facing(rep).name : "The Lamp team";
+  const access = await gmailAccessToken(svc).catch(() => ({ error: "Couldn't reach Google." }));
+  if ("error" in access) return json(412, { error: access.error });
+  const mail = finishEmail({
+    firstName: app.first_name ?? "",
+    businessName: app.business_name ?? "",
+    repName: name,
+    site: SITE_URL(),
+    legalName: SITE.legalName,
+    address: SITE.address,
+  });
+  const sent = await gmailSend(access.access, {
+    to,
+    fromName: `${name} at Lamp`,
+    replyTo: rep ? await replyToFor(svc, rep, who.userId) : await emailOf(svc, who.userId),
+    subject: mail.subject,
+    text: mail.text,
+    html: mail.html,
+  });
+  if ("error" in sent) return json(502, { error: `Didn't send: ${sent.error}` });
+  await svc.from("events").insert({
+    application_id: app.id,
+    actor_user_id: who.userId,
+    kind: "email",
+    body: `Asked to finish the full application (emailed ${to})`,
+    payload: { message_id: sent.id },
+  } as never);
+  return json(200, { ok: true, to });
 }

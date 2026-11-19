@@ -121,9 +121,12 @@ export function SendApplications({
   const sender = isAdmin ? sendAs : (repSlug ?? "");
   const senderRep = reps.find((r) => r.slug === sender);
   const senderName = senderRep?.name ?? "";
-  // a rep on an admin's team sends in the admin's name (the server does the same)
+  // a rep on an admin's team sends in the admin's name (the server does the same); an admin
+  // sending as themselves always uses their own name
   const facingName =
-    (senderRep?.admin_slug && reps.find((r) => r.slug === senderRep.admin_slug)?.name) ||
+    (!(isAdmin && sender === repSlug) &&
+      senderRep?.admin_slug &&
+      reps.find((r) => r.slug === senderRep.admin_slug)?.name) ||
     senderName;
   const pending = rows.filter((r) => !isDone(r) && !isBlank(r));
   const open = rows.filter((r) => !isDone(r));

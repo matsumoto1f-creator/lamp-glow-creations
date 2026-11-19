@@ -282,7 +282,19 @@ async function repBySlug(svc: Svc, slug: string): Promise<Rep | null> {
   const rep = r.data as Omit<Rep, "lead"> | null;
   if (!rep) return null;
   let lead: Rep["lead"] = null;
-  if (rep.admin_slug) {
+  // an admin always sends in their own name: their seat may "report to" another admin, but the
+  // emails they send say who they are (Asad, 2026-11-19: partners@ mail from him says Asad)
+  const isAdmin = rep.user_id
+    ? !!(
+        await svc
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", rep.user_id)
+          .eq("role", "admin")
+          .maybeSingle()
+      ).data
+    : false;
+  if (rep.admin_slug && !isAdmin) {
     const a = await svc
       .from("reps")
       .select("name,title,user_id,active")
@@ -295,7 +307,8 @@ async function repBySlug(svc: Svc, slug: string): Promise<Rep | null> {
 }
 
 /**
- * Who merchants see: the admin a rep reports to, or the rep themselves. Application emails,
+ * Who merchants see: the admin a rep reports to, or the rep themselves (always themselves when
+ * they are an admin). Application emails,
  * the application page and the signed PDF's "Lamp rep" box use this name; the file itself
  * still lands with the rep who sent it.
  */

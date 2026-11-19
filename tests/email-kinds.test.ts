@@ -12,6 +12,7 @@ import {
   linkDays,
 } from "../src/lib/application-links.ts";
 import server from "../src/lib/application-links.server.ts" with { type: "text" };
+import panel from "../src/components/staff/send-applications.tsx" with { type: "text" };
 import migration from "../supabase/migrations/20261119150000_invite_email_kind.sql" with { type: "text" };
 
 const URL_ = "https://getlamp.app/application/zeus?i=TOKEN123";
@@ -127,3 +128,11 @@ Deno.test(
     assert(migration.includes("('apply', 'later', 'options', 'offer')"));
   },
 );
+
+Deno.test("an admin sends in their own name, never their team lead's", () => {
+  // server: the lead's name is used only for a sender who is not an admin
+  assert(server.includes("if (rep.admin_slug && !isAdmin) {"));
+  assert(/\.eq\("role", "admin"\)/.test(server.slice(server.indexOf("async function repBySlug"))));
+  // the panel's preview follows the same rule for an admin sending as themselves
+  assert(panel.includes("!(isAdmin && sender === repSlug)"));
+});

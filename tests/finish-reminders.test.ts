@@ -77,6 +77,18 @@ Deno.test("plan: two reminders, then nothing; stale ones are skipped, never sent
   );
 });
 
+Deno.test("quiet hours: a late reminder never goes out at night; it waits, then is skipped", () => {
+  // started 12:39, due 13:39; the site goes live at 23:00: not then
+  const s = { leftAt: et(2026, 11, 19, 12, 39), sent: 0, lastAt: null, stoppedAt: null };
+  const night = reminderPlan(s, et(2026, 11, 19, 23));
+  assert(night.kind === "next" && !night.due);
+  // by 8:00 it is more than 12 hours late: skipped, never sent
+  assertEquals(reminderPlan(s, et(2026, 11, 20, 8)).kind, "missed");
+  // the same lateness in the evening still sends (before 21:00)
+  const evening = reminderPlan(s, et(2026, 11, 19, 20, 50));
+  assert(evening.kind === "next" && evening.due);
+});
+
 Deno.test("left at: their furthest step, never before they started", () => {
   const created = "2026-11-19T19:00:00.000Z";
   assertEquals(leadLeftAt(created, null).toISOString(), created);

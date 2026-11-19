@@ -57,6 +57,12 @@ function morning(t: Date, days: number): Date {
   return easternTime(p.y, p.m, p.d + days, MORNING.h, MORNING.min);
 }
 
+/** Night in Eastern time: nothing is sent then, however late a reminder is running. */
+export function quietAt(t: Date): boolean {
+  const h = easternParts(t).h;
+  return h < QUIET_UNTIL || h >= QUIET_FROM;
+}
+
 /** The first reminder: an hour after they left, or 9:30 if that falls in quiet hours. */
 export function firstReminderAt(leftAt: Date): Date {
   const t = new Date(leftAt.getTime() + 3_600_000);
@@ -97,7 +103,9 @@ export function reminderPlan(s: ReminderState, now: Date): ReminderPlan {
   const at = n === 1 ? firstReminderAt(s.leftAt) : secondReminderAt(s.lastAt ?? s.leftAt);
   if (now.getTime() > at.getTime() + STALE_MS)
     return n === 1 ? { kind: "missed" } : { kind: "done" };
-  return { kind: "next", n, at, due: now.getTime() >= at.getTime() };
+  // a reminder running late (the job was down, or the site published at night) still waits for
+  // the morning; if that makes it more than STALE_MS late, it's skipped above on a later tick
+  return { kind: "next", n, at, due: now.getTime() >= at.getTime() && !quietAt(now) };
 }
 
 /** When a lead last did something: when they started, or their furthest step. */

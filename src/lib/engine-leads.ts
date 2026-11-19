@@ -173,6 +173,27 @@ export function splitWhy(reason: string | null): LeadWhy {
   return { owner, ownerFrom, alsoOwner, points };
 }
 
+/**
+ * What a lead's card says on a phone, where there is no room for the table's columns: the line
+ * under the name (industry and place), who to ask for (the name the rep got on a call beats the
+ * owner on record) and the engine's reasons in one line.
+ */
+export function leadCardText(r: {
+  industry: string | null;
+  city: string | null;
+  state: string | null;
+  reason: string | null;
+  contact_name: string | null;
+}): { sub: string; ask: string | null; why: string } {
+  const w = splitWhy(r.reason);
+  const where = [r.city, r.state].filter(Boolean).join(", ");
+  return {
+    sub: [r.industry, where].filter(Boolean).join(" · ") || "—",
+    ask: r.contact_name?.trim() || w.owner,
+    why: w.points.map((p) => p.text).join(" · "),
+  };
+}
+
 /** Why this kind of business needs working capital, and a first question that opens it up. */
 export const LEAD_APPROACH: Record<LeadType, { why: string; ask: string }> = {
   contractor: {

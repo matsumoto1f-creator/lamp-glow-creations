@@ -1,6 +1,11 @@
-/** Form pieces for the staff screens, matching the file view's inputs. */
-export const input = "w-full rounded-full bg-white px-4 py-2 text-sm ring-1 ring-line";
-export const textarea = "min-h-20 w-full rounded-xl bg-white px-4 py-3 text-sm ring-1 ring-line";
+/**
+ * Form pieces for the staff screens, matching the file view's inputs. On a phone the boxes are
+ * 44px tall with 16px type: iPhones zoom the page in on any smaller text box you tap.
+ */
+export const input =
+  "w-full rounded-full bg-white px-4 py-2 text-sm ring-1 ring-line max-md:min-h-11 max-md:text-base";
+export const textarea =
+  "min-h-20 w-full rounded-xl bg-white px-4 py-3 text-sm ring-1 ring-line max-md:text-base";
 export const chip =
   "inline-flex items-center gap-1 rounded-full bg-white px-3 py-1 text-xs font-semibold ring-1 ring-line transition hover:ring-ink/30 disabled:opacity-40";
 export const chipDark =

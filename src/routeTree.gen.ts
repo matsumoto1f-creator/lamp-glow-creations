@@ -26,6 +26,7 @@ import { Route as ApiApplicationDetailsRouteImport } from './routes/api.applicat
 import { Route as ApiApplicationInvitesRouteImport } from './routes/api.application-invites'
 import { Route as ApiDocumentsRouteImport } from './routes/api.documents'
 import { Route as ApiLeadsRouteImport } from './routes/api.leads'
+import { Route as ApiRepDocumentsRouteImport } from './routes/api.rep-documents'
 import { Route as ApiServerCheckRouteImport } from './routes/api.server-check'
 import { Route as ApiStatementsRouteImport } from './routes/api.statements'
 import { Route as ApiTeamRouteImport } from './routes/api.team'
@@ -146,6 +147,11 @@ const ApiDocumentsRoute = ApiDocumentsRouteImport.update({
 const ApiLeadsRoute = ApiLeadsRouteImport.update({
   id: '/api/leads',
   path: '/api/leads',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiRepDocumentsRoute = ApiRepDocumentsRouteImport.update({
+  id: '/api/rep-documents',
+  path: '/api/rep-documents',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiServerCheckRoute = ApiServerCheckRouteImport.update({
@@ -348,6 +354,7 @@ export interface FileRoutesByFullPath {
   '/api/application-invites': typeof ApiApplicationInvitesRoute
   '/api/documents': typeof ApiDocumentsRouteWithChildren
   '/api/leads': typeof ApiLeadsRoute
+  '/api/rep-documents': typeof ApiRepDocumentsRoute
   '/api/server-check': typeof ApiServerCheckRoute
   '/api/statements': typeof ApiStatementsRoute
   '/api/team': typeof ApiTeamRouteWithChildren
@@ -403,6 +410,7 @@ export interface FileRoutesByTo {
   '/api/application-invites': typeof ApiApplicationInvitesRoute
   '/api/documents': typeof ApiDocumentsRouteWithChildren
   '/api/leads': typeof ApiLeadsRoute
+  '/api/rep-documents': typeof ApiRepDocumentsRoute
   '/api/server-check': typeof ApiServerCheckRoute
   '/api/statements': typeof ApiStatementsRoute
   '/api/team': typeof ApiTeamRouteWithChildren
@@ -459,6 +467,7 @@ export interface FileRoutesById {
   '/api/application-invites': typeof ApiApplicationInvitesRoute
   '/api/documents': typeof ApiDocumentsRouteWithChildren
   '/api/leads': typeof ApiLeadsRoute
+  '/api/rep-documents': typeof ApiRepDocumentsRoute
   '/api/server-check': typeof ApiServerCheckRoute
   '/api/statements': typeof ApiStatementsRoute
   '/api/team': typeof ApiTeamRouteWithChildren
@@ -516,6 +525,7 @@ export interface FileRouteTypes {
     | '/api/application-invites'
     | '/api/documents'
     | '/api/leads'
+    | '/api/rep-documents'
     | '/api/server-check'
     | '/api/statements'
     | '/api/team'
@@ -571,6 +581,7 @@ export interface FileRouteTypes {
     | '/api/application-invites'
     | '/api/documents'
     | '/api/leads'
+    | '/api/rep-documents'
     | '/api/server-check'
     | '/api/statements'
     | '/api/team'
@@ -626,6 +637,7 @@ export interface FileRouteTypes {
     | '/api/application-invites'
     | '/api/documents'
     | '/api/leads'
+    | '/api/rep-documents'
     | '/api/server-check'
     | '/api/statements'
     | '/api/team'
@@ -682,6 +694,7 @@ export interface RootRouteChildren {
   ApiApplicationInvitesRoute: typeof ApiApplicationInvitesRoute
   ApiDocumentsRoute: typeof ApiDocumentsRouteWithChildren
   ApiLeadsRoute: typeof ApiLeadsRoute
+  ApiRepDocumentsRoute: typeof ApiRepDocumentsRoute
   ApiServerCheckRoute: typeof ApiServerCheckRoute
   ApiStatementsRoute: typeof ApiStatementsRoute
   ApiTeamRoute: typeof ApiTeamRouteWithChildren
@@ -835,6 +848,13 @@ declare module '@tanstack/react-router' {
       path: '/api/leads'
       fullPath: '/api/leads'
       preLoaderRoute: typeof ApiLeadsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/rep-documents': {
+      id: '/api/rep-documents'
+      path: '/api/rep-documents'
+      fullPath: '/api/rep-documents'
+      preLoaderRoute: typeof ApiRepDocumentsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/server-check': {
@@ -1137,6 +1157,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiApplicationInvitesRoute: ApiApplicationInvitesRoute,
   ApiDocumentsRoute: ApiDocumentsRouteWithChildren,
   ApiLeadsRoute: ApiLeadsRoute,
+  ApiRepDocumentsRoute: ApiRepDocumentsRoute,
   ApiServerCheckRoute: ApiServerCheckRoute,
   ApiStatementsRoute: ApiStatementsRoute,
   ApiTeamRoute: ApiTeamRouteWithChildren,

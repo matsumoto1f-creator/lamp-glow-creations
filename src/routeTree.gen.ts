@@ -51,6 +51,7 @@ import { Route as ApiDiscordLinkRouteImport } from './routes/api.discord.link'
 import { Route as ApiDiscordSetupRouteImport } from './routes/api.discord.setup'
 import { Route as ApiDocumentsRequestRouteImport } from './routes/api.documents.request'
 import { Route as ApiDocumentsRequestUploadRouteImport } from './routes/api.documents.request-upload'
+import { Route as ApiDocumentsStaffUploadRouteImport } from './routes/api.documents.staff-upload'
 import { Route as ApiDocumentsUploadRouteImport } from './routes/api.documents.upload'
 import { Route as ApiEngineOutboxRouteImport } from './routes/api.engine.outbox'
 import { Route as ApiEnginePushRouteImport } from './routes/api.engine.push'
@@ -275,6 +276,11 @@ const ApiDocumentsRequestUploadRoute =
     path: '/request-upload',
     getParentRoute: () => ApiDocumentsRoute,
   } as any)
+const ApiDocumentsStaffUploadRoute = ApiDocumentsStaffUploadRouteImport.update({
+  id: '/staff-upload',
+  path: '/staff-upload',
+  getParentRoute: () => ApiDocumentsRoute,
+} as any)
 const ApiDocumentsUploadRoute = ApiDocumentsUploadRouteImport.update({
   id: '/upload',
   path: '/upload',
@@ -379,6 +385,7 @@ export interface FileRoutesByFullPath {
   '/api/discord/setup': typeof ApiDiscordSetupRoute
   '/api/documents/request': typeof ApiDocumentsRequestRoute
   '/api/documents/request-upload': typeof ApiDocumentsRequestUploadRoute
+  '/api/documents/staff-upload': typeof ApiDocumentsStaffUploadRoute
   '/api/documents/upload': typeof ApiDocumentsUploadRoute
   '/api/engine/outbox': typeof ApiEngineOutboxRoute
   '/api/engine/push': typeof ApiEnginePushRoute
@@ -435,6 +442,7 @@ export interface FileRoutesByTo {
   '/api/discord/setup': typeof ApiDiscordSetupRoute
   '/api/documents/request': typeof ApiDocumentsRequestRoute
   '/api/documents/request-upload': typeof ApiDocumentsRequestUploadRoute
+  '/api/documents/staff-upload': typeof ApiDocumentsStaffUploadRoute
   '/api/documents/upload': typeof ApiDocumentsUploadRoute
   '/api/engine/outbox': typeof ApiEngineOutboxRoute
   '/api/engine/push': typeof ApiEnginePushRoute
@@ -492,6 +500,7 @@ export interface FileRoutesById {
   '/api/discord/setup': typeof ApiDiscordSetupRoute
   '/api/documents/request': typeof ApiDocumentsRequestRoute
   '/api/documents/request-upload': typeof ApiDocumentsRequestUploadRoute
+  '/api/documents/staff-upload': typeof ApiDocumentsStaffUploadRoute
   '/api/documents/upload': typeof ApiDocumentsUploadRoute
   '/api/engine/outbox': typeof ApiEngineOutboxRoute
   '/api/engine/push': typeof ApiEnginePushRoute
@@ -550,6 +559,7 @@ export interface FileRouteTypes {
     | '/api/discord/setup'
     | '/api/documents/request'
     | '/api/documents/request-upload'
+    | '/api/documents/staff-upload'
     | '/api/documents/upload'
     | '/api/engine/outbox'
     | '/api/engine/push'
@@ -606,6 +616,7 @@ export interface FileRouteTypes {
     | '/api/discord/setup'
     | '/api/documents/request'
     | '/api/documents/request-upload'
+    | '/api/documents/staff-upload'
     | '/api/documents/upload'
     | '/api/engine/outbox'
     | '/api/engine/push'
@@ -662,6 +673,7 @@ export interface FileRouteTypes {
     | '/api/discord/setup'
     | '/api/documents/request'
     | '/api/documents/request-upload'
+    | '/api/documents/staff-upload'
     | '/api/documents/upload'
     | '/api/engine/outbox'
     | '/api/engine/push'
@@ -1025,6 +1037,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiDocumentsRequestUploadRouteImport
       parentRoute: typeof ApiDocumentsRoute
     }
+    '/api/documents/staff-upload': {
+      id: '/api/documents/staff-upload'
+      path: '/staff-upload'
+      fullPath: '/api/documents/staff-upload'
+      preLoaderRoute: typeof ApiDocumentsStaffUploadRouteImport
+      parentRoute: typeof ApiDocumentsRoute
+    }
     '/api/documents/upload': {
       id: '/api/documents/upload'
       path: '/upload'
@@ -1115,12 +1134,14 @@ declare module '@tanstack/react-router' {
 interface ApiDocumentsRouteChildren {
   ApiDocumentsRequestRoute: typeof ApiDocumentsRequestRoute
   ApiDocumentsRequestUploadRoute: typeof ApiDocumentsRequestUploadRoute
+  ApiDocumentsStaffUploadRoute: typeof ApiDocumentsStaffUploadRoute
   ApiDocumentsUploadRoute: typeof ApiDocumentsUploadRoute
 }
 
 const ApiDocumentsRouteChildren: ApiDocumentsRouteChildren = {
   ApiDocumentsRequestRoute: ApiDocumentsRequestRoute,
   ApiDocumentsRequestUploadRoute: ApiDocumentsRequestUploadRoute,
+  ApiDocumentsStaffUploadRoute: ApiDocumentsStaffUploadRoute,
   ApiDocumentsUploadRoute: ApiDocumentsUploadRoute,
 }
 

@@ -207,6 +207,12 @@ function linkParts(url: string): { site: string; rep: string } {
   return m ? { site: m[1]!, rep: m[2]! } : { site: "https://getlamp.app", rep: "" };
 }
 
+/** The site a link is on, for the "Website" word under the rep's name; getlamp.app when unsure. */
+function siteOf(url: string): string {
+  const m = /^(https?:\/\/[^/?#]+)/.exec(url);
+  return m ? m[1]! : "https://getlamp.app";
+}
+
 /** The other pages a softer email points to first, for the rep the link belongs to. */
 export function kindLinks(url: string) {
   const { site } = linkParts(url);
@@ -467,6 +473,9 @@ function renderEmail(o: {
     ...footer,
   ].join("\r\n");
 
+  // The HTML part types out no address (Asad, 2026-11-20: "our website in a tight, neat little
+  // clickable word that says website"): every link is a word or the button. The text part above
+  // keeps its addresses, because plain text has no other way to carry a link.
   const p = (s: string) =>
     `<p style="margin:0 0 16px;font-size:16px;line-height:1.55;color:#1f2a24">${esc(s)}</p>`;
   const appLink = o.appLine
@@ -488,11 +497,11 @@ ${body.map(p).join("\n")}
 </td></tr></table>
 ${appLink}${p("Any questions, just reply to this email.")}
 <p style="margin:0 0 4px;font-size:16px;font-weight:700;color:#1f2a24">${esc(o.repName)}</p>
-<p style="margin:0 0 28px;font-size:14px;color:#5b6b61">Lamp · getlamp.app</p>
+<p style="margin:0 0 28px;font-size:14px;color:#5b6b61">Lamp · <a href="${esc(siteOf(o.button.url))}" style="color:#2f6f43;font-weight:700">Website</a></p>
 </td></tr>
 <tr><td style="padding:16px 28px 22px;border-top:1px solid #e3e9e4">
 ${fl ? `<p style="margin:0 0 6px;font-size:12px;line-height:1.5;color:#7a887f">${esc(fl.text)} <a href="${esc(fl.url)}" style="color:#2f6f43">${esc(fl.label)}</a></p>\n` : ""}${footer.map((f) => `<p style="margin:0 0 6px;font-size:12px;line-height:1.5;color:#7a887f">${esc(f)}</p>`).join("\n")}
-<p style="margin:0;font-size:12px;line-height:1.5;color:#7a887f">If the button doesn't work, paste this into your browser: ${esc(o.button.url)}</p>
+<p style="margin:0;font-size:12px;line-height:1.5;color:#7a887f">Button not working? <a href="${esc(o.button.url)}" style="color:#2f6f43">Open it here</a>.</p>
 </td></tr>
 </table>
 </td></tr></table>

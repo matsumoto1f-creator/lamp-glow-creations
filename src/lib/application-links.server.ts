@@ -82,9 +82,13 @@ async function storedKind(svc: ReturnType<typeof service>, id: string): Promise<
   return !r.error && isEmailKind(k) ? k : "apply";
 }
 
-/** The column isn't there yet: PostgREST's unknown-column codes. */
+/**
+ * The column isn't there yet (PostgREST's unknown-column codes), or its allowed list predates this
+ * kind (23514, a check refused the row: 20261120150000_invite_email_kind_thanks.sql not run yet).
+ * Either way the link still goes out with the chosen words, and a resend falls back to "apply".
+ */
 const noKindColumn = (e: { code?: string } | null) =>
-  !!e && (e.code === "PGRST204" || e.code === "42703");
+  !!e && (e.code === "PGRST204" || e.code === "42703" || e.code === "23514");
 
 const days = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString();
 

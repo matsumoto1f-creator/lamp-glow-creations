@@ -176,6 +176,29 @@ Deno.test("the database's allowed list names the new kind, in one statement", ()
   assert(server.includes('e.code === "23514"'));
 });
 
+Deno.test(
+  "the email a person sees types out no address: every link is a word or the button",
+  () => {
+    for (const kind of EMAIL_KINDS) {
+      const m = inviteEmail({ ...base, kind });
+      // what shows once the tags are gone: no https://, no "paste this into your browser"
+      const shown = m.html.replace(/<[^>]+>/g, " ");
+      assert(!/https?:\/\//.test(shown), `${kind}: an address is typed out in the email`);
+      assert(!shown.includes("paste this"), `${kind}: still asks to paste an address`);
+      // the site is the one word "Website" under the rep's name; the button has a worded fallback
+      assert(
+        m.html.includes(
+          'Lamp · <a href="https://getlamp.app" style="color:#2f6f43;font-weight:700">Website</a>',
+        ),
+        `${kind}: no Website word`,
+      );
+      assert(m.html.includes(">Open it here</a>"), `${kind}: no worded fallback for the button`);
+      // plain text has no other way to carry a link, so it keeps them
+      assert(m.text.includes("Lamp · getlamp.app") && m.text.includes(URL_));
+    }
+  },
+);
+
 Deno.test("a personal note replaces the first line, whichever kind", () => {
   for (const kind of EMAIL_KINDS) {
     const opener = emailWords(kind, { businessName: base.businessName, url: URL_ }).opener;

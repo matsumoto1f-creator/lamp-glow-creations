@@ -357,6 +357,57 @@ export function finishEmail(opts: {
   });
 }
 
+/**
+ * The "finish your application" reminder (finish-reminders.ts says when): to someone who started
+ * on a rep's link, the website's application, or a personal link, and left before signing. The
+ * button opens the same application; on the phone or computer they started on, it picks up where
+ * they left off (the answers are kept in that browser), so the email never claims more than that.
+ * n is 1 (an hour later) or 2 (the next morning, the last one).
+ */
+export function reminderEmail(opts: {
+  n: 1 | 2;
+  firstName: string;
+  businessName: string;
+  /** The rep whose link it was; null for the website's own application. */
+  repName: string | null;
+  url: string;
+  stopUrl: string;
+  legalName: string;
+  address: string;
+}): { subject: string; text: string; html: string } {
+  const biz = opts.businessName.trim();
+  const forBiz = biz ? ` for ${biz}` : "";
+  const first = opts.firstName.trim();
+  const body =
+    opts.n === 1
+      ? [
+          "You're most of the way there. Funders need the full application to make you a real offer.",
+          "It takes about ten more minutes. On the phone or computer you started on, it picks up where you left off.",
+          "If you have your last three months of business bank statements handy, you can add them as you go.",
+        ]
+      : [
+          `Your application${forBiz} is still open. Funders need it finished and signed to make you a real offer, and it takes about ten minutes.`,
+          "This is the last reminder we'll send.",
+        ];
+  return renderEmail({
+    hi: first ? `Hi ${first},` : "Hi,",
+    subject:
+      opts.n === 1
+        ? `Finish your Lamp application${forBiz}`
+        : `Your Lamp application${forBiz} is still open`,
+    body,
+    textButton: `Finish my application: ${opts.url}`,
+    button: { label: "Finish my application", url: opts.url },
+    appLine: null,
+    repName: opts.repName ?? "The Lamp team",
+    footer: [
+      `You're getting this because you started an application on getlamp.app${opts.repName ? ` from ${opts.repName}'s link` : ""}.`,
+      [opts.legalName, opts.address].filter(Boolean).join(" · "),
+    ].filter(Boolean),
+    footerLink: { text: "Don't want reminders?", label: "Stop them", url: opts.stopUrl },
+  });
+}
+
 /** The plain-text and branded HTML versions of one Lamp email, from its parts. */
 function renderEmail(o: {
   hi: string;
@@ -367,8 +418,11 @@ function renderEmail(o: {
   appLine: { label: string; url: string } | null;
   repName: string;
   footer: string[];
+  /** A link in the small print (the reminders' stop link): a line of its own in the text. */
+  footerLink?: { text: string; label: string; url: string };
 }): { subject: string; text: string; html: string } {
   const { hi, subject, body, footer } = o;
+  const fl = o.footerLink;
   const text = [
     hi,
     "",
@@ -381,6 +435,7 @@ function renderEmail(o: {
     o.repName,
     "Lamp · getlamp.app",
     "",
+    ...(fl ? [`${fl.text} ${fl.label}: ${fl.url}`] : []),
     ...footer,
   ].join("\r\n");
 
@@ -408,7 +463,7 @@ ${appLink}${p("Any questions, just reply to this email.")}
 <p style="margin:0 0 28px;font-size:14px;color:#5b6b61">Lamp · getlamp.app</p>
 </td></tr>
 <tr><td style="padding:16px 28px 22px;border-top:1px solid #e3e9e4">
-${footer.map((f) => `<p style="margin:0 0 6px;font-size:12px;line-height:1.5;color:#7a887f">${esc(f)}</p>`).join("\n")}
+${fl ? `<p style="margin:0 0 6px;font-size:12px;line-height:1.5;color:#7a887f">${esc(fl.text)} <a href="${esc(fl.url)}" style="color:#2f6f43">${esc(fl.label)}</a></p>\n` : ""}${footer.map((f) => `<p style="margin:0 0 6px;font-size:12px;line-height:1.5;color:#7a887f">${esc(f)}</p>`).join("\n")}
 <p style="margin:0;font-size:12px;line-height:1.5;color:#7a887f">If the button doesn't work, paste this into your browser: ${esc(o.button.url)}</p>
 </td></tr>
 </table>

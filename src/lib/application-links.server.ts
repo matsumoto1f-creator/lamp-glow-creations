@@ -33,6 +33,8 @@ import {
   signatureMatches,
 } from "@/lib/application-details";
 import { paperLink } from "@/lib/spoken-notes";
+import { inviteIdOf, REMIND_TOKEN, remindToken, sameText } from "@/lib/finish-reminders";
+import { remindSecret } from "@/lib/remind-secret.server";
 import {
   applicationUrl,
   isEmailKind,
@@ -265,7 +267,7 @@ export async function gmailSend(
   return { id: out.id ?? "" };
 }
 
-type Rep = {
+export type Rep = {
   slug: string;
   name: string;
   title: string | null;
@@ -277,7 +279,7 @@ type Rep = {
 };
 
 /** The rep, or null when there's none. Throws when the lookup itself failed. */
-async function repBySlug(svc: Svc, slug: string): Promise<Rep | null> {
+export async function repBySlug(svc: Svc, slug: string): Promise<Rep | null> {
   const r = await svc
     .from("reps")
     .select("slug,name,title,user_id,active,admin_slug")
@@ -307,7 +309,7 @@ async function repBySlug(svc: Svc, slug: string): Promise<Rep | null> {
 const facing = (r: Rep) => ({ name: r.name, title: r.title, user_id: r.user_id });
 
 /** The address the rep's application emails are copied to: whoever the rep reports to. */
-async function ccFor(svc: Svc, rep: Rep | null): Promise<string | null> {
+export async function ccFor(svc: Svc, rep: Rep | null): Promise<string | null> {
   if (!rep?.lead) return null;
   const lead = await emailOf(svc, rep.lead.user_id);
   const own = await emailOf(svc, rep.user_id);
@@ -315,7 +317,7 @@ async function ccFor(svc: Svc, rep: Rep | null): Promise<string | null> {
 }
 
 /** Replies go to the admin and the rep, so either can answer; else to whoever sent it. */
-async function replyToFor(svc: Svc, rep: Rep, senderId: string): Promise<string | null> {
+export async function replyToFor(svc: Svc, rep: Rep, senderId: string): Promise<string | null> {
   const emails = [
     rep.lead ? await emailOf(svc, rep.lead.user_id) : null,
     await emailOf(svc, rep.user_id),
@@ -330,7 +332,7 @@ async function emailOf(svc: Svc, userId: string | null): Promise<string | null> 
 }
 
 /** Addresses that belong to Lamp's own team: they never get a merchant link. */
-async function staffEmails(svc: Svc): Promise<Set<string>> {
+export async function staffEmails(svc: Svc): Promise<Set<string>> {
   const roles = await svc.from("user_roles").select("user_id").in("role", ["admin", "rep"]);
   const ids = [...new Set(((roles.data ?? []) as { user_id: string }[]).map((r) => r.user_id))];
   if (!ids.length) return new Set();
@@ -342,14 +344,18 @@ async function staffEmails(svc: Svc): Promise<Set<string>> {
   );
 }
 
-const isLampAddress = (email: string, staff: Set<string>) =>
+export const isLampAddress = (email: string, staff: Set<string>) =>
   staff.has(email) || email.endsWith("@getlamp.app");
 
 /**
  * Whether a lead with this email or phone is marked do not contact, on any rep's list. Null when
  * the list couldn't be read: callers refuse rather than guess.
  */
-async function doNotContact(svc: Svc, email: string, phone: string): Promise<boolean | null> {
+export async function doNotContact(
+  svc: Svc,
+  email: string,
+  phone: string,
+): Promise<boolean | null> {
   const digits = phone.replace(/\D/g, "").slice(-10);
   const [byEmail, byPhone] = await Promise.all([
     email
@@ -792,17 +798,39 @@ type InviteRow = {
   draft_saved_at: string | null;
 };
 
-/** The invite, or null when the token matches none. Throws when the lookup itself failed. */
+const INVITE_COLUMNS =
+  "id,rep_slug,first_name,last_name,business_name,email,phone,opened_at,started_at,submitted_at,cancelled_at,expires_at,draft,draft_step,draft_saved_at";
+
+/**
+ * The invite, or null when the token matches none. Throws when the lookup itself failed. A
+ * reminder's link (finish-reminders.ts, REMIND_TOKEN) names the invite and is signed against the
+ * link's current token, so it opens the same application as the link the rep sent until a resend.
+ */
 async function inviteByToken(svc: Svc, token: string): Promise<InviteRow | null> {
+  const found = await inviteAndHash(svc, token);
+  return found ? found.invite : null;
+}
+
+/** The invite and the token hash the database knows it by (for signing through a reminder link). */
+async function inviteAndHash(
+  svc: Svc,
+  token: string,
+): Promise<{ invite: InviteRow; tokenHash: string } | null> {
+  const id = REMIND_TOKEN.test(token) ? inviteIdOf(token) : null;
   const r = await svc
     .from("application_invites")
-    .select(
-      "id,rep_slug,first_name,last_name,business_name,email,phone,opened_at,started_at,submitted_at,cancelled_at,expires_at,draft,draft_step,draft_saved_at",
-    )
-    .eq("token_hash", await hashToken(token))
+    .select(`${INVITE_COLUMNS},token_hash`)
+    .eq(id ? "id" : "token_hash", id ?? (await hashToken(token)))
     .maybeSingle();
   if (r.error) throw r.error;
-  return (r.data as InviteRow | null) ?? null;
+  const row = r.data as (InviteRow & { token_hash: string }) | null;
+  if (!row) return null;
+  if (id) {
+    const secret = await remindSecret(svc);
+    if (!secret || !sameText(token, await remindToken(secret, row.id, row.token_hash))) return null;
+  }
+  const { token_hash, ...invite } = row;
+  return { invite, tokenHash: token_hash };
 }
 
 /**
@@ -1087,8 +1115,18 @@ export async function submitApplication(request: Request): Promise<Response> {
   const claimEmail = cleanEmail(owner.email);
   const claimToken = newToken();
   const svc = service();
+  // a reminder's link signs the same invite: the database knows it by the rep's link's hash
+  let tokenHash: string | null = null;
+  if (token && REMIND_TOKEN.test(token)) {
+    const found = await inviteAndHash(svc, token).catch(() => undefined);
+    if (found === undefined) return tryAgain();
+    if (!found) return json(404, { error: ERR["link_not_found"]![1] });
+    tokenHash = found.tokenHash;
+  } else if (token) {
+    tokenHash = await hashToken(token);
+  }
   const res = await svc.rpc("submit_link_application", {
-    _token_hash: token ? await hashToken(token) : null,
+    _token_hash: tokenHash,
     _rep_slug: token ? null : rep,
     _details: d,
     _signed_name: name,

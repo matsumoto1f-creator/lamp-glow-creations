@@ -136,10 +136,42 @@ Deno.test("'thanks' is a thank-you that says what Lamp is and asks for nothing",
   assert(sms.includes("https://getlamp.app/how-it-works") && sms.includes(URL_));
 });
 
+Deno.test("'intro' introduces the rep to the one who decides, and says a call is coming", () => {
+  const m = inviteEmail({ ...base, kind: "intro" });
+  assertEquals(m.subject, "A quick introduction from Lamp");
+  assert(
+    m.text.includes(
+      "I called Vella Interiors, Inc. today and was told you're the right person to speak with about financing, so I wanted to introduce myself before I call again.",
+    ),
+  );
+  assert(m.text.includes("Lamp is a business financing brokerage."));
+  assert(m.text.includes("I'll try you again by phone in the next few days."));
+  // the reader has not spoken with the rep, so nothing says they did
+  assert(!/you spoke with|thanks for (taking|talking|giving)|as we discussed/i.test(m.text));
+  assert(m.text.includes("You're getting this because Zeus Sample at Lamp called your business."));
+  assert(!/ten minutes|sign|statements|credit check|your credit/i.test(m.text));
+  assert(!m.subject.toLowerCase().includes("application"));
+  assertEquals(
+    emailWords("intro", { businessName: "", url: URL_ }).button.url,
+    "https://getlamp.app/how-it-works",
+  );
+  assert(m.html.includes(`href="${URL_}"`) && m.text.includes(URL_));
+  assert(
+    inviteEmail({ ...base, businessName: "", kind: "intro" }).text.includes(
+      "I called today and was told you're the right person",
+    ),
+  );
+  // every other kind still says the reader spoke with the rep
+  for (const k of ["apply", "thanks", "later", "options", "offer"] as const)
+    assert(inviteEmail({ ...base, kind: k }).text.includes("because you spoke with Zeus Sample"));
+  const sms = inviteSms("Dana", "Zeus", URL_, "intro");
+  assert(sms.includes("introducing myself before I call again") && sms.includes(URL_));
+});
+
 Deno.test(
   "a lead's own page offers every kind, and the email opens there on the kind picked",
   () => {
-    assertEquals([...EMAIL_KINDS], ["apply", "thanks", "later", "options", "offer"]);
+    assertEquals([...EMAIL_KINDS], ["apply", "thanks", "intro", "later", "options", "offer"]);
     for (const k of EMAIL_KINDS) {
       const short = EMAIL_KIND_LABEL[k].short;
       assert(short && short.length <= 22, `${k}: the button on the lead needs a short label`);
@@ -166,7 +198,7 @@ Deno.test(
 );
 
 Deno.test("the database's allowed list names the new kind, in one statement", () => {
-  assert(thanksSql.includes("('apply', 'thanks', 'later', 'options', 'offer')"));
+  assert(thanksSql.includes("('apply', 'thanks', 'intro', 'later', 'options', 'offer')"));
   assert(
     /drop constraint if exists application_invites_email_kind_check,\s+add constraint/.test(
       thanksSql,
@@ -202,7 +234,8 @@ Deno.test("kinds and link lifetimes", () => {
   assert(isEmailKind("later") && !isEmailKind("loan") && !isEmailKind(undefined));
   assertEquals(linkDays("apply"), LINK_TTL_DAYS);
   // "whenever you're ready" links stay open longer
-  for (const k of ["thanks", "later", "options", "offer"] as const) assertEquals(linkDays(k), 90);
+  for (const k of ["thanks", "intro", "later", "options", "offer"] as const)
+    assertEquals(linkDays(k), 90);
 });
 
 Deno.test(

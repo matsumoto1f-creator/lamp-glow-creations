@@ -40,11 +40,15 @@ export type Recipient = {
  *   thanks  met or spoke with someone at the business, the owner or not: a thank-you and what
  *           Lamp is, with nothing asked of them (Asad, 2026-11-20: "a hey, thanks for giving us the
  *           time kind of email so we can get out there in front of people")
+ *   intro   the person on the phone isn't the one who decides (a site manager, the front desk):
+ *           introduces the rep and Lamp to the one who does, and says the rep will call again
+ *           (Asad, 2026-11-20: "the person I'm trying to talk to is likely not the person that I
+ *           got on the phone with. I'm going to follow up with another call.")
  *   later   not looking now, or wanted something else: what Lamp is, apply on their own time
  *   options want to see what's out there first: the full application, framed as how they see offers
  *   offer   already have an offer elsewhere: Offer Check, and the application if we can beat it
  */
-export const EMAIL_KINDS = ["apply", "thanks", "later", "options", "offer"] as const;
+export const EMAIL_KINDS = ["apply", "thanks", "intro", "later", "options", "offer"] as const;
 export type EmailKind = (typeof EMAIL_KINDS)[number];
 export const isEmailKind = (v: unknown): v is EmailKind =>
   typeof v === "string" && (EMAIL_KINDS as readonly string[]).includes(v);
@@ -63,6 +67,11 @@ export const EMAIL_KIND_LABEL: Record<EmailKind, { label: string; when: string; 
     label: "Thanks for your time",
     when: "You met or spoke with someone at the business, the owner or not, and want Lamp in front of them. A short thank-you and what Lamp is. Nothing is asked of them.",
     short: "Thanks for your time",
+  },
+  intro: {
+    label: "Introduce yourself to the one who decides",
+    when: "You reached someone who doesn't decide (a site manager, the front desk) and you'll call again. Introduces you and Lamp to the person who does, and says you'll call.",
+    short: "Introduce myself",
   },
   later: {
     label: "Not right now: Lamp for later",
@@ -227,6 +236,14 @@ type EmailWords = {
   appLine: string | null;
 };
 
+/**
+ * What Lamp is, in one sentence, for the emails that introduce it (Asad, 2026-11-20: "we are a
+ * business financing brokerage and have an assortment of different private financing and standard
+ * commercial products"). The products named are the ones on the site's home page.
+ */
+const WHAT_LAMP_IS =
+  "Lamp is a business financing brokerage. We work with private funders and standard commercial programs, so one conversation covers working capital, lines of credit, equipment financing, invoice factoring, SBA and term funding.";
+
 /** The words for each kind. Facts here come from the site's own pages; never the word "loan". */
 export function emailWords(
   kind: EmailKind,
@@ -251,10 +268,19 @@ export function emailWords(
       subject: "Thanks for your time today",
       opener: "Thanks for giving me a few minutes today. I appreciate it.",
       body: [
-        // Asad, 2026-11-20: "we are a business financing brokerage and have an assortment of
-        // different private financing and standard commercial products"
-        "Lamp is a business financing brokerage. We work with private funders and standard commercial programs, so one conversation covers working capital, lines of credit, equipment financing, invoice factoring, SBA and term funding.",
+        WHAT_LAMP_IS,
         `If financing ever comes up${biz ? ` at ${biz}` : ""}, reply to this email and it comes straight to me. There's nothing you need to do until then.`,
+      ],
+      button: { label: "See how Lamp works", url: l.howItWorks },
+      appLine: "The application, if it's ever useful",
+    };
+  if (kind === "intro")
+    return {
+      subject: "A quick introduction from Lamp",
+      opener: `I called${biz ? ` ${biz}` : ""} today and was told you're the right person to speak with about financing, so I wanted to introduce myself before I call again.`,
+      body: [
+        WHAT_LAMP_IS,
+        "I'll try you again by phone in the next few days. If there's a better number or time to reach you, reply to this email and I'll use it.",
       ],
       button: { label: "See how Lamp works", url: l.howItWorks },
       appLine: "The application, if it's ever useful",
@@ -331,7 +357,12 @@ export function inviteEmail(opts: {
   const note = opts.note.trim();
   const body = [note || w.opener, ...w.body];
   const footer = [
-    `You're getting this because you spoke with ${opts.repName} at Lamp. Not interested? Reply "stop" and we won't email you again.`,
+    // an introduction goes to someone the rep has not spoken with yet, so it says so
+    `You're getting this because ${
+      opts.kind === "intro" && !opts.filled
+        ? `${opts.repName} at Lamp called your business`
+        : `you spoke with ${opts.repName} at Lamp`
+    }. Not interested? Reply "stop" and we won't email you again.`,
     [opts.legalName, opts.address].filter(Boolean).join(" · "),
   ].filter(Boolean);
   const textButton =
@@ -511,6 +542,8 @@ export function inviteSms(
   const l = kindLinks(url);
   if (kind === "thanks")
     return `${hi}it's ${repName} at Lamp. Thanks for your time today. Lamp is a business financing brokerage; here's how it works: ${l.howItWorks}. If financing ever comes up, your application is here: ${url}`;
+  if (kind === "intro")
+    return `${hi}it's ${repName} at Lamp, a business financing brokerage. I called today and was told you're the right person to speak with, so I'm introducing myself before I call again. How Lamp works: ${l.howItWorks}. Your application, if it's ever useful: ${url}`;
   if (kind === "later")
     return `${hi}it's ${repName} at Lamp. Thanks for talking today. No rush at all: here's how Lamp works (${l.howItWorks}) and your application, for whenever you're ready: ${url}`;
   if (kind === "options")

@@ -15,6 +15,8 @@ import {
 import server from "../src/lib/application-links.server.ts" with { type: "text" };
 import panel from "../src/components/staff/send-applications.tsx" with { type: "text" };
 import migration from "../supabase/migrations/20261119150000_invite_email_kind.sql" with { type: "text" };
+import thanksSql from "../supabase/migrations/20261120150000_invite_email_kind_thanks.sql" with { type: "text" };
+import leads from "../src/components/staff/engine-leads.tsx" with { type: "text" };
 
 const URL_ = "https://getlamp.app/application/zeus?i=TOKEN123";
 const base = {
@@ -94,6 +96,86 @@ Deno.test("the words match the call: 'later' never says 'as we discussed'", () =
   );
 });
 
+Deno.test("'thanks' is a thank-you that says what Lamp is and asks for nothing", () => {
+  const m = inviteEmail({ ...base, kind: "thanks" });
+  assertEquals(m.subject, "Thanks for your time today");
+  assert(m.text.includes("Thanks for giving me a few minutes today."));
+  // Asad, 2026-11-20: a business financing brokerage with private financing and standard commercial products
+  assert(
+    m.text.includes(
+      "Lamp is a business financing brokerage. We work with private funders and standard commercial programs",
+    ),
+  );
+  assert(
+    m.text.includes(
+      "working capital, lines of credit, equipment financing, invoice factoring, SBA and term funding",
+    ),
+  );
+  assert(
+    m.text.includes("If financing ever comes up at Vella Interiors, Inc., reply to this email"),
+  );
+  // not an application email: nothing "as we discussed", no ask to fill anything in, no credit claim
+  assert(!m.text.includes("as we discussed") && !m.subject.toLowerCase().includes("application"));
+  assert(!/ten minutes|sign|statements|credit check|your credit/i.test(m.text));
+  // the button is how Lamp works; the personal application link sits under it, for later
+  assertEquals(
+    emailWords("thanks", { businessName: "", url: URL_ }).button.url,
+    "https://getlamp.app/how-it-works",
+  );
+  assert(m.html.includes(`href="${URL_}"`) && m.text.includes(URL_));
+  // with no business name the sentence still reads
+  assert(
+    inviteEmail({ ...base, businessName: "", kind: "thanks" }).text.includes(
+      "If financing ever comes up, reply to this email",
+    ),
+  );
+  const sms = inviteSms("Dana", "Zeus", URL_, "thanks");
+  assert(
+    sms.includes("Thanks for your time today") && sms.includes("business financing brokerage"),
+  );
+  assert(sms.includes("https://getlamp.app/how-it-works") && sms.includes(URL_));
+});
+
+Deno.test(
+  "a lead's own page offers every kind, and the email opens there on the kind picked",
+  () => {
+    assertEquals([...EMAIL_KINDS], ["apply", "thanks", "later", "options", "offer"]);
+    for (const k of EMAIL_KINDS) {
+      const short = EMAIL_KIND_LABEL[k].short;
+      assert(short && short.length <= 22, `${k}: the button on the lead needs a short label`);
+    }
+    assertEquals(
+      new Set(EMAIL_KINDS.map((k) => EMAIL_KIND_LABEL[k].short)).size,
+      EMAIL_KINDS.length,
+    );
+    // one button per kind on the lead, each opening the panel on its own kind
+    assert(leads.includes("{EMAIL_KINDS.map((k) => ("));
+    assert(leads.includes("onClick={() => onSend(k)}"));
+    assert(leads.includes("data-quick-email={k}"));
+    assert(leads.includes("(kind) => openSend(openRow, kind)"));
+    // the email shows on the lead's page (it used to open behind it), and closes with it
+    assert(leads.includes("sending && sending.leadId === openRow.id ? ("));
+    assert(leads.includes("{sending && sending.leadId == null && ("));
+    assert(leads.includes("setSending((s) => (s?.leadId != null ? null : s));"));
+    assert(
+      !leads.includes("Send the application\n"),
+      "the one hidden button is gone from the lead",
+    );
+    assert(panel.includes('useState<EmailKind>(startKind ?? "apply")'));
+  },
+);
+
+Deno.test("the database's allowed list names the new kind, in one statement", () => {
+  assert(thanksSql.includes("('apply', 'thanks', 'later', 'options', 'offer')"));
+  assert(
+    /drop constraint if exists application_invites_email_kind_check,\s+add constraint/.test(
+      thanksSql,
+    ),
+  );
+  // until that file is run, the link still goes out: a refused value is retried without the column
+  assert(server.includes('e.code === "23514"'));
+});
+
 Deno.test("a personal note replaces the first line, whichever kind", () => {
   for (const kind of EMAIL_KINDS) {
     const opener = emailWords(kind, { businessName: base.businessName, url: URL_ }).opener;
@@ -120,7 +202,7 @@ Deno.test("kinds and link lifetimes", () => {
   assert(isEmailKind("later") && !isEmailKind("loan") && !isEmailKind(undefined));
   assertEquals(linkDays("apply"), LINK_TTL_DAYS);
   // "whenever you're ready" links stay open longer
-  for (const k of ["later", "options", "offer"] as const) assertEquals(linkDays(k), 90);
+  for (const k of ["thanks", "later", "options", "offer"] as const) assertEquals(linkDays(k), 90);
 });
 
 Deno.test(

@@ -37,31 +37,46 @@ export type Recipient = {
  * kind carries the same personal application link (a signed file still lands in the rep's files);
  * only the words, the button and the page it points to first change.
  *   apply   "Here's your application, as we discussed": they're ready to apply
+ *   thanks  met or spoke with someone at the business, the owner or not: a thank-you and what
+ *           Lamp is, with nothing asked of them (Asad, 2026-11-20: "a hey, thanks for giving us the
+ *           time kind of email so we can get out there in front of people")
  *   later   not looking now, or wanted something else: what Lamp is, apply on their own time
  *   options want to see what's out there first: the full application, framed as how they see offers
  *   offer   already have an offer elsewhere: Offer Check, and the application if we can beat it
  */
-export const EMAIL_KINDS = ["apply", "later", "options", "offer"] as const;
+export const EMAIL_KINDS = ["apply", "thanks", "later", "options", "offer"] as const;
 export type EmailKind = (typeof EMAIL_KINDS)[number];
 export const isEmailKind = (v: unknown): v is EmailKind =>
   typeof v === "string" && (EMAIL_KINDS as readonly string[]).includes(v);
 
-/** For the staff picker: what each kind is for, in the rep's words. */
-export const EMAIL_KIND_LABEL: Record<EmailKind, { label: string; when: string }> = {
+/**
+ * For the staff picker: what each kind is for, in the rep's words. `short` is the button on a
+ * lead's own page, where the rep picks the email right after the call.
+ */
+export const EMAIL_KIND_LABEL: Record<EmailKind, { label: string; when: string; short: string }> = {
   apply: {
     label: "The application, as we discussed",
     when: "They're ready to apply.",
+    short: "The application",
+  },
+  thanks: {
+    label: "Thanks for your time",
+    when: "You met or spoke with someone at the business, the owner or not, and want Lamp in front of them. A short thank-you and what Lamp is. Nothing is asked of them.",
+    short: "Thanks for your time",
   },
   later: {
     label: "Not right now: Lamp for later",
+    short: "Not right now",
     when: "Wrong time, or they wanted something you don't have. A thank-you, what Lamp is, and the application whenever they're ready.",
   },
   options: {
     label: "Wants to see their options first",
+    short: "Wants options first",
     when: "They want to see what's out there before committing. The full application, framed as the way to see real offers side by side.",
   },
   offer: {
     label: "Already has an offer",
+    short: "Has an offer",
     when: "They have an offer from someone else. Offer Check shows what it really costs.",
   },
 };
@@ -230,6 +245,19 @@ export function emailWords(
       ],
       button: { label: "Check and sign", url: o.url },
       appLine: null,
+    };
+  if (kind === "thanks")
+    return {
+      subject: "Thanks for your time today",
+      opener: "Thanks for giving me a few minutes today. I appreciate it.",
+      body: [
+        // Asad, 2026-11-20: "we are a business financing brokerage and have an assortment of
+        // different private financing and standard commercial products"
+        "Lamp is a business financing brokerage. We work with private funders and standard commercial programs, so one conversation covers working capital, lines of credit, equipment financing, invoice factoring, SBA and term funding.",
+        `If financing ever comes up${biz ? ` at ${biz}` : ""}, reply to this email and it comes straight to me. There's nothing you need to do until then.`,
+      ],
+      button: { label: "See how Lamp works", url: l.howItWorks },
+      appLine: "The application, if it's ever useful",
     };
   if (kind === "later")
     return {
@@ -481,6 +509,8 @@ export function inviteSms(
 ): string {
   const hi = firstName.trim() ? `Hi ${firstName.trim()}, ` : "";
   const l = kindLinks(url);
+  if (kind === "thanks")
+    return `${hi}it's ${repName} at Lamp. Thanks for your time today. Lamp is a business financing brokerage; here's how it works: ${l.howItWorks}. If financing ever comes up, your application is here: ${url}`;
   if (kind === "later")
     return `${hi}it's ${repName} at Lamp. Thanks for talking today. No rush at all: here's how Lamp works (${l.howItWorks}) and your application, for whenever you're ready: ${url}`;
   if (kind === "options")

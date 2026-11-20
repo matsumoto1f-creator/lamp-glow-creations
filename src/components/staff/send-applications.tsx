@@ -92,6 +92,7 @@ export function SendApplications({
   repSlug,
   reps,
   seed,
+  startKind,
   onClose,
   onSent,
 }: {
@@ -100,6 +101,8 @@ export function SendApplications({
   reps: Rep[];
   /** Leads picked on the list; empty starts with one blank row. */
   seed: SendSeed[];
+  /** The email picked before the panel opened (a lead's own page); the picker still changes it. */
+  startKind?: EmailKind;
   onClose: () => void;
   onSent?: (results: SendResult[]) => void;
 }) {
@@ -107,7 +110,7 @@ export function SendApplications({
   const [sendAs, setSendAs] = useState(repSlug ?? "");
   const [note, setNote] = useState("");
   // which email goes with the links, to match what was said on the call
-  const [kind, setKind] = useState<EmailKind>("apply");
+  const [kind, setKind] = useState<EmailKind>(startKind ?? "apply");
   const [busy, setBusy] = useState(false);
   const [tried, setTried] = useState(false);
   const [error, setError] = useState("");
@@ -195,7 +198,9 @@ export function SendApplications({
     <section ref={ref} className={cn(card, "mt-4 scroll-mt-24 p-5 sm:p-6")} data-send-applications>
       <div className="flex items-start gap-3">
         <div className="min-w-0">
-          <h3 className="font-display text-lg font-semibold">Send the application</h3>
+          <h3 className="font-display text-lg font-semibold">
+            {kind === "apply" ? "Send the application" : "Send an email"}
+          </h3>
           <p className="mt-1 text-sm text-smoke">
             Each person gets their own link to the full application. They fill it in, sign on the
             page, and the signed file comes straight back to{" "}

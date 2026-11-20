@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   ChevronRight,
   Copy,
@@ -21,7 +21,13 @@ import { SpeakButton } from "@/components/staff/speak-button";
 import { fitTo, joinSpoken, paperLink } from "@/lib/spoken-notes";
 import { SendApplications, type SendSeed } from "@/components/staff/send-applications";
 import { postInvites } from "@/lib/post-invites";
-import { EMAIL_RE, MAX_RECIPIENTS } from "@/lib/application-links";
+import {
+  EMAIL_KIND_LABEL,
+  EMAIL_KINDS,
+  EMAIL_RE,
+  MAX_RECIPIENTS,
+  type EmailKind,
+} from "@/lib/application-links";
 import {
   Sheet,
   SheetContent,
@@ -159,7 +165,13 @@ export function EngineLeads({
   // the lead whose page is open
   const [openId, setOpenId] = useState<number | null>(null);
   // The send panel, keyed so picking again starts it fresh with the new picks.
-  const [sending, setSending] = useState<{ key: number; seed: SendSeed[] } | null>(null);
+  // leadId: opened from that lead's own page, so the panel shows there, next to the lead
+  const [sending, setSending] = useState<{
+    key: number;
+    seed: SendSeed[];
+    kind?: EmailKind;
+    leadId?: number;
+  } | null>(null);
 
   useEffect(() => {
     const t = window.setTimeout(() => setQuery(search.trim()), 300);
@@ -308,11 +320,18 @@ export function EngineLeads({
     });
   }
 
-  function openSend(only?: Row) {
+  /** Ticked leads from the list; or one lead from its own page, with the email picked there. */
+  function openSend(only?: Row, kind?: EmailKind) {
     const seed = (only ? [only] : (rows ?? []).filter((r) => selected.has(r.id)))
       .filter(canPick)
       .map((r) => sendSeed(r));
-    if (seed.length) setSending((s) => ({ key: (s?.key ?? 0) + 1, seed }));
+    if (seed.length)
+      setSending((s) => ({
+        key: (s?.key ?? 0) + 1,
+        seed,
+        ...(kind ? { kind } : {}),
+        ...(only ? { leadId: only.id } : {}),
+      }));
   }
 
   /** Admins only: the ticked leads as a CSV file. */
@@ -451,7 +470,7 @@ export function EngineLeads({
 
       {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
 
-      {sending && (
+      {sending && sending.leadId == null && (
         <SendApplications
           key={sending.key}
           isAdmin={isAdmin}
@@ -717,7 +736,15 @@ export function EngineLeads({
         )}
       </div>
 
-      <Sheet open={openRow != null} onOpenChange={(o) => !o && setOpenId(null)}>
+      <Sheet
+        open={openRow != null}
+        onOpenChange={(o) => {
+          if (o) return;
+          setOpenId(null);
+          // an email being written on this lead's page closes with the page
+          setSending((s) => (s?.leadId != null ? null : s));
+        }}
+      >
         <SheetContent
           side="right"
           // the sheet opens in a portal outside the staff page's themed wrapper, so it carries the
@@ -736,7 +763,22 @@ export function EngineLeads({
               onStatus={(next) => void setLeadStatus(openRow, next)}
               onRep={(slug) => void assignRep(openRow, slug)}
               onSave={(patch) => saveContact(openRow, patch)}
-              onSend={canPick(openRow) ? () => openSend(openRow) : undefined}
+              onSend={canPick(openRow) ? (kind) => openSend(openRow, kind) : undefined}
+              // the email being written shows here, on the lead, not behind this page
+              sendPanel={
+                sending && sending.leadId === openRow.id ? (
+                  <SendApplications
+                    key={sending.key}
+                    isAdmin={isAdmin}
+                    repSlug={repSlug}
+                    reps={reps}
+                    seed={sending.seed}
+                    {...(sending.kind ? { startKind: sending.kind } : {})}
+                    onClose={() => setSending(null)}
+                    onSent={() => setReload((n) => n + 1)}
+                  />
+                ) : null
+              }
             />
           )}
         </SheetContent>
@@ -950,6 +992,7 @@ function LeadPage({
   onRep,
   onSave,
   onSend,
+  sendPanel,
 }: {
   row: Row;
   isAdmin: boolean;
@@ -959,7 +1002,10 @@ function LeadPage({
   onStatus: (next: EngineStatus) => void;
   onRep: (slug: string) => void;
   onSave: (patch: ContactPatch) => Promise<string>;
-  onSend?: (() => void) | undefined;
+  /** Opens the email to send, on the kind picked. Missing when this lead can't be sent to. */
+  onSend?: ((kind: EmailKind) => void) | undefined;
+  /** The email being written for this lead, shown under its contact. */
+  sendPanel?: ReactNode;
 }) {
   const [starting, setStarting] = useState(false);
   const why = splitWhy(row.reason);
@@ -1208,25 +1254,41 @@ function LeadPage({
           >
             {busy ? <Loader2 className="size-4 animate-spin" /> : null} Save
           </button>
-          {onSend && (
-            <button
-              type="button"
-              className={cn(btnOutline, "px-5 py-2 max-md:min-h-11")}
-              disabled={changed}
-              title={changed ? "Save first" : undefined}
-              onClick={onSend}
-              data-contact-send
-            >
-              <Send className="size-4" /> Send the application
-            </button>
-          )}
           {row.contact_updated_at && (
             <span className="text-xs text-smoke">
               Contact updated {age(row.contact_updated_at)}
             </span>
           )}
         </div>
+        {onSend && (
+          <div className="mt-5 border-t border-line pt-4" data-quick-emails>
+            <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-smoke">
+              <Send className="size-3.5" aria-hidden /> Send an email
+            </p>
+            <p className="mt-1 text-xs text-smoke">
+              {changed
+                ? "Save the contact first, then pick the email."
+                : "Pick the one that matches what just happened. You read it before it goes."}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {EMAIL_KINDS.map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  className={cn(chip, "min-h-11 px-4")}
+                  disabled={changed}
+                  title={EMAIL_KIND_LABEL[k].when}
+                  onClick={() => onSend(k)}
+                  data-quick-email={k}
+                >
+                  {EMAIL_KIND_LABEL[k].short}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
+      {sendPanel}
 
       <div className="mt-6">
         <LeadDetail row={row} />

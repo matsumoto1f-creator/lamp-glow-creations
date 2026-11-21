@@ -21,6 +21,7 @@ import { SpeakButton } from "@/components/staff/speak-button";
 import { fitTo, joinSpoken, paperLink } from "@/lib/spoken-notes";
 import { SendApplications, type SendSeed } from "@/components/staff/send-applications";
 import { postInvites } from "@/lib/post-invites";
+import { emailSourceLine } from "@/lib/engine-push";
 import {
   EMAIL_KIND_LABEL,
   EMAIL_KINDS,
@@ -98,6 +99,9 @@ type Row = {
   contact_email: string | null;
   contact_phone: string | null;
   contact_updated_at: string | null;
+  /** How sure the engine is of `email`, and where it came from; missing on an older database. */
+  email_confidence?: string | null;
+  email_method?: string | null;
 };
 
 type ContactPatch = Pick<Row, "contact_name" | "contact_email" | "contact_phone" | "notes">;
@@ -106,8 +110,10 @@ type ContactPatch = Pick<Row, "contact_name" | "contact_email" | "contact_phone"
 const filterSelect =
   "rounded-full bg-white px-4 py-2 text-sm ring-1 ring-line max-md:min-h-11 max-md:w-full max-md:text-base";
 
-const COLUMNS =
+const BASE_COLUMNS =
   "id,name,phone,email,city,state,industry,tier,need,reason,signals,status,notes,rep_slug,first_found,pushed_at,worked_at,contact_name,contact_email,contact_phone,contact_updated_at";
+// where the engine's address came from (20261120190000_engine_lead_email_source.sql)
+const COLUMNS = `${BASE_COLUMNS},email_confidence,email_method`;
 const LIMIT = 300;
 /** This browser remembers whose leads an admin last picked. */
 const OWNER_KEY = "lamp.engine-leads.owner";
@@ -186,28 +192,34 @@ export function EngineLeads({
     setError("");
     setSelected(new Set());
     (async () => {
-      let q = sb.from("engine_leads").select(COLUMNS).not("phone", "is", null).neq("phone", "");
-      if (tier) q = q.eq("tier", tier);
-      if (status) q = q.eq("status", status);
-      if (isAdmin) {
-        const who = ownerScope(owner, repSlug);
-        if (who.kind === "rep") q = q.eq("rep_slug", who.slug);
-        if (who.kind === "none") q = q.is("rep_slug", null);
-      }
-      const match = searchFilter(query);
-      if (match) q = q.or(match);
-      const { data, error: err } = await q
-        .order("need", { ascending: false, nullsFirst: false })
-        .order("first_found", { ascending: false })
-        .order("id")
-        .limit(LIMIT);
+      const load = (columns: string) => {
+        let q = sb.from("engine_leads").select(columns).not("phone", "is", null).neq("phone", "");
+        if (tier) q = q.eq("tier", tier);
+        if (status) q = q.eq("status", status);
+        if (isAdmin) {
+          const who = ownerScope(owner, repSlug);
+          if (who.kind === "rep") q = q.eq("rep_slug", who.slug);
+          if (who.kind === "none") q = q.is("rep_slug", null);
+        }
+        const match = searchFilter(query);
+        if (match) q = q.or(match);
+        return q
+          .order("need", { ascending: false, nullsFirst: false })
+          .order("first_found", { ascending: false })
+          .order("id")
+          .limit(LIMIT);
+      };
+      let { data, error: err } = await load(COLUMNS);
+      // before the email source columns exist the list still loads, without them
+      if (err && (err.code === "42703" || err.code === "PGRST204"))
+        ({ data, error: err } = await load(BASE_COLUMNS));
       if (!live) return;
       if (err) {
         setError("Couldn't load the engine leads. Refresh to try again.");
         setRows([]);
         return;
       }
-      setRows(data as Row[]);
+      setRows(data as unknown as Row[]);
     })();
     return () => {
       live = false;
@@ -1008,6 +1020,8 @@ function LeadPage({
   sendPanel?: ReactNode;
 }) {
   const [starting, setStarting] = useState(false);
+  // where the engine's address came from, to confirm on the call
+  const emailSource = emailSourceLine(row.email_confidence, row.email_method);
   const why = splitWhy(row.reason);
   const type = leadType(row.signals);
   const [name, setName] = useState(row.contact_name ?? "");
@@ -1204,6 +1218,25 @@ function LeadPage({
               data-contact-phone
             />
           </label>
+          {emailSource && row.email && (
+            <p
+              className="text-xs text-smoke sm:col-span-2"
+              data-email-source={row.email_confidence}
+            >
+              <span className="font-semibold text-ink">{emailSource.tag}:</span>{" "}
+              <span className="break-all">{row.email}</span>. {emailSource.text}{" "}
+              {email.trim().toLowerCase() !== row.email.toLowerCase() && (
+                <button
+                  type="button"
+                  className="font-semibold text-forest underline underline-offset-4"
+                  onClick={() => setEmail(row.email ?? "")}
+                  data-email-source-use
+                >
+                  Use this address
+                </button>
+              )}
+            </p>
+          )}
           <div className="text-sm sm:col-span-2">
             <label className="block">
               <span className={label}>Notes</span>

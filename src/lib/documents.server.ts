@@ -5,7 +5,7 @@
 // the existing per-person rules on documents and on the bucket still decide what each one reaches.
 //
 // Never import this file from browser code: the route files load it inside their handlers.
-import { caller, json } from "@/lib/funder-send.server";
+import { caller, json, mayWork, service } from "@/lib/funder-send.server";
 import { looksLikePdf, readCapped, readJson, uploadType } from "@/lib/application-links.server";
 import { MAX_SIGNED_PDF_BYTES, MAX_UPLOAD_BYTES, UPLOAD_TYPES } from "@/lib/application-links";
 import {
@@ -215,4 +215,99 @@ export async function uploadDocument(request: Request): Promise<Response> {
   // no row points at the file, so the database lets it go
   await who.client.storage.from(BUCKET).remove([path]);
   return json(200, { outcome: "failed" satisfies DocumentOutcome });
+}
+
+/** Where a staff upload lands in the bucket: beside the file, never in a merchant's own folder. */
+export function staffUploadPath(applicationId: string, fileName: string, now = Date.now()): string {
+  const safe = fileName.replace(/[^\w.-]+/g, "_").slice(-80) || "file";
+  return `staff/${applicationId}/${now}-${safe}`;
+}
+
+/**
+ * POST /api/documents/staff-upload, a form with application_id, kind and file: someone on the team
+ * adds a document to a file by hand (a statement the merchant emailed, a voided check from a
+ * text). Only someone who may WORK the file (its rep, or an admin; a team lead only reads) may.
+ * The server stores it with its own key, so the merchant sees it on their account page like any
+ * upload, and the timeline says who added it.
+ */
+export async function staffUploadDocument(request: Request): Promise<Response> {
+  const who = await caller(request);
+  if (!who) return json(401, { error: "Sign in first." });
+  let buf: Uint8Array<ArrayBuffer> | null;
+  try {
+    buf = await readCapped(request, MAX_UPLOAD_BYTES + 64 * 1024);
+  } catch {
+    return json(400, { error: "Send the file as a form." });
+  }
+  if (!buf) return json(413, { error: "That file is over 20 MB." });
+  let form: FormData;
+  try {
+    form = await new Response(buf, {
+      headers: { "Content-Type": request.headers.get("content-type") ?? "" },
+    }).formData();
+  } catch {
+    return json(400, { error: "Send the file as a form." });
+  }
+  const appId = String(form.get("application_id") ?? "");
+  const kind = form.get("kind");
+  const file = form.get("file");
+  if (!UUID.test(appId) || !isDocumentKind(kind) || !(file instanceof File))
+    return json(400, { error: "Missing the file or the file it belongs to." });
+  if (file.size > MAX_UPLOAD_BYTES) return json(413, { error: "That file is over 20 MB." });
+  const type = uploadType(file);
+  if (!UPLOAD_TYPES.includes(type))
+    return json(415, { error: "Add a PDF or a photo (JPG, PNG or HEIC)." });
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (type === "application/pdf" && !looksLikePdf(bytes))
+    return json(415, { error: "That file isn't a PDF we can open." });
+
+  // seeing a file is not enough: a team lead reads a team file and changes nothing on it
+  if (!(await mayWork(who, appId)))
+    return json(403, { error: "Only the file's rep or an admin can add documents to it." });
+  const svc = service();
+  const app = await svc.from("applications").select("id,user_id").eq("id", appId).maybeSingle();
+  if (app.error) return json(500, { error: "Couldn't add the document. Try again." });
+  if (!app.data) return json(404, { error: "We couldn't find that file." });
+  const owner = (app.data as { user_id: string | null }).user_id;
+
+  const name = file.name.slice(0, 200) || "Document";
+  const path = staffUploadPath(appId, file.name);
+  const up = await svc.storage
+    .from(BUCKET)
+    .upload(path, bytes, { contentType: type, upsert: false });
+  if (up.error) return json(500, { error: "Couldn't store the file. Try again." });
+  const idx = await svc
+    .from("documents")
+    .insert({
+      application_id: appId,
+      // the merchant's, so it shows on their account page; set when they claim, if not yet
+      user_id: owner,
+      bucket: BUCKET,
+      storage_path: path,
+      kind,
+      original_name: name,
+      size_bytes: bytes.length,
+      mime_type: type,
+    } as never)
+    .select("id")
+    .maybeSingle();
+  if (idx.error || !idx.data) {
+    await svc.storage.from(BUCKET).remove([path]);
+    return json(500, { error: "Couldn't add the document. Try again." });
+  }
+  await svc.from("events").insert({
+    application_id: appId,
+    actor_user_id: who.userId,
+    kind: "document_uploaded",
+    body: `Added by the team: ${name}`,
+    payload: { document_id: (idx.data as { id: string }).id, kind },
+  } as never);
+  // and into the company Drive, when it's connected; a failure here never undoes the upload
+  try {
+    const { syncApplication } = await import("@/lib/drive.server");
+    await syncApplication(svc, appId);
+  } catch {
+    /* copied the next time the file is opened */
+  }
+  return json(200, { outcome: "saved" satisfies DocumentOutcome });
 }

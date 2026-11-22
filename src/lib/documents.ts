@@ -101,3 +101,17 @@ export function checklistFor(
 /** The item to suggest for the next upload: the first one still short, else "other". */
 export const nextMissingKind = (items: readonly ChecklistItem[]): DocumentKind =>
   items.find((i) => !i.done)?.kind ?? "other";
+
+const UPLOAD_MAX = 20 * 1024 * 1024;
+const UPLOAD_OK = /\.(pdf|jpe?g|png|heic)$/i;
+const UPLOAD_TYPES_OK = ["application/pdf", "image/jpeg", "image/png", "image/heic"];
+
+/** Why a file can't be added from the staff drop zone, before it is sent; the server checks again. */
+export function staffUploadProblem(f: { name: string; size: number; type: string }): string | null {
+  if (f.size === 0) return "That file is empty.";
+  if (f.size > UPLOAD_MAX) return "Over 20 MB. Ask for a smaller copy, or split it by month.";
+  const typed = f.type && f.type !== "application/octet-stream";
+  if (typed ? !UPLOAD_TYPES_OK.includes(f.type.toLowerCase()) : !UPLOAD_OK.test(f.name))
+    return "Only PDFs and photos (JPG, PNG or HEIC). Save it as a PDF first.";
+  return null;
+}

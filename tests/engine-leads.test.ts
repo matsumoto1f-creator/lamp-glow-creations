@@ -4,11 +4,15 @@ import {
   BOARD_MAX_CSV,
   boardBatch,
   leadsFromCsv,
+  leadCardText,
   leadsToCsv,
   type LeadExport,
   leadRecords,
   leadType,
   searchFilter,
+  ownerLabel,
+  ownerScope,
+  savedOwner,
   splitWhy,
   tookMca,
 } from "../src/lib/engine-leads.ts";
@@ -196,4 +200,63 @@ Deno.test("board: anything else is ignored", () => {
     boardBatch({ type: "lamp-board:leads", batch: 3, csv: BOARD_CSV })?.label,
     "Board batch #3",
   );
+});
+
+Deno.test("lead card on a phone: the line under the name, who to ask for, the reasons", () => {
+  const base = { industry: null, city: null, state: null, reason: null, contact_name: null };
+  // nothing known: a dash under the name, no one to ask for, no reasons
+  assertEquals(leadCardText(base), { sub: "—", ask: null, why: "" });
+  // industry and place on one line; the owner on record is who to ask for
+  assertEquals(
+    leadCardText({
+      ...base,
+      industry: "Auto repair",
+      city: "Paterson",
+      state: "NJ",
+      reason: "Owner: Maria Ortega (FMCSA) · 14 trucks · has phone",
+    }),
+    { sub: "Auto repair · Paterson, NJ", ask: "Maria Ortega", why: "14 trucks" },
+  );
+  // the name the rep got on the call beats the owner on record; a blank one doesn't
+  const owner = { ...base, reason: "Owner: Maria Ortega · license since 2019" };
+  assertEquals(leadCardText({ ...owner, contact_name: "Dmitri" }).ask, "Dmitri");
+  assertEquals(leadCardText({ ...owner, contact_name: "  " }).ask, "Maria Ortega");
+  // a state alone still shows where it is
+  assertEquals(leadCardText({ ...base, state: "NY" }).sub, "NY");
+});
+
+Deno.test("whose leads: everyone, mine, nobody's, or one rep's", () => {
+  const reps = [
+    { slug: "asad", name: "Asad Matsumoto" },
+    { slug: "zeus", name: "Zeus" },
+  ];
+  assertEquals(ownerScope("", "asad"), { kind: "all" });
+  assertEquals(ownerScope("me", "asad"), { kind: "rep", slug: "asad" });
+  // an admin without a rep seat has no "mine": show everyone rather than nothing
+  assertEquals(ownerScope("me", null), { kind: "all" });
+  assertEquals(ownerScope("none", "asad"), { kind: "none" });
+  assertEquals(ownerScope("rep:zeus", "asad"), { kind: "rep", slug: "zeus" });
+  // anything odd in the value is ignored, never sent to the database
+  assertEquals(ownerScope("rep:Zeus,rep_slug.neq.x", "asad"), { kind: "all" });
+  assertEquals(ownerScope("rep:", "asad"), { kind: "all" });
+
+  assertEquals(ownerLabel("", "asad", reps), "Every engine lead");
+  assertEquals(ownerLabel("me", "asad", reps), "Your leads");
+  assertEquals(ownerLabel("none", "asad", reps), "Not given to anyone");
+  assertEquals(ownerLabel("rep:zeus", "asad", reps), "Zeus's leads");
+  assertEquals(ownerLabel("rep:gone", "asad", reps), "One rep's leads");
+});
+
+Deno.test("whose leads: a remembered choice is kept only while it still makes sense", () => {
+  const reps = [{ slug: "zeus", name: "Zeus" }];
+  assertEquals(savedOwner(null, "asad", reps), "");
+  assertEquals(savedOwner("me", "asad", reps), "me");
+  assertEquals(savedOwner("me", null, reps), "");
+  assertEquals(savedOwner("none", "asad", reps), "none");
+  assertEquals(savedOwner("rep:zeus", "asad", reps), "rep:zeus");
+  // a rep who has left the team: back to everyone
+  assertEquals(savedOwner("rep:gone", "asad", reps), "");
+  // their own seat picked by name reads as "mine"
+  assertEquals(savedOwner("rep:asad", "asad", reps), "me");
+  assertEquals(savedOwner("garbage", "asad", reps), "");
 });

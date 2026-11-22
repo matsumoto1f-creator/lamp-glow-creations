@@ -40,7 +40,14 @@ export const GMAIL_SEND_URL = () =>
   env("GMAIL_SEND_URL") || "https://gmail.googleapis.com/gmail/v1/users/me/messages/send";
 const USERINFO_URL = () =>
   env("GOOGLE_USERINFO_URL") || "https://openidconnect.googleapis.com/v1/userinfo";
-const SCOPES = ["openid", "email", "https://www.googleapis.com/auth/gmail.send"];
+// gmail.send for funder and application emails; drive.file so Lamp can keep a copy of each file's
+// documents in the company Drive (drive.server.ts). drive.file reaches only folders Lamp makes.
+const SCOPES = [
+  "openid",
+  "email",
+  "https://www.googleapis.com/auth/gmail.send",
+  "https://www.googleapis.com/auth/drive.file",
+];
 const STATE_TTL_MS = 10 * 60 * 1000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

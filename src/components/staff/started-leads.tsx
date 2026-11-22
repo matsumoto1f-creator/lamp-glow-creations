@@ -7,6 +7,8 @@ import { age, stamp } from "@/lib/staff";
 import { card } from "@/components/site/layout";
 import { tel } from "@/lib/engine-leads";
 import { isStage, STAGE_INFO, type Stage } from "@/lib/application-progress";
+import { leadLeftAt } from "@/lib/finish-reminders";
+import { ReminderStatus } from "@/components/staff/reminder-status";
 
 /**
  * Started, not signed: people who gave their name and number on a rep's public link (online or
@@ -22,6 +24,9 @@ type Lead = {
   phone: string | null;
   rep_slug: string | null;
   answers: Record<string, unknown> | null;
+  reminders_sent: number;
+  reminded_at: string | null;
+  reminders_stopped_at: string | null;
 };
 
 type Progress = { stage?: unknown; at?: unknown; form?: unknown };
@@ -46,7 +51,9 @@ export function StartedLeads({
     if (!sb) return;
     let q = sb
       .from("leads")
-      .select("id,created_at,first_name,email,phone,rep_slug,answers")
+      .select(
+        "id,created_at,first_name,email,phone,rep_slug,answers,reminders_sent,reminded_at,reminders_stopped_at",
+      )
       .eq("answers->>source", "application_link")
       .is("converted_application_id", null)
       .gte("created_at", new Date(Date.now() - DAYS * 86_400_000).toISOString())
@@ -67,7 +74,9 @@ export function StartedLeads({
     void load();
   }, [load]);
 
-  const repName = (slug: string | null) => reps.find((r) => r.slug === slug)?.name ?? slug ?? "—";
+  // no rep: they started on the website's own application (getlamp.app/application)
+  const repName = (slug: string | null) =>
+    slug ? (reps.find((r) => r.slug === slug)?.name ?? slug) : "Website";
 
   return (
     <section className={cn(card, "mt-4 p-5")} data-started-leads>
@@ -120,6 +129,14 @@ export function StartedLeads({
                 </div>
                 <p className="mt-1 text-sm">{STAGE_INFO[stage].label}</p>
                 <p className="mt-0.5 text-xs text-smoke">On the call: {STAGE_INFO[stage].call}</p>
+                <ReminderStatus
+                  kind="lead"
+                  id={r.id}
+                  leftAt={leadLeftAt(r.created_at, r.answers)}
+                  sent={r.reminders_sent ?? 0}
+                  remindedAt={r.reminded_at}
+                  stoppedAt={r.reminders_stopped_at}
+                />
               </li>
             );
           })}

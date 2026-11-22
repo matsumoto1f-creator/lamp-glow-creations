@@ -262,3 +262,72 @@ export function clearDraft() {
     /* ignore */
   }
 }
+
+// ---------- The application's drop-off, for the staff dashboard ----------
+
+/** The six parts of the full application, in order (link-application.tsx STEPS). */
+export const APPLICATION_PARTS = [
+  ["business", "Application: business"],
+  ["owners", "Application: owners"],
+  ["property", "Application: real estate"],
+  ["funding", "Application: funding"],
+  ["statements", "Application: statements"],
+  ["sign", "Application: review and sign"],
+] as const;
+
+/**
+ * Where a visitor on a public application (the website's or a rep's public link) is, as the
+ * numbered step the dashboard's drop-off counts: the quick questions, the contact screen, the
+ * range ("result", as the old /apply flow called it), the parts of the application, then signed.
+ */
+export function funnelStep(s: {
+  quickStep: number;
+  contactDone: boolean;
+  showRange: boolean;
+  part: number;
+  signed: boolean;
+}): { step: number; question: string } {
+  const q = QUESTIONS.length;
+  if (!s.contactDone)
+    return s.quickStep < q
+      ? { step: Math.max(0, s.quickStep), question: QUESTIONS[Math.max(0, s.quickStep)]!.key }
+      : { step: q, question: "contact" };
+  if (s.showRange) return { step: q + 1, question: "result" };
+  if (s.signed) return { step: q + 2 + APPLICATION_PARTS.length, question: "signed" };
+  const i = Math.min(Math.max(0, s.part), APPLICATION_PARTS.length - 1);
+  return { step: q + 2 + i, question: `app_${APPLICATION_PARTS[i]![0]}` };
+}
+
+/** The dashboard's name for a drop-off step. */
+export function funnelLabel(key: string): string {
+  if (key === "contact") return "Contact details";
+  if (key === "result") return "Saw their options";
+  if (key === "signed") return "Signed";
+  const part = APPLICATION_PARTS.find(([id]) => `app_${id}` === key);
+  if (part) return part[1];
+  const q = QUESTIONS.find((x) => x.key === key);
+  return q ? q.title : key;
+}
+
+/** Quick answers a link carries (?amount=50-100k&industry=trucking), questions only. */
+export function quickFromParams(
+  params: Record<string, unknown>,
+): Partial<Record<ChoiceKey, string>> {
+  const all = answersFromParams(params);
+  const out: Partial<Record<ChoiceKey, string>> = {};
+  for (const q of QUESTIONS) {
+    const v = all[q.key];
+    if (v) out[q.key] = v;
+  }
+  return out;
+}
+
+/**
+ * The search params an application link keeps (and /apply passes on when it sends people to
+ * /application): the quick answers and the utm_ tags. Anything else is dropped.
+ */
+export function carriedSearch(params: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = { ...quickFromParams(params) };
+  for (const [k, v] of Object.entries(utmFromParams(params))) if (k !== "ref") out[k] = v;
+  return out;
+}

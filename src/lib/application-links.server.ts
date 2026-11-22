@@ -15,6 +15,7 @@ import {
   service,
   SITE_URL,
   SUPABASE_URL,
+  mayWork,
 } from "@/lib/funder-send.server";
 import {
   b64url,
@@ -32,14 +33,20 @@ import {
   signatureMatches,
 } from "@/lib/application-details";
 import { paperLink } from "@/lib/spoken-notes";
+import { inviteIdOf, REMIND_TOKEN, remindToken, sameText } from "@/lib/finish-reminders";
+import { remindSecret } from "@/lib/remind-secret.server";
 import {
   applicationUrl,
+  isEmailKind,
+  linkDays,
+  type EmailKind,
   buildAltMime,
   cleanEmail,
   EMAIL_RE,
   fromName,
   hashToken,
   inviteEmail,
+  finishEmail,
   isToken,
   MAX_LINK_UPLOADS,
   MAX_NOTE,
@@ -66,6 +73,24 @@ import {
   type Duplicate,
 } from "@/lib/new-application-email";
 import { dailyEmailLimit, limitReached, newYorkDayStart, roomLeft } from "@/lib/invite-limit";
+
+/** The kind of email a link went with; "apply" for links sent before kinds existed, or before
+ *  the email_kind column was added (20261119150000_invite_email_kind.sql). */
+async function storedKind(svc: ReturnType<typeof service>, id: string): Promise<EmailKind> {
+  const r = await svc.from("application_invites").select("email_kind").eq("id", id).maybeSingle();
+  const k = (r.data as { email_kind?: unknown } | null)?.email_kind;
+  return !r.error && isEmailKind(k) ? k : "apply";
+}
+
+/**
+ * The column isn't there yet (PostgREST's unknown-column codes), or its allowed list predates this
+ * kind (23514, a check refused the row: 20261120150000_invite_email_kind_thanks.sql not run yet).
+ * Either way the link still goes out with the chosen words, and a resend falls back to "apply".
+ */
+const noKindColumn = (e: { code?: string } | null) =>
+  !!e && (e.code === "PGRST204" || e.code === "42703" || e.code === "23514");
+
+const days = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString();
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SLUG = /^[a-z0-9][a-z0-9-]{1,31}$/;
@@ -210,6 +235,8 @@ export async function gmailSend(
     to: string;
     fromName: string;
     replyTo: string | null;
+    /** Copied in (the person the sending rep reports to). */
+    cc?: string | null;
     subject: string;
     text: string;
     html?: string;
@@ -221,6 +248,7 @@ export async function gmailSend(
       from: `${fromName(msg.fromName)} <${MAILBOX()}>`,
       to: msg.to,
       replyTo: msg.replyTo,
+      cc: msg.cc ?? null,
       subject: msg.subject,
       text: msg.text,
       html: msg.html ?? null,
@@ -243,19 +271,19 @@ export async function gmailSend(
   return { id: out.id ?? "" };
 }
 
-type Rep = {
+export type Rep = {
   slug: string;
   name: string;
   title: string | null;
   user_id: string | null;
   active: boolean;
   admin_slug: string | null;
-  /** The admin this rep reports to, when that admin is active: the name merchants see. */
+  /** Who this rep reports to, when active: copied on the rep's application emails. */
   lead: { name: string; title: string | null; user_id: string | null } | null;
 };
 
 /** The rep, or null when there's none. Throws when the lookup itself failed. */
-async function repBySlug(svc: Svc, slug: string): Promise<Rep | null> {
+export async function repBySlug(svc: Svc, slug: string): Promise<Rep | null> {
   const r = await svc
     .from("reps")
     .select("slug,name,title,user_id,active,admin_slug")
@@ -278,14 +306,22 @@ async function repBySlug(svc: Svc, slug: string): Promise<Rep | null> {
 }
 
 /**
- * Who merchants see: the admin a rep reports to, or the rep themselves. Application emails,
- * the application page and the signed PDF's "Lamp rep" box use this name; the file itself
- * still lands with the rep who sent it.
+ * Who merchants see: always the rep who sent it (Asad, 2026-11-19: "their rep is the person that
+ * sent the application"). Application emails, the application page and the signed PDF's "Lamp
+ * rep" box use this name. The person the rep reports to is copied on the emails (ccFor), not shown.
  */
-const facing = (r: Rep) => r.lead ?? { name: r.name, title: r.title, user_id: r.user_id };
+const facing = (r: Rep) => ({ name: r.name, title: r.title, user_id: r.user_id });
+
+/** The address the rep's application emails are copied to: whoever the rep reports to. */
+export async function ccFor(svc: Svc, rep: Rep | null): Promise<string | null> {
+  if (!rep?.lead) return null;
+  const lead = await emailOf(svc, rep.lead.user_id);
+  const own = await emailOf(svc, rep.user_id);
+  return lead && lead !== own ? lead : null;
+}
 
 /** Replies go to the admin and the rep, so either can answer; else to whoever sent it. */
-async function replyToFor(svc: Svc, rep: Rep, senderId: string): Promise<string | null> {
+export async function replyToFor(svc: Svc, rep: Rep, senderId: string): Promise<string | null> {
   const emails = [
     rep.lead ? await emailOf(svc, rep.lead.user_id) : null,
     await emailOf(svc, rep.user_id),
@@ -300,7 +336,7 @@ async function emailOf(svc: Svc, userId: string | null): Promise<string | null> 
 }
 
 /** Addresses that belong to Lamp's own team: they never get a merchant link. */
-async function staffEmails(svc: Svc): Promise<Set<string>> {
+export async function staffEmails(svc: Svc): Promise<Set<string>> {
   const roles = await svc.from("user_roles").select("user_id").in("role", ["admin", "rep"]);
   const ids = [...new Set(((roles.data ?? []) as { user_id: string }[]).map((r) => r.user_id))];
   if (!ids.length) return new Set();
@@ -312,14 +348,18 @@ async function staffEmails(svc: Svc): Promise<Set<string>> {
   );
 }
 
-const isLampAddress = (email: string, staff: Set<string>) =>
+export const isLampAddress = (email: string, staff: Set<string>) =>
   staff.has(email) || email.endsWith("@getlamp.app");
 
 /**
  * Whether a lead with this email or phone is marked do not contact, on any rep's list. Null when
  * the list couldn't be read: callers refuse rather than guess.
  */
-async function doNotContact(svc: Svc, email: string, phone: string): Promise<boolean | null> {
+export async function doNotContact(
+  svc: Svc,
+  email: string,
+  phone: string,
+): Promise<boolean | null> {
   const digits = phone.replace(/\D/g, "").slice(-10);
   const [byEmail, byPhone] = await Promise.all([
     email
@@ -441,6 +481,8 @@ export async function applicationInvites(request: Request): Promise<Response> {
     if (!rep) return json(409, { error: "That rep is gone." });
     const token = newToken();
     const note = typeof body.note === "string" ? body.note.slice(0, MAX_NOTE) : (inv.note ?? "");
+    // a resend keeps the words the link first went out with
+    const kind = await storedKind(svc, inv.id);
     const upd = await svc
       .from("application_invites")
       .update({
@@ -448,7 +490,7 @@ export async function applicationInvites(request: Request): Promise<Response> {
         channel,
         note: note || null,
         sent_at: new Date().toISOString(),
-        expires_at: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+        expires_at: days(linkDays(kind)),
         cancelled_at: null,
         last_error: null,
         sent_by: who.userId,
@@ -468,6 +510,7 @@ export async function applicationInvites(request: Request): Promise<Response> {
             detail: "New link made; the old one stopped working.",
             invite_id: inv.id,
             url,
+            kind,
           },
         ],
       });
@@ -489,8 +532,10 @@ export async function applicationInvites(request: Request): Promise<Response> {
       url,
       legalName: SITE.legalName,
       address: SITE.address,
+      kind,
     });
     const sent = await gmailSend(access.access, {
+      cc: await ccFor(svc, rep),
       to: inv.email!,
       fromName: `${facing(rep).name} at Lamp`,
       replyTo,
@@ -516,6 +561,9 @@ export async function applicationInvites(request: Request): Promise<Response> {
   if (body.action !== "send") return json(400, { error: "Unknown action." });
   const recipients = Array.isArray(body.recipients) ? body.recipients : [];
   if (recipients.length === 0) return json(400, { error: "Pick at least one person." });
+  if (body.kind !== undefined && !isEmailKind(body.kind))
+    return json(400, { error: "Unknown kind of email." });
+  const kind: EmailKind = body.kind ?? "apply";
   if (recipients.length > MAX_RECIPIENTS)
     return json(400, { error: `At most ${MAX_RECIPIENTS} at a time.` });
 
@@ -648,23 +696,28 @@ export async function applicationInvites(request: Request): Promise<Response> {
     }
 
     const token = newToken();
-    const ins = await svc
+    const row = {
+      token_hash: await hashToken(token),
+      rep_slug: rep.slug,
+      sent_by: who.userId,
+      engine_lead_id: lead?.id ?? null,
+      first_name: firstName || null,
+      last_name: lastName || null,
+      business_name: business || null,
+      email: email || null,
+      phone: phone || null,
+      channel,
+      note: note || null,
+      expires_at: days(linkDays(kind)),
+    };
+    let ins = await svc
       .from("application_invites")
-      .insert({
-        token_hash: await hashToken(token),
-        rep_slug: rep.slug,
-        sent_by: who.userId,
-        engine_lead_id: lead?.id ?? null,
-        first_name: firstName || null,
-        last_name: lastName || null,
-        business_name: business || null,
-        email: email || null,
-        phone: phone || null,
-        channel,
-        note: note || null,
-      })
+      .insert((kind === "apply" ? row : { ...row, email_kind: kind }) as never)
       .select("id")
       .single();
+    // before the email_kind column exists the link still goes out; a resend then uses "apply"
+    if (kind !== "apply" && noKindColumn(ins.error))
+      ins = await svc.from("application_invites").insert(row).select("id").single();
     if (ins.error || !ins.data) {
       results.push({ index, status: "failed", detail: "Couldn't record the link." });
       continue;
@@ -679,6 +732,7 @@ export async function applicationInvites(request: Request): Promise<Response> {
         detail: "Link ready to copy.",
         invite_id: inviteId,
         url,
+        kind,
       });
       continue;
     }
@@ -700,8 +754,10 @@ export async function applicationInvites(request: Request): Promise<Response> {
       url,
       legalName: SITE.legalName,
       address: SITE.address,
+      kind,
     });
     const sent = await gmailSend(access.access, {
+      cc: await ccFor(svc, rep),
       to: email,
       fromName: `${facing(rep).name} at Lamp`,
       replyTo,
@@ -746,17 +802,39 @@ type InviteRow = {
   draft_saved_at: string | null;
 };
 
-/** The invite, or null when the token matches none. Throws when the lookup itself failed. */
+const INVITE_COLUMNS =
+  "id,rep_slug,first_name,last_name,business_name,email,phone,opened_at,started_at,submitted_at,cancelled_at,expires_at,draft,draft_step,draft_saved_at";
+
+/**
+ * The invite, or null when the token matches none. Throws when the lookup itself failed. A
+ * reminder's link (finish-reminders.ts, REMIND_TOKEN) names the invite and is signed against the
+ * link's current token, so it opens the same application as the link the rep sent until a resend.
+ */
 async function inviteByToken(svc: Svc, token: string): Promise<InviteRow | null> {
+  const found = await inviteAndHash(svc, token);
+  return found ? found.invite : null;
+}
+
+/** The invite and the token hash the database knows it by (for signing through a reminder link). */
+async function inviteAndHash(
+  svc: Svc,
+  token: string,
+): Promise<{ invite: InviteRow; tokenHash: string } | null> {
+  const id = REMIND_TOKEN.test(token) ? inviteIdOf(token) : null;
   const r = await svc
     .from("application_invites")
-    .select(
-      "id,rep_slug,first_name,last_name,business_name,email,phone,opened_at,started_at,submitted_at,cancelled_at,expires_at,draft,draft_step,draft_saved_at",
-    )
-    .eq("token_hash", await hashToken(token))
+    .select(`${INVITE_COLUMNS},token_hash`)
+    .eq(id ? "id" : "token_hash", id ?? (await hashToken(token)))
     .maybeSingle();
   if (r.error) throw r.error;
-  return (r.data as InviteRow | null) ?? null;
+  const row = r.data as (InviteRow & { token_hash: string }) | null;
+  if (!row) return null;
+  if (id) {
+    const secret = await remindSecret(svc);
+    if (!secret || !sameText(token, await remindToken(secret, row.id, row.token_hash))) return null;
+  }
+  const { token_hash, ...invite } = row;
+  return { invite, tokenHash: token_hash };
 }
 
 /**
@@ -817,6 +895,14 @@ export async function openApplication(request: Request): Promise<Response> {
   }
 
   const slug = typeof body.rep === "string" ? body.rep.toLowerCase() : "";
+  // "" is the website's own application: open, with no rep (the file lands unassigned)
+  if (slug === "")
+    return json(200, {
+      state: "open",
+      draft: null,
+      rep: null,
+      prefill: null,
+    } satisfies OpenResponse);
   if (!SLUG.test(slug)) return none("unknown_rep");
   const rep = await repBySlug(svc, slug).catch(() => undefined);
   if (rep === undefined) return tryAgain();
@@ -934,6 +1020,7 @@ export async function applicationDraft(request: Request): Promise<Response> {
       filled: true,
     });
     const sent = await gmailSend(access.access, {
+      cc: await ccFor(svc, rep),
       to,
       fromName: `${facing(rep).name} at Lamp`,
       replyTo: await replyToFor(svc, rep, who.userId),
@@ -1000,7 +1087,9 @@ export async function submitApplication(request: Request): Promise<Response> {
   const token = body.token == null ? null : body.token;
   if (token !== null && !isToken(token)) return json(404, { error: ERR["link_not_found"]![1] });
   const rep = typeof body.rep === "string" ? body.rep.toLowerCase() : "";
-  if (token === null && !SLUG.test(rep)) return json(404, { error: ERR["unknown_rep"]![1] });
+  // with no token, "" is the website's own application (no rep); anything else must be a rep
+  if (token === null && rep !== "" && !SLUG.test(rep))
+    return json(404, { error: ERR["unknown_rep"]![1] });
 
   const d = cleanDetails(fromRow((body.details ?? {}) as Record<string, unknown>));
   const paper = body.form === "pdf";
@@ -1030,8 +1119,18 @@ export async function submitApplication(request: Request): Promise<Response> {
   const claimEmail = cleanEmail(owner.email);
   const claimToken = newToken();
   const svc = service();
+  // a reminder's link signs the same invite: the database knows it by the rep's link's hash
+  let tokenHash: string | null = null;
+  if (token && REMIND_TOKEN.test(token)) {
+    const found = await inviteAndHash(svc, token).catch(() => undefined);
+    if (found === undefined) return tryAgain();
+    if (!found) return json(404, { error: ERR["link_not_found"]![1] });
+    tokenHash = found.tokenHash;
+  } else if (token) {
+    tokenHash = await hashToken(token);
+  }
   const res = await svc.rpc("submit_link_application", {
-    _token_hash: token ? await hashToken(token) : null,
+    _token_hash: tokenHash,
     _rep_slug: token ? null : rep,
     _details: d,
     _signed_name: name,
@@ -1253,7 +1352,7 @@ export async function notifyNewApplication(request: Request): Promise<Response> 
   const svc = service();
   const app = await svc
     .from("applications")
-    .select("id,user_id,claim_token_hash,rep_slug,business_name")
+    .select("id,user_id,claim_token_hash,rep_slug,business_name,utm")
     .eq("id", appId)
     .maybeSingle();
   const a = app.data as {
@@ -1261,6 +1360,7 @@ export async function notifyNewApplication(request: Request): Promise<Response> 
     claim_token_hash: string | null;
     rep_slug: string | null;
     business_name: string | null;
+    utm: { source?: string } | null;
   } | null;
   if (!a) return json(404, { error: "We couldn't find that application." });
   let allowed =
@@ -1399,7 +1499,12 @@ export async function notifyNewApplication(request: Request): Promise<Response> 
   const balances = d.balances ?? [];
   const m = newApplicationEmail({
     repName: rep?.name ?? null,
-    via: a.user_id && !claim ? "their Lamp account" : "an application link",
+    via:
+      a.user_id && !claim
+        ? "their Lamp account"
+        : a.utm?.source === "website_application"
+          ? "the website's application"
+          : "an application link",
     signer: d.signed_name ?? "",
     business,
     owner,
@@ -1454,4 +1559,109 @@ export async function notifyNewApplication(request: Request): Promise<Response> 
     visible_to_merchant: false,
   });
   return json(200, { ok: true, sent: sentOk });
+}
+
+// ---------- POST /api/application/finish (the file's rep or an admin) ----------
+
+/**
+ * A file that came in through the website's quick questions has no full application. This emails
+ * the merchant (from partners@, in the sender's name) to finish it on their own account, so the
+ * full application lands on the same file. Refused when the file already has one, has no
+ * account or email, is marked do not contact, or was sent this email in the last day.
+ */
+export async function finishApplicationNudge(request: Request): Promise<Response> {
+  const nr = notReady();
+  if (nr) return nr;
+  const who = await caller(request);
+  if (!who) return json(401, { error: "Sign in first." });
+  let body: { application_id?: unknown };
+  try {
+    body = (await request.json()) as { application_id?: unknown };
+  } catch {
+    return json(400, { error: "Send JSON." });
+  }
+  const appId = typeof body.application_id === "string" ? body.application_id : "";
+  if (!UUID.test(appId)) return json(400, { error: "application_id is required." });
+  if (!(await mayWork(who, appId)))
+    return json(403, { error: "Only the file's rep or an admin can send this." });
+
+  const svc = service();
+  const [appRow, details, recent] = await Promise.all([
+    svc
+      .from("applications")
+      .select("id,user_id,rep_slug,first_name,business_name,email,phone")
+      .eq("id", appId)
+      .maybeSingle(),
+    svc
+      .from("application_details")
+      .select("application_id")
+      .eq("application_id", appId)
+      .maybeSingle(),
+    svc
+      .from("events")
+      .select("id")
+      .eq("application_id", appId)
+      .eq("kind", "email")
+      .like("body", "Asked to finish the full application%")
+      .gte("created_at", new Date(Date.now() - 86_400_000).toISOString())
+      .limit(1),
+  ]);
+  if (appRow.error || details.error || recent.error) return tryAgain();
+  const app = appRow.data as {
+    id: string;
+    user_id: string | null;
+    rep_slug: string | null;
+    first_name: string | null;
+    business_name: string | null;
+    email: string | null;
+    phone: string | null;
+  } | null;
+  if (!app) return json(404, { error: "We couldn't find that file." });
+  if (details.data) return json(409, { error: "This file already has the full application." });
+  if (!app.user_id)
+    return json(409, {
+      error:
+        "This merchant has no account yet, so send the application from Staff > Applications instead.",
+    });
+  if ((recent.data ?? []).length) return json(429, { error: "Already sent in the last day." });
+  const to = cleanEmail(app.email) || (await emailOf(svc, app.user_id)) || "";
+  if (!EMAIL_RE.test(to)) return json(409, { error: "This file has no email address." });
+  const dnc = await doNotContact(svc, to, app.phone ?? "");
+  if (dnc === null) return tryAgain();
+  if (dnc) return json(409, { error: "Marked do not contact." });
+
+  // who it's from: the file's rep (in their admin's name when they report to one), else the sender
+  const mine = await who.client.rpc("current_rep_slug");
+  const slug = app.rep_slug ?? ((mine.data as string | null) || null);
+  const rep = slug ? await repBySlug(svc, slug).catch(() => undefined) : null;
+  if (rep === undefined) return tryAgain();
+  const name = rep ? facing(rep).name : "The Lamp team";
+  const access = await gmailAccessToken(svc).catch(() => ({ error: "Couldn't reach Google." }));
+  if ("error" in access) return json(412, { error: access.error });
+  const mail = finishEmail({
+    firstName: app.first_name ?? "",
+    businessName: app.business_name ?? "",
+    repName: name,
+    site: SITE_URL(),
+    legalName: SITE.legalName,
+    address: SITE.address,
+  });
+  const sent = await gmailSend(access.access, {
+    cc: await ccFor(svc, rep),
+    to,
+    fromName: `${name} at Lamp`,
+    replyTo: rep ? await replyToFor(svc, rep, who.userId) : await emailOf(svc, who.userId),
+    subject: mail.subject,
+    text: mail.text,
+    html: mail.html,
+  });
+  if ("error" in sent) return json(502, { error: `Didn't send: ${sent.error}` });
+  await svc.from("events").insert({
+    application_id: app.id,
+    actor_user_id: who.userId,
+    kind: "email",
+    body: `Asked to finish the full application (emailed ${to})`,
+    payload: { message_id: sent.id },
+  } as never);
+  return json(200, { ok: true, to });
 }

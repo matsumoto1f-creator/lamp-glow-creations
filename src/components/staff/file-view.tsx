@@ -29,6 +29,9 @@ import { CameIn } from "@/components/staff/came-in";
 import { watching } from "@/lib/team-lead";
 import { FileOffers } from "@/components/staff/file-offers";
 import { FileSend } from "@/components/staff/file-send";
+import { QuickOnly } from "@/components/staff/quick-only";
+import { StaffDocUpload } from "@/components/staff/staff-doc-upload";
+import { DriveLink } from "@/components/staff/drive-link";
 
 type FileRow = {
   id: string;
@@ -411,7 +414,9 @@ export function FileView({
               ? "Building PDF…"
               : full && full !== RESTRICTED && full.signedAt
                 ? "Signed application PDF"
-                : "Application PDF"}
+                : full === null
+                  ? "Quick answers PDF"
+                  : "Application PDF"}
           </button>
           {full && full !== RESTRICTED && full.signedAt && (
             <button
@@ -426,6 +431,15 @@ export function FileView({
           )}
         </div>
       </div>
+      {/* no full application on the file (null once loaded; RESTRICTED is a lead who can't see it) */}
+      {full === null && (
+        <QuickOnly
+          fileId={file.id}
+          firstName={file.first_name}
+          hasAccount={!!file.user_id}
+          canSend={!watching(isAdmin, repSlug, file.rep_slug)}
+        />
+      )}
       <NextStep fileId={file.id} />
 
       {file.user_id === null && (
@@ -609,6 +623,8 @@ export function FileView({
                 admins.
               </p>
             )}
+            {!watch && <DriveLink fileId={fileId} docCount={docs.length} />}
+            {!watch && <StaffDocUpload fileId={fileId} onDone={() => void load()} />}
             {docs.length === 0 ? (
               <p className="mt-2 text-sm text-smoke">Nothing uploaded yet.</p>
             ) : (

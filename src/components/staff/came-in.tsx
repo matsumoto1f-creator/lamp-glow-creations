@@ -5,7 +5,8 @@ import { stamp } from "@/lib/staff";
 /**
  * How a file came in, so nobody wonders whose deal it is: the personal link a rep sent (who
  * sent it, when it went out, was opened, started and signed), a rep's public link (step by
- * step or the one-page form), or the website. Reads what the database already keeps on the
+ * step or the one-page form), the website's full application (getlamp.app/application, no rep),
+ * or the website's older quick application. Reads what the database already keeps on the
  * file (invite_id, source_rep_slug, utm) and on the link (application_invites).
  */
 
@@ -88,6 +89,12 @@ export function CameIn({ fileId, reps }: { fileId: string; reps: TeamRep[] }) {
           utm["form"] === "pdf" ? "the one-page form (B)" : "the step-by-step application (A)";
         setLine(
           `${repName(src.source_rep_slug)}'s public link, ${form} · signed ${stamp(src.created_at)}`,
+        );
+        return;
+      }
+      if (utm["source"] === "website_application") {
+        setLine(
+          `The website's application (getlamp.app/application) · signed ${stamp(src.created_at)}`,
         );
         return;
       }

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { inviteLeftAt } from "@/lib/finish-reminders";
+import { ReminderStatus } from "@/components/staff/reminder-status";
 import { Loader2, Plus } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
@@ -35,10 +37,14 @@ type Invite = {
   expires_at: string;
   application_id: string | null;
   last_error: string | null;
+  draft_saved_at: string | null;
+  reminders_sent: number;
+  reminded_at: string | null;
+  reminders_stopped_at: string | null;
 };
 
 const COLUMNS =
-  "id,rep_slug,engine_lead_id,first_name,last_name,business_name,email,phone,channel,sent_at,opened_at,started_at,submitted_at,cancelled_at,expires_at,application_id,last_error";
+  "id,rep_slug,engine_lead_id,first_name,last_name,business_name,email,phone,channel,sent_at,opened_at,started_at,submitted_at,cancelled_at,expires_at,application_id,last_error,draft_saved_at,reminders_sent,reminded_at,reminders_stopped_at";
 const LIMIT = 200;
 
 type Filter = "all" | "waiting" | "signed" | "stopped";
@@ -139,7 +145,7 @@ export function SentApplications({
       return;
     }
     setError("");
-    setRows(data as Invite[]);
+    setRows(data as unknown as Invite[]);
   }, [filter, rep, isAdmin]);
 
   useEffect(() => {
@@ -348,6 +354,18 @@ export function SentApplications({
                           Open file
                         </Link>
                       )}
+                      {st === "started" && r.started_at && r.email && (
+                        <div className="max-w-[16rem]">
+                          <ReminderStatus
+                            kind="invite"
+                            id={r.id}
+                            leftAt={inviteLeftAt(r.started_at, r.draft_saved_at)}
+                            sent={r.reminders_sent ?? 0}
+                            remindedAt={r.reminded_at}
+                            stoppedAt={r.reminders_stopped_at}
+                          />
+                        </div>
+                      )}
                       {st === "stopped" && r.last_error && (
                         <div className="mt-1 max-w-[14rem] text-xs text-destructive">
                           Email failed: {r.last_error}
@@ -454,6 +472,7 @@ function OutcomeLine({
           email={r.email ?? ""}
           phone={r.phone ?? ""}
           repName={repName}
+          kind={res.kind ?? "apply"}
         />
       </div>
     );

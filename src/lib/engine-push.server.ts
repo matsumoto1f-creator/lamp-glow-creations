@@ -5,7 +5,7 @@
 // Never import this file from browser code: the route file loads it inside its handlers.
 import { env, json, SERVICE_KEY, service, SUPABASE_URL } from "@/lib/funder-send.server";
 import { sameSecret } from "@/lib/funder-send";
-import { parsePush, perRep } from "@/lib/engine-push";
+import { parseEmails, parsePush, perRep } from "@/lib/engine-push";
 
 const allowed = (request: Request) =>
   sameSecret(request.headers.get("x-engine-push-secret") ?? "", env("ENGINE_PUSH_SECRET"));
@@ -41,6 +41,39 @@ async function takers(db: ReturnType<typeof service>) {
   return out;
 }
 
+async function pushEmails(db: ReturnType<typeof service>, body: unknown): Promise<Response> {
+  const { emails, problems } = parseEmails(body);
+  const dry = (body as { dry_run?: boolean } | null)?.dry_run === true;
+  if (dry || emails.length === 0)
+    return json(200, { updated: 0, would_update: emails.length, problems, dry_run: dry });
+  let updated = 0;
+  let not_found = 0;
+  for (const e of emails) {
+    const r = await db
+      .from("engine_leads")
+      .update({
+        email: e.email,
+        email_confidence: e.email_confidence,
+        email_method: e.email_method,
+      } as never)
+      .eq("source", e.source)
+      .eq("source_key", e.source_key)
+      .select("id");
+    // the two columns are not there yet (20261120190000_engine_lead_email_source.sql not run)
+    if (r.error && (r.error.code === "PGRST204" || r.error.code === "42703"))
+      return json(503, {
+        updated,
+        not_found,
+        problems,
+        error: "The email source columns are not in the database yet.",
+      });
+    if (r.error) return json(500, { updated, not_found, problems, error: r.error.message });
+    if ((r.data ?? []).length) updated += 1;
+    else not_found += 1;
+  }
+  return json(200, { updated, not_found, problems });
+}
+
 /** GET /api/engine/push: who can take leads today and how many untouched leads each already has. */
 export async function pushStatus(request: Request): Promise<Response> {
   const bad = ready();
@@ -58,6 +91,12 @@ export async function pushStatus(request: Request): Promise<Response> {
  * POST /api/engine/push { leads: [...], dry_run?: boolean }
  * Upserts by (source, source_key) like the admin's Upload: a lead already in Lamp is only
  * reassigned, and what a rep recorded on it stays. Each rep gets one notification for the batch.
+ *
+ * POST /api/engine/push { emails: [...], dry_run?: boolean } is the other call (2026-11-20): the
+ * engine's best address for the owner of leads ALREADY in Lamp. It sets only the lead's email and
+ * the two columns that say where it came from. It never adds a lead, reassigns one, touches what a
+ * rep typed, or notifies anyone. The answer says how many leads were updated and how many it did
+ * not find.
  */
 export async function pushLeads(request: Request): Promise<Response> {
   const bad = ready();
@@ -70,6 +109,7 @@ export async function pushLeads(request: Request): Promise<Response> {
     return json(400, { error: "Send JSON." });
   }
   const db = service();
+  if ((body as { emails?: unknown } | null)?.emails !== undefined) return pushEmails(db, body);
   let reps;
   try {
     reps = await takers(db);

@@ -13,6 +13,7 @@ import {
   REFUSED_TEXT,
   unreadCount,
 } from "../src/lib/chat.ts";
+import repsPublicFieldsSql from "../supabase/migrations/20261123200000_reps_public_fields.sql" with { type: "text" };
 
 Deno.test("numbers that don't belong in chat are refused", () => {
   for (const text of [
@@ -110,17 +111,14 @@ Deno.test(
   },
 );
 
-Deno.test("the merchant sees the file's own rep, never the person they report to", () => {
-  const reps = [
-    { slug: "darrell", name: "Darrell Jones", admin_slug: "zeus" },
-    { slug: "zeus", name: "Zeus Smith", admin_slug: null },
-    { slug: "solo", name: "Sam Solo", admin_slug: null },
-  ];
-  assertEquals(contactName("darrell", reps), "Darrell");
-  assertEquals(contactName("solo", reps), "Sam");
-  assertEquals(contactName(null, reps), "the Lamp team");
-  assertEquals(contactName("gone", reps), "the Lamp team");
-  assertEquals(contactName("darrell", [reps[0]!]), "Darrell");
+Deno.test("the merchant sees the file's own rep, as the application emails name them", () => {
+  // file_contact() picks the person (the file's own active rep, never who they report to) and
+  // answers only for the merchant's own file; the page keeps the first name
+  assertEquals(contactName("Zeus Smith"), "Zeus");
+  assertEquals(contactName("  Sam   Solo "), "Sam");
+  assertEquals(contactName(null), "the Lamp team");
+  assertEquals(contactName(undefined), "the Lamp team");
+  assertEquals(contactName("   "), "the Lamp team");
 });
 
 Deno.test("merchant conversations name people as each side knows them", () => {
@@ -156,4 +154,12 @@ Deno.test("the nudge email copes with no name and escapes what it's given", () =
   assert(x.html.includes("Hi &lt;b&gt;Al&lt;/b&gt;,"));
   assert(x.html.includes("Ray &quot;R&quot; &amp; Co"));
   assert(!x.html.includes("<b>Al</b>"));
+});
+
+Deno.test("file_contact() names the file's own rep, never the person they report to", () => {
+  const fn = repsPublicFieldsSql.slice(repsPublicFieldsSql.indexOf("function public.file_contact"));
+  const body = fn.slice(0, fn.indexOf("$$;"));
+  assertEquals(body.includes("admin_slug"), false);
+  assertEquals(body.includes("select r.name"), true);
+  assertEquals(body.includes("a.user_id = auth.uid()"), true);
 });

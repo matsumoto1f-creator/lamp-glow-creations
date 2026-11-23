@@ -1,5 +1,8 @@
 -- Offers a rep never showed stay hidden from the merchant (2026-11-03).
 --
+-- Renumbered again 2026-11-23 (was 20261112160000) to sort after everything on main; checked
+-- that nothing on main since re-creates add_offer(), offer_funder_name(), my_offers or the
+-- merchants' offers rule (team leads, 2026-11-12, changed only the staff offers rules).
 -- Renumbered 2026-11-12 (written as 20261103120000) so it sorts after everything on main. One
 -- change since: add_offer()'s three arguments that may be empty (submission, expiry, note) come
 -- last and default to null, so the generated types mark them optional and the page leaves them

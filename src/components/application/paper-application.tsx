@@ -14,7 +14,12 @@ import {
   type Details,
 } from "@/lib/application-details";
 import { amount } from "@/lib/real-estate";
-import { applicationPdfBytes, CHECKBOXES, downloadApplicationPdf } from "@/lib/application-pdf";
+import { CHECKBOXES } from "@/lib/application-boxes";
+import {
+  applicationPdfBytes,
+  downloadApplicationPdf,
+  warmApplicationPdf,
+} from "@/lib/application-pdf-lazy";
 import {
   BLANK_APPLICATION_PDF,
   EMAIL_RE,
@@ -161,6 +166,9 @@ export function PaperApplication({
   useEffect(() => {
     document.documentElement.dataset["theme"] = "light";
   }, []);
+
+  // the PDF builder arrives in the background, so it is there by the time they sign
+  useEffect(() => warmApplicationPdf(), []);
 
   useEffect(() => {
     let live = true;

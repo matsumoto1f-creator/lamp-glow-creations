@@ -30,7 +30,11 @@ import {
   type Details,
 } from "@/lib/application-details";
 import { missingRealEstate, usd0, amount } from "@/lib/real-estate";
-import { applicationPdfBytes, downloadApplicationPdf } from "@/lib/application-pdf";
+import {
+  applicationPdfBytes,
+  downloadApplicationPdf,
+  warmApplicationPdf,
+} from "@/lib/application-pdf-lazy";
 import {
   EMAIL_RE,
   inviteSms,
@@ -236,6 +240,9 @@ export function LinkApplication({
   useEffect(() => {
     document.documentElement.dataset["theme"] = "light";
   }, []);
+
+  // the PDF builder arrives in the background, so it is there by the time they sign
+  useEffect(() => warmApplicationPdf(), []);
 
   useEffect(() => {
     let live = true;

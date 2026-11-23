@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { stamp } from "@/lib/staff";
 import { btnPrimary, card } from "@/components/site/layout";
 import { chip } from "@/components/staff/field-styles";
-import { applicationPdfBytes } from "@/lib/application-pdf";
+import { applicationPdfBytes } from "@/lib/application-pdf-lazy";
 import { detailsToPdf } from "@/lib/application-details";
 import { revealFullApplication } from "@/lib/full-application";
 import type { Answers } from "@/lib/apply";

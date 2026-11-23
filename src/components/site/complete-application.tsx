@@ -15,7 +15,7 @@ import {
   signatureMatches,
   type Details,
 } from "@/lib/application-details";
-import { applicationPdfBytes, downloadApplicationPdf } from "@/lib/application-pdf";
+import { applicationPdfBytes, downloadApplicationPdf } from "@/lib/application-pdf-lazy";
 import {
   BusinessSection,
   FundingSection,

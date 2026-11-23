@@ -2,7 +2,7 @@
 // Details the online application saves, so a signed paper form lands in the rep's files the same
 // way. Box positions come from application-pdf (TEXT_FIELDS, CHECKBOXES); this file only says
 // which answer each box holds, its label and how it's typed. Pure functions only.
-import { CHECKBOXES, TEXT_FIELDS } from "@/lib/application-pdf";
+import { CHECKBOXES, TEXT_FIELDS } from "@/lib/application-boxes";
 import {
   CREDIT_BANDS,
   emptyBalance,

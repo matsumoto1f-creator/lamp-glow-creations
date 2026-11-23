@@ -12,12 +12,10 @@ import { cn } from "@/lib/utils";
 export function QuickOnly({
   fileId,
   firstName,
-  hasAccount,
   canSend,
 }: {
   fileId: string;
   firstName: string | null;
-  hasAccount: boolean;
   canSend: boolean;
 }) {
   const [busy, setBusy] = useState(false);
@@ -49,28 +47,24 @@ export function QuickOnly({
         application, so the PDF has no SSN, date of birth, addresses, EIN, owners or signature.
         Nothing is hidden: it hasn&apos;t been given yet.
       </p>
-      {canSend &&
-        (hasAccount ? (
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              className={cn(btnOutline, "px-4 py-2 max-md:min-h-11")}
-              disabled={busy || out?.ok}
-              onClick={() => void send()}
-              data-send-finish
-            >
-              {busy ? <Loader2 className="size-4 animate-spin" /> : <Mail className="size-4" />}
-              Email {firstName?.trim() || "them"} to finish it
-            </button>
-            <span className="text-xs text-smoke">
-              They sign in on getlamp.app and finish it there; it lands on this file.
-            </span>
-          </div>
-        ) : (
-          <p className="mt-2 text-xs text-smoke">
-            They have no account yet: send the full application from Staff &gt; Applications.
-          </p>
-        ))}
+      {canSend && (
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            className={cn(btnOutline, "px-4 py-2 max-md:min-h-11")}
+            disabled={busy || out?.ok}
+            onClick={() => void send()}
+            data-send-finish
+          >
+            {busy ? <Loader2 className="size-4 animate-spin" /> : <Mail className="size-4" />}
+            Email {firstName?.trim() || "them"} to finish it
+          </button>
+          <span className="text-xs text-smoke">
+            They get their application with what this file already knows filled in; it lands on this
+            file.
+          </span>
+        </div>
+      )}
       {out && (
         <p
           className={cn("mt-2 text-sm", out.ok ? "text-forest" : "text-destructive")}

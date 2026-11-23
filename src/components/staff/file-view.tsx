@@ -436,7 +436,6 @@ export function FileView({
         <QuickOnly
           fileId={file.id}
           firstName={file.first_name}
-          hasAccount={!!file.user_id}
           canSend={!watching(isAdmin, repSlug, file.rep_slug)}
         />
       )}

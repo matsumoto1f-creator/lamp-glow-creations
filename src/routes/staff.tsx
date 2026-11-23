@@ -26,6 +26,7 @@ import { AiActivity } from "@/components/staff/ai-activity";
 import { NotificationsBell } from "@/components/staff/notifications";
 import { AppLinks } from "@/components/staff/app-links";
 import { Training } from "@/components/staff/training";
+import { Calendar } from "@/components/staff/calendar";
 import {
   MySignedDocuments,
   RepDocumentsAdmin,
@@ -51,6 +52,7 @@ type StaffSearch = {
 };
 
 type View =
+  | "calendar"
   | "dashboard"
   | "engine"
   | "lists"
@@ -63,6 +65,7 @@ type View =
   | "ai"
   | "training";
 const VIEWS: readonly View[] = [
+  "calendar",
   "dashboard",
   "engine",
   "lists",
@@ -78,6 +81,7 @@ const VIEWS: readonly View[] = [
 /** Tabs only admins see. */
 const ADMIN_VIEWS: readonly View[] = ["autopilot", "team", "ai"];
 const VIEW_TITLE: Record<View, string> = {
+  calendar: "Calendar",
   dashboard: "Dashboard",
   engine: "Engine leads",
   lists: "My lists",
@@ -311,6 +315,8 @@ function Staff() {
             repSlug={access.repSlug}
             reps={reps}
           />
+        ) : view === "calendar" ? (
+          <Calendar isAdmin={access.isAdmin} />
         ) : view === "dashboard" ? (
           <Dashboard isAdmin={access.isAdmin} repSlug={access.repSlug} />
         ) : view === "engine" ? (

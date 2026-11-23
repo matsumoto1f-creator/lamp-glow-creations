@@ -65,6 +65,7 @@ import {
 } from "@/lib/application-links";
 import { NEW_APPLICATION_COPY, SITE } from "@/lib/site";
 import { safeDraft } from "@/lib/application-draft";
+import { copyMissingNote } from "@/lib/signed-copy";
 import type { Json } from "@/integrations/supabase/types";
 import { recordSigned } from "@/lib/tracking.server";
 import {
@@ -1516,7 +1517,7 @@ const stageText = (s: string) => (s.charAt(0).toUpperCase() + s.slice(1)).replac
 export async function notifyNewApplication(request: Request): Promise<Response> {
   const nr = notReady();
   if (nr) return nr;
-  let body: { application_id?: unknown; claim_token?: unknown };
+  let body: { application_id?: unknown; claim_token?: unknown; copy_error?: unknown };
   try {
     body = (await request.json()) as typeof body;
   } catch {
@@ -1564,6 +1565,22 @@ export async function notifyNewApplication(request: Request): Promise<Response> 
   if (!d?.signed_at) return json(409, { error: "Not signed yet." });
   if (Date.now() - Date.parse(d.signed_at) > 48 * 3_600_000)
     return json(410, { error: "Too late." });
+
+  // The page could not save the signed PDF copy: say so on the timeline, with why, so nobody
+  // finds a signed file without its copy and has to guess. Only while the copy really is missing.
+  if (typeof body.copy_error === "string" && body.copy_error.trim()) {
+    const copy = await svc
+      .from("documents")
+      .select("id", { count: "exact", head: true })
+      .eq("application_id", appId)
+      .eq("kind", "funder_application");
+    if (!copy.error && (copy.count ?? 0) === 0)
+      await svc.from("events").insert({
+        application_id: appId,
+        kind: "system",
+        body: copyMissingNote(body.copy_error.trim()),
+      } as never);
+  }
 
   const already = await svc
     .from("events")

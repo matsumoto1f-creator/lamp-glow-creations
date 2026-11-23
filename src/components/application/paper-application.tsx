@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, Loader2, PenLine, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { saveSignedCopy } from "@/lib/signed-copy";
 import {
   BANKRUPTCY,
   cleanDetails,
@@ -439,16 +440,16 @@ export function PaperApplication({
       const j = (await up.json().catch(() => ({}))) as { error?: string };
       return up.ok ? null : (j.error ?? "Didn't upload");
     };
-    try {
-      const bytes = await applicationPdfBytes(src, values, "lender");
-      await upload(
-        new Blob([bytes as BlobPart], { type: "application/pdf" }),
-        "Signed application.pdf",
-        "funder_application",
-      );
-    } catch {
-      /* staff build it from the saved answers */
-    }
+    // two tries, and what went wrong goes on the file's timeline (see signed-copy.ts)
+    const copyError = await saveSignedCopy(
+      () => applicationPdfBytes(src, values, "lender"),
+      (bytes) =>
+        upload(
+          new Blob([bytes as BlobPart], { type: "application/pdf" }),
+          "Signed application.pdf",
+          "funder_application",
+        ),
+    );
     const uploads: Done["uploads"] = [];
     for (const f of files) {
       try {
@@ -462,7 +463,11 @@ export function PaperApplication({
       await fetch("/api/application/notify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ application_id: out.application_id, claim_token: out.claim_token }),
+        body: JSON.stringify({
+          application_id: out.application_id,
+          claim_token: out.claim_token,
+          ...(copyError ? { copy_error: copyError } : {}),
+        }),
       });
     } catch {
       /* the file shows as Signed on the rep's Applications tab */

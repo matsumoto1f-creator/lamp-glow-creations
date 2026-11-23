@@ -13,6 +13,8 @@ import faqPage from "../src/routes/faq.tsx" with { type: "text" };
 import howItWorks from "../src/routes/how-it-works.tsx" with { type: "text" };
 import apply from "../src/routes/apply.tsx" with { type: "text" };
 import applyRep from "../src/routes/apply_.$rep.tsx" with { type: "text" };
+import applicationIndex from "../src/routes/application.index.tsx" with { type: "text" };
+import remindersStop from "../src/routes/reminders.stop.tsx" with { type: "text" };
 import offerCheck from "../src/routes/offer-check.tsx" with { type: "text" };
 import privacy from "../src/routes/privacy.tsx" with { type: "text" };
 import terms from "../src/routes/terms.tsx" with { type: "text" };
@@ -40,6 +42,8 @@ const PUBLIC: Record<string, string> = {
   "src/routes/how-it-works.tsx": howItWorks,
   "src/routes/apply.tsx": apply,
   "src/routes/apply_.$rep.tsx": applyRep,
+  "src/routes/application.index.tsx": applicationIndex,
+  "src/routes/reminders.stop.tsx": remindersStop,
   "src/routes/offer-check.tsx": offerCheck,
   "src/routes/privacy.tsx": privacy,
   "src/routes/terms.tsx": terms,

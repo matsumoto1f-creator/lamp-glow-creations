@@ -84,7 +84,9 @@ Deno.test("the server checks the limit on both ways an email goes out", () => {
   const send = server.slice(server.indexOf('body.action !== "send"'));
   assert(send.includes("emailRoom = roomLeft(emailLimit, sentToday)"));
   const skip = send.indexOf("detail: limitReached(emailLimit)");
-  const insert = send.indexOf('.from("application_invites")\n      .insert(');
+  const insert = send.indexOf('.from("application_invites")\n        .insert(');
+  // an application that is already open is found, and stamped as sent again, after the limit too
+  assert(send.indexOf("again = await openInvite(") > skip);
   assert(
     skip > 0 && insert > skip,
     "the limit is checked before the row is written or the email sent",

@@ -419,6 +419,62 @@ export async function doNotContact(
  * new link (the old one stops working). Cancel stops a link. The database rules decide which
  * leads and links a caller may touch: everything is looked up through the caller's own client.
  */
+/**
+ * The link an application already has, to send again. The database keeps only the hash of the
+ * token a rep's link went out with, so the same application is reached through a link signed
+ * against that hash (the way a reminder's is): the earlier emails keep working and nothing the
+ * merchant or the rep filled in is lost. Null when the reminders' secret isn't set up; the caller
+ * then falls back to a new link.
+ */
+async function sameLink(
+  svc: Svc,
+  repSlug: string,
+  invite: { id: string; token_hash: string },
+): Promise<string | null> {
+  const secret = await remindSecret(svc).catch(() => "");
+  if (!secret) return null;
+  return applicationUrl(
+    SITE_URL(),
+    repSlug,
+    await remindToken(secret, invite.id, invite.token_hash),
+  );
+}
+
+type OpenInvite = { id: string; token_hash: string; draft_saved_at: string | null };
+
+/**
+ * The application this merchant already has open with this rep: for the lead when there is one,
+ * else for the email address. One a rep filled in comes first, then the newest. Asad, 2026-11-23:
+ * "we're always sending a link to a prefilled or partially filled out application if we're
+ * resending"; a merchant had been sent a blank second application beside the filled-in one.
+ * Throws when the lookup itself fails.
+ */
+async function openInvite(
+  svc: Svc,
+  repSlug: string,
+  leadId: number | null,
+  email: string,
+): Promise<OpenInvite | null> {
+  const find = async (col: "engine_lead_id" | "email", value: number | string) => {
+    const r = await svc
+      .from("application_invites")
+      .select("id,token_hash,draft_saved_at")
+      .eq("rep_slug", repSlug)
+      .eq(col, value)
+      .is("submitted_at", null)
+      .is("cancelled_at", null)
+      .gt("expires_at", new Date().toISOString())
+      .order("draft_saved_at", { ascending: false, nullsFirst: false })
+      .order("sent_at", { ascending: false })
+      .limit(1);
+    if (r.error) throw r.error;
+    return ((r.data ?? [])[0] as OpenInvite | undefined) ?? null;
+  };
+  return (
+    (leadId ? await find("engine_lead_id", leadId) : null) ?? (email ? find("email", email) : null)
+  );
+}
+
 export async function applicationInvites(request: Request): Promise<Response> {
   const nr = notReady();
   if (nr) return nr;
@@ -503,14 +559,27 @@ export async function applicationInvites(request: Request): Promise<Response> {
     const rep = await repBySlug(svc, inv.rep_slug).catch(() => undefined);
     if (rep === undefined) return tryAgain();
     if (!rep) return json(409, { error: "That rep is gone." });
-    const token = newToken();
     const note = typeof body.note === "string" ? body.note.slice(0, MAX_NOTE) : (inv.note ?? "");
     // a resend keeps the words the link first went out with
     const kind = await storedKind(svc, inv.id);
+    // and the link itself: the same application, so the earlier emails still open it
+    const kept = await svc
+      .from("application_invites")
+      .select("token_hash,draft_saved_at")
+      .eq("id", inv.id)
+      .maybeSingle();
+    if (kept.error) return tryAgain();
+    const had = kept.data as { token_hash: string; draft_saved_at: string | null } | null;
+    const same = had
+      ? await sameLink(svc, rep.slug, { id: inv.id, token_hash: had.token_hash })
+      : null;
+    // only without the reminders' secret: a new link, and the old one stops
+    const token = same ? null : newToken();
+    const filled = kind === "apply" && !!had?.draft_saved_at;
     const upd = await svc
       .from("application_invites")
       .update({
-        token_hash: await hashToken(token),
+        ...(token ? { token_hash: await hashToken(token) } : {}),
         channel,
         note: note || null,
         sent_at: new Date().toISOString(),
@@ -524,14 +593,16 @@ export async function applicationInvites(request: Request): Promise<Response> {
       .select("id");
     if (upd.error) return json(500, { error: "Couldn't make a new link." });
     if (!upd.data?.length) return json(409, { error: SIGNED });
-    const url = applicationUrl(SITE_URL(), rep.slug, token);
+    const url = same ?? applicationUrl(SITE_URL(), rep.slug, token);
     if (channel === "link") {
       return json(200, {
         results: [
           {
             index: 0,
             status: "link",
-            detail: "New link made; the old one stopped working.",
+            detail: same
+              ? "Same application, link ready to copy."
+              : "New link made; the old one stopped working.",
             invite_id: inv.id,
             url,
             kind,
@@ -557,6 +628,7 @@ export async function applicationInvites(request: Request): Promise<Response> {
       legalName: SITE.legalName,
       address: SITE.address,
       kind,
+      ...(filled ? { filled: true } : {}),
     });
     const sent = await gmailSend(access.access, {
       cc: await ccFor(svc, rep),
@@ -719,6 +791,15 @@ export async function applicationInvites(request: Request): Promise<Response> {
       emailRoom--;
     }
 
+    // the application this merchant already has open goes out again; never a blank second one
+    let again: OpenInvite | null;
+    try {
+      again = await openInvite(svc, rep.slug, lead?.id ?? null, email);
+    } catch {
+      results.push({ index, status: "failed", detail: "Couldn't check for an open application." });
+      continue;
+    }
+    const againUrl = again ? await sameLink(svc, rep.slug, again) : null;
     const token = newToken();
     const row = {
       token_hash: await hashToken(token),
@@ -734,26 +815,56 @@ export async function applicationInvites(request: Request): Promise<Response> {
       note: note || null,
       expires_at: days(linkDays(kind)),
     };
-    let ins = await svc
-      .from("application_invites")
-      .insert((kind === "apply" ? row : { ...row, email_kind: kind }) as never)
-      .select("id")
-      .single();
-    // before the email_kind column exists the link still goes out; a resend then uses "apply"
-    if (kind !== "apply" && noKindColumn(ins.error))
-      ins = await svc.from("application_invites").insert(row).select("id").single();
-    if (ins.error || !ins.data) {
-      results.push({ index, status: "failed", detail: "Couldn't record the link." });
-      continue;
+    let inviteId: string;
+    let url: string;
+    if (again && againUrl) {
+      // same row, same link: stamped as sent now, with the address and channel it goes out on
+      const upd = await svc
+        .from("application_invites")
+        .update({
+          channel,
+          sent_at: new Date().toISOString(),
+          sent_by: who.userId,
+          last_error: null,
+          ...(email ? { email } : {}),
+          ...(phone ? { phone } : {}),
+          ...(note ? { note } : {}),
+          ...(lead ? { engine_lead_id: lead.id } : {}),
+        })
+        .eq("id", again.id)
+        .is("submitted_at", null)
+        .select("id");
+      if (upd.error || !upd.data?.length) {
+        results.push({ index, status: "failed", detail: "Couldn't record the link." });
+        continue;
+      }
+      inviteId = again.id;
+      url = againUrl;
+    } else {
+      let ins = await svc
+        .from("application_invites")
+        .insert((kind === "apply" ? row : { ...row, email_kind: kind }) as never)
+        .select("id")
+        .single();
+      // before the email_kind column exists the link still goes out; a resend then uses "apply"
+      if (kind !== "apply" && noKindColumn(ins.error))
+        ins = await svc.from("application_invites").insert(row).select("id").single();
+      if (ins.error || !ins.data) {
+        results.push({ index, status: "failed", detail: "Couldn't record the link." });
+        continue;
+      }
+      inviteId = (ins.data as { id: string }).id;
+      url = applicationUrl(SITE_URL(), rep.slug, token);
     }
-    const inviteId = (ins.data as { id: string }).id;
-    const url = applicationUrl(SITE_URL(), rep.slug, token);
+    const reused = !!(again && againUrl);
+    // "we filled it in together": only when a rep really did, and only on the application email
+    const filled = reused && kind === "apply" && !!again?.draft_saved_at;
 
     if (channel === "link") {
       results.push({
         index,
         status: "link",
-        detail: "Link ready to copy.",
+        detail: reused ? "Their open application, link ready to copy." : "Link ready to copy.",
         invite_id: inviteId,
         url,
         kind,
@@ -765,7 +876,11 @@ export async function applicationInvites(request: Request): Promise<Response> {
     if ("error" in access) {
       await svc
         .from("application_invites")
-        .update({ last_error: access.error, cancelled_at: new Date().toISOString() })
+        // an application that was already open stays open: only a link made just now is stopped
+        .update({
+          last_error: access.error,
+          ...(reused ? {} : { cancelled_at: new Date().toISOString() }),
+        })
         .eq("id", inviteId);
       results.push({ index, status: "failed", detail: access.error, invite_id: inviteId });
       continue;
@@ -779,6 +894,7 @@ export async function applicationInvites(request: Request): Promise<Response> {
       legalName: SITE.legalName,
       address: SITE.address,
       kind,
+      ...(filled ? { filled: true } : {}),
     });
     const sent = await gmailSend(access.access, {
       cc: await ccFor(svc, rep),
@@ -792,7 +908,10 @@ export async function applicationInvites(request: Request): Promise<Response> {
     if ("error" in sent) {
       await svc
         .from("application_invites")
-        .update({ last_error: sent.error, cancelled_at: new Date().toISOString() })
+        .update({
+          last_error: sent.error,
+          ...(reused ? {} : { cancelled_at: new Date().toISOString() }),
+        })
         .eq("id", inviteId);
       results.push({ index, status: "failed", detail: sent.error, invite_id: inviteId });
       continue;
@@ -800,7 +919,12 @@ export async function applicationInvites(request: Request): Promise<Response> {
     await svc.from("application_invites").update({ email_message_id: sent.id }).eq("id", inviteId);
     // keep the address on the lead for next time (the engine's own columns: service role only)
     if (lead && !lead.email) await svc.from("engine_leads").update({ email }).eq("id", lead.id);
-    results.push({ index, status: "sent", detail: `Emailed ${email}`, invite_id: inviteId });
+    results.push({
+      index,
+      status: "sent",
+      detail: reused ? `Emailed ${email} their open application` : `Emailed ${email}`,
+      invite_id: inviteId,
+    });
   }
 
   return json(200, { results });

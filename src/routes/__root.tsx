@@ -17,6 +17,7 @@ import { reportLovableError } from "../lib/lovable-error-reporting";
 import { SITE } from "../lib/site";
 import { THEME_SCRIPT } from "../lib/theme";
 import { track } from "../lib/track";
+import { METRICOOL_SCRIPT } from "../lib/metricool";
 
 const SITE_URL = SITE.url;
 
@@ -131,6 +132,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     scripts: [
       { children: THEME_SCRIPT },
       { type: "application/ld+json", children: JSON.stringify(ORG_JSON_LD) },
+      { children: METRICOOL_SCRIPT },
     ],
     links: [
       // The two faces every page shows first (headings, body) start downloading with the page,

@@ -484,6 +484,13 @@ export const wrongBoxes = (d: Details): Set<string> =>
     ),
   );
 
+/**
+ * Where the required boxes not yet right sit in PAPER_ITEMS, in reading order: what "Fill in
+ * what's missing" walks on a phone (see paper-gaps.ts).
+ */
+export const gapIndexes = (d: Details): number[] =>
+  PAPER_ITEMS.flatMap((x, i) => (x.kind === "field" && !!x.ok && !x.ok(d) ? [i] : []));
+
 /** Before saving: a second owner nobody filled in, and empty funding rows, dropped. */
 export function tidyPaper(d: Details): Details {
   const owners = d.owners.filter((o, i) => i === 0 || !ownerBlank(o));

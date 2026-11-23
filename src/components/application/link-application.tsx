@@ -23,6 +23,7 @@ import {
   detailsToPdf,
   emptyDetails,
   fromRow,
+  FUNDING_GAPS,
   missing,
   signatureMatches,
   withQuickAnswers,
@@ -109,7 +110,7 @@ function missingByStep(d: Details): Record<StepId, string[]> {
   for (const m of missing(d)) {
     if (re.has(m)) out.property.push(m);
     else if (/^(second )?owner's/.test(m)) out.owners.push(m);
-    else if (m === "amount requested") out.funding.push(m);
+    else if ((FUNDING_GAPS as readonly string[]).includes(m)) out.funding.push(m);
     else out.business.push(m);
   }
   return out;

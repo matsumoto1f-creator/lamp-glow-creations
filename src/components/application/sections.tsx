@@ -7,6 +7,7 @@ import {
   emptyBalance,
   emptyOwner,
   ENTITY_TYPES,
+  fundedAnswer,
   INDUSTRIES,
   MAX_BALANCES,
   USES,
@@ -88,7 +89,7 @@ export function BusinessSection({ d, update }: { d: Details; update: Update }) {
         <F label="Business phone">
           <Text value={b.phone} onChange={(v) => set("phone", v)} type="tel" autoComplete="tel" />
         </F>
-        <F label="Business email" optional>
+        <F label="Business email">
           <Text value={b.email} onChange={(v) => set("email", v)} type="email" />
         </F>
         <F label="Website" optional>
@@ -139,17 +140,17 @@ export function BusinessSection({ d, update }: { d: Details; update: Update }) {
         <F label="Average monthly revenue">
           <Money value={b.monthly_revenue} onChange={(v) => set("monthly_revenue", v)} />
         </F>
-        <F label="Monthly card sales" optional>
+        <F label="Monthly card sales" hint="Enter 0 if you don't take cards.">
           <Money value={b.card_volume} onChange={(v) => set("card_volume", v)} />
         </F>
-        <F label="Business bank" optional>
+        <F label="Business bank">
           <Text
             value={b.bank}
             onChange={(v) => set("bank", v)}
             placeholder="Chase, TD, Bank of America…"
           />
         </F>
-        <F label="Deposits a month" optional hint="Roughly how many deposits hit the account.">
+        <F label="Deposits a month" hint="Roughly how many deposits hit the account.">
           <Text
             value={b.deposit_count}
             onChange={(v) => set("deposit_count", v.replace(/\D/g, ""))}
@@ -252,7 +253,7 @@ export function OwnersSection({
               autoComplete={i === 0 ? "family-name" : "off"}
             />
           </F>
-          <F label="Title" optional>
+          <F label="Title">
             <Text value={o.title} onChange={(v) => setO(i, "title", v)} placeholder="Owner, CEO…" />
           </F>
           <F label="Ownership">
@@ -399,7 +400,7 @@ export function FundingSection({ d, update }: { d: Details; update: Update }) {
           <Select
             value={d.request.term}
             onChange={(v) => setReq({ term: v as Details["request"]["term"] })}
-            placeholder="No preference"
+            placeholder="Choose one"
             options={[
               { id: "3", label: "3 months" },
               { id: "6", label: "6 months" },
@@ -443,58 +444,84 @@ export function FundingSection({ d, update }: { d: Details; update: Update }) {
 
       <Group
         title="Funding you're paying back now"
-        hint="Any cash advance or business funding with a balance today. Skip this if you have none."
+        hint="Any cash advance or business funding with a balance today."
       >
-        {d.balances.map((b, i) => (
-          <div
-            key={i}
-            className="grid gap-3 rounded-2xl bg-sand p-4 ring-1 ring-line sm:col-span-2 sm:grid-cols-2"
-          >
-            <F label="Funding company">
-              <Text value={b.funder} onChange={(v) => setBal(i, "funder", v)} />
-            </F>
-            <F label="Original amount">
-              <Money value={b.original} onChange={(v) => setBal(i, "original", v)} />
-            </F>
-            <F label="Balance now">
-              <Money value={b.current} onChange={(v) => setBal(i, "current", v)} />
-            </F>
-            <div className="grid grid-cols-[1fr_auto] gap-2">
-              <F label="Payment">
-                <Money value={b.payment} onChange={(v) => setBal(i, "payment", v)} />
-              </F>
-              <F label="How often">
-                <select
-                  className={inputCls}
-                  value={b.frequency}
-                  onChange={(e) => setBal(i, "frequency", e.target.value)}
-                >
-                  <option value="">—</option>
-                  <option value="daily">Daily</option>
-                  <option value="weekly">Weekly</option>
-                  <option value="monthly">Monthly</option>
-                </select>
-              </F>
-            </div>
-            <F label="Expected payoff" optional>
-              <Text
-                value={b.payoff}
-                onChange={(v) => setBal(i, "payoff", v)}
-                placeholder="Month and year"
-              />
-            </F>
-            <button
-              type="button"
-              className="inline-flex items-center gap-1.5 self-end justify-self-start text-sm font-semibold text-smoke underline-offset-4 hover:underline"
-              onClick={() =>
-                update((x) => ({ ...x, balances: x.balances.filter((_, j) => j !== i) }))
-              }
+        <div className="sm:col-span-2">
+          <p className="mb-2 text-sm font-semibold">
+            Do you have any business funding with a balance today?
+          </p>
+          <Choice
+            label="Business funding with a balance today"
+            value={fundedAnswer(d)}
+            onChange={(v) =>
+              update((x) => ({
+                ...x,
+                request: { ...x.request, funded: v as Details["request"]["funded"] },
+                // Yes opens a row to fill in; No clears rows nobody will fill
+                balances:
+                  v === "yes"
+                    ? x.balances.length
+                      ? x.balances
+                      : [emptyBalance()]
+                    : v === "no"
+                      ? []
+                      : x.balances,
+              }))
+            }
+            options={YES_NO}
+          />
+        </div>
+        {fundedAnswer(d) === "yes" &&
+          d.balances.map((b, i) => (
+            <div
+              key={i}
+              className="grid gap-3 rounded-2xl bg-sand p-4 ring-1 ring-line sm:col-span-2 sm:grid-cols-2"
             >
-              <Trash2 className="size-4" /> Remove
-            </button>
-          </div>
-        ))}
-        {d.balances.length < MAX_BALANCES && (
+              <F label="Funding company">
+                <Text value={b.funder} onChange={(v) => setBal(i, "funder", v)} />
+              </F>
+              <F label="Original amount">
+                <Money value={b.original} onChange={(v) => setBal(i, "original", v)} />
+              </F>
+              <F label="Balance now">
+                <Money value={b.current} onChange={(v) => setBal(i, "current", v)} />
+              </F>
+              <div className="grid grid-cols-[1fr_auto] gap-2">
+                <F label="Payment">
+                  <Money value={b.payment} onChange={(v) => setBal(i, "payment", v)} />
+                </F>
+                <F label="How often">
+                  <select
+                    className={inputCls}
+                    value={b.frequency}
+                    onChange={(e) => setBal(i, "frequency", e.target.value)}
+                  >
+                    <option value="">—</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </F>
+              </div>
+              <F label="Expected payoff" optional>
+                <Text
+                  value={b.payoff}
+                  onChange={(v) => setBal(i, "payoff", v)}
+                  placeholder="Month and year"
+                />
+              </F>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 self-end justify-self-start text-sm font-semibold text-smoke underline-offset-4 hover:underline"
+                onClick={() =>
+                  update((x) => ({ ...x, balances: x.balances.filter((_, j) => j !== i) }))
+                }
+              >
+                <Trash2 className="size-4" /> Remove
+              </button>
+            </div>
+          ))}
+        {fundedAnswer(d) === "yes" && d.balances.length < MAX_BALANCES && (
           <button
             type="button"
             className="inline-flex items-center gap-2 justify-self-start rounded-full px-4 py-2.5 text-sm font-semibold text-forest ring-1 ring-line hover:ring-ink/30 sm:col-span-2"

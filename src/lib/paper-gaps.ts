@@ -9,6 +9,7 @@
 export const QUESTION_GAPS = [
   "whether the business or an owner has filed for bankruptcy",
   "whether you own any real estate",
+  "whether you have business funding with a balance today",
 ] as const;
 
 export const isQuestionGap = (m: string) => (QUESTION_GAPS as readonly string[]).includes(m);

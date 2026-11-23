@@ -15,8 +15,8 @@ import { StartedLeads } from "@/components/staff/started-leads";
 /**
  * Applications: every application link sent, newest first, and where each one stands (sent,
  * opened, started, signed, stopped or expired). The database shows a rep only their own links
- * and an admin everyone's. A signed one opens as a file. Email again and New link both make a
- * fresh link, so the one sent before stops working; Stop ends a link without a new one.
+ * and an admin everyone's. A signed one opens as a file. Email again and Copy link send the same
+ * application again (its answers kept, and the link sent before still works); Stop ends a link.
  */
 
 type Invite = {
@@ -409,7 +409,7 @@ export function SentApplications({
                                 void act(
                                   r,
                                   { action: "resend", invite_id: r.id, channel: "email" },
-                                  `Email ${r.email} a new link? The link sent before stops working.`,
+                                  `Email ${r.email} their application again? Their answers so far are kept.`,
                                 )
                               }
                             >
@@ -424,11 +424,11 @@ export function SentApplications({
                               void act(
                                 r,
                                 { action: "resend", invite_id: r.id, channel: "link" },
-                                "Make a new link to copy? The link sent before stops working.",
+                                "Copy the link to their application? Their answers so far are kept.",
                               )
                             }
                           >
-                            New link
+                            Copy link
                           </button>
                           {live && (
                             <button

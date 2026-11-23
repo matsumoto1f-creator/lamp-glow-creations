@@ -29,6 +29,7 @@ import {
   CONSENT_VERSION,
   fromRow,
   cleanDetails,
+  prefill,
   missing,
   signatureMatches,
 } from "@/lib/application-details";
@@ -1424,8 +1425,20 @@ export async function uploadToApplication(request: Request): Promise<Response> {
   } | null;
   if (!a || !a.claim_token_hash || !sameSecret(await hashToken(claim), a.claim_token_hash))
     return json(404, { error: "We couldn't find that application." });
-  if (a.user_id) return json(409, { error: "Sign in to your account to add more documents." });
-  if (Date.now() - Date.parse(a.created_at) > 48 * 3_600_000)
+  // signed just now from a link made on this file ("Email them to finish it"): the file may be
+  // older than two days and already have an account, and the page still adds its statements
+  const fromFile = await svc
+    .from("application_invites")
+    .select("submitted_at")
+    .eq("file_id" as never, a.id)
+    .not("submitted_at", "is", null)
+    .order("submitted_at", { ascending: false })
+    .limit(1);
+  const signedAt = ((fromFile.data ?? [])[0] as { submitted_at: string } | undefined)?.submitted_at;
+  const viaFile = !!signedAt && Date.now() - Date.parse(signedAt) <= 48 * 3_600_000;
+  if (a.user_id && !viaFile)
+    return json(409, { error: "Sign in to your account to add more documents." });
+  if (!viaFile && Date.now() - Date.parse(a.created_at) > 48 * 3_600_000)
     return json(410, { error: "Sign in to your account to add documents." });
   const already = "The signed application is already saved.";
   // the signed copy: one per file, however it got there; statements: up to MAX_LINK_UPLOADS
@@ -1725,9 +1738,14 @@ export async function notifyNewApplication(request: Request): Promise<Response> 
 
 /**
  * A file that came in through the website's quick questions has no full application. This emails
- * the merchant (from partners@, in the sender's name) to finish it on their own account, so the
- * full application lands on the same file. Refused when the file already has one, has no
- * account or email, is marked do not contact, or was sent this email in the last day.
+ * the merchant (from partners@, in the sender's name) their application with what the file
+ * already knows filled in; signing it puts the full application on this same file
+ * (20261123180000_finish_on_the_file.sql). A link already made from the file goes out again
+ * rather than a second one. Asad, 2026-11-23: "make the finish email on a file send the prefilled
+ * application". Before that database step is run, or for a file with no rep to send from, it
+ * falls back to the earlier email that asks them to finish on their account.
+ * Refused when the file already has the full application, has no email, is marked do not
+ * contact, or was sent this email in the last day.
  */
 export async function finishApplicationNudge(request: Request): Promise<Response> {
   const nr = notReady();
@@ -1778,11 +1796,6 @@ export async function finishApplicationNudge(request: Request): Promise<Response
   } | null;
   if (!app) return json(404, { error: "We couldn't find that file." });
   if (details.data) return json(409, { error: "This file already has the full application." });
-  if (!app.user_id)
-    return json(409, {
-      error:
-        "This merchant has no account yet, so send the application from Staff > Applications instead.",
-    });
   if ((recent.data ?? []).length) return json(429, { error: "Already sent in the last day." });
   const to = cleanEmail(app.email) || (await emailOf(svc, app.user_id)) || "";
   if (!EMAIL_RE.test(to)) return json(409, { error: "This file has no email address." });
@@ -1796,16 +1809,34 @@ export async function finishApplicationNudge(request: Request): Promise<Response
   const rep = slug ? await repBySlug(svc, slug).catch(() => undefined) : null;
   if (rep === undefined) return tryAgain();
   const name = rep ? facing(rep).name : "The Lamp team";
+  // the application for this file: the link already made from it, else a new one filled in from
+  // the file. Null when it can't be made (no rep to send from, or the database step isn't run).
+  const link = rep ? await fileApplicationLink(svc, rep, app, to, who.userId) : null;
+  if (!link && !app.user_id)
+    return json(409, {
+      error:
+        "This merchant has no account yet, so send the application from Staff > Applications instead.",
+    });
   const access = await gmailAccessToken(svc).catch(() => ({ error: "Couldn't reach Google." }));
   if ("error" in access) return json(412, { error: access.error });
-  const mail = finishEmail({
-    firstName: app.first_name ?? "",
-    businessName: app.business_name ?? "",
-    repName: name,
-    site: SITE_URL(),
-    legalName: SITE.legalName,
-    address: SITE.address,
-  });
+  const mail = link
+    ? inviteEmail({
+        firstName: app.first_name ?? "",
+        businessName: app.business_name ?? "",
+        repName: name,
+        note: "",
+        url: link.url,
+        legalName: SITE.legalName,
+        address: SITE.address,
+      })
+    : finishEmail({
+        firstName: app.first_name ?? "",
+        businessName: app.business_name ?? "",
+        repName: name,
+        site: SITE_URL(),
+        legalName: SITE.legalName,
+        address: SITE.address,
+      });
   const sent = await gmailSend(access.access, {
     cc: await ccFor(svc, rep),
     to,
@@ -1821,7 +1852,85 @@ export async function finishApplicationNudge(request: Request): Promise<Response
     actor_user_id: who.userId,
     kind: "email",
     body: `Asked to finish the full application (emailed ${to})`,
-    payload: { message_id: sent.id },
+    payload: { message_id: sent.id, ...(link ? { invite_id: link.id } : {}) },
   } as never);
+  if (link)
+    await svc
+      .from("application_invites")
+      .update({ email_message_id: sent.id, sent_at: new Date().toISOString(), channel: "email" })
+      .eq("id", link.id);
   return json(200, { ok: true, to });
+}
+
+/**
+ * The application link for a file: the open one already made from it, else a new one that opens
+ * with what the file knows (business name, first name, phone, email, what the money is for).
+ * Null when it can't be made: the reminders' secret or the file_id column isn't there yet.
+ */
+async function fileApplicationLink(
+  svc: Svc,
+  rep: Rep,
+  app: {
+    id: string;
+    first_name: string | null;
+    business_name: string | null;
+    email: string | null;
+    phone: string | null;
+  },
+  to: string,
+  senderId: string,
+): Promise<{ id: string; url: string } | null> {
+  const open = await svc
+    .from("application_invites")
+    .select("id,token_hash")
+    .eq("file_id" as never, app.id)
+    .is("submitted_at", null)
+    .is("cancelled_at", null)
+    .gt("expires_at", new Date().toISOString())
+    .order("sent_at", { ascending: false })
+    .limit(1);
+  if (open.error) return null; // the column isn't there yet
+  const had = (open.data ?? [])[0] as { id: string; token_hash: string } | undefined;
+  if (had) {
+    const url = await sameLink(svc, rep.slug, had);
+    return url ? { id: had.id, url } : null;
+  }
+  const answers = await svc.from("applications").select("answers").eq("id", app.id).maybeSingle();
+  const purpose = (answers.data as { answers: { purpose?: string } | null } | null)?.answers
+    ?.purpose;
+  const draft = safeDraft(
+    prefill({
+      business_name: app.business_name,
+      first_name: app.first_name,
+      phone: app.phone,
+      email: to,
+      purpose: purpose ?? null,
+    }),
+  );
+  const token = newToken();
+  const now = new Date().toISOString();
+  const ins = await svc
+    .from("application_invites")
+    .insert({
+      token_hash: await hashToken(token),
+      rep_slug: rep.slug,
+      sent_by: senderId,
+      first_name: app.first_name?.trim().slice(0, 80) || null,
+      business_name: app.business_name?.trim().slice(0, 160) || null,
+      email: to,
+      phone: app.phone?.trim().slice(0, 40) || null,
+      channel: "email",
+      expires_at: days(linkDays("apply")),
+      draft: draft as Json,
+      draft_step: 0,
+      draft_saved_at: now,
+      file_id: app.id,
+    } as never)
+    .select("id")
+    .single();
+  if (ins.error || !ins.data) return null;
+  return {
+    id: (ins.data as { id: string }).id,
+    url: applicationUrl(SITE_URL(), rep.slug, token),
+  };
 }

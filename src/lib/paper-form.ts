@@ -185,7 +185,8 @@ const ownerFields = (i: number): PaperField[] => {
       label: `${who}: SSN`,
       input: "numeric",
       get: (d) => o(d)?.ssn ?? "",
-      set: own(i, "ssn"),
+      // nine digits and no more (Asad, 2026-11-23); the step-by-step form's box does the same
+      set: (d, v) => own(i, "ssn")(d, digits(v).slice(0, 9)),
       ok: (d) => !needed(d) || digits(o(d)?.ssn ?? "").length === 9,
     }),
     field({
@@ -336,7 +337,8 @@ export const PAPER_ITEMS: PaperItem[] = [
     label: "Federal tax ID (EIN)",
     input: "numeric",
     get: (d) => d.business.ein,
-    set: biz("ein"),
+    // a tax ID is nine digits too
+    set: (d, v) => biz("ein")(d, digits(v).slice(0, 9)),
     ok: (d) => digits(d.business.ein).length === 9,
   }),
   field({

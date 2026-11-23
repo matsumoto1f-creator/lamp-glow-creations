@@ -26,6 +26,7 @@ import {
   type CalItem,
   type CardTone,
   isOverdue,
+  earlierOpen,
   itemView,
   moveTo,
   nyDay,
@@ -331,40 +332,68 @@ export function CalendarView(p: ViewProps) {
       ) : p.mode === "agenda" ? (
         <Agenda items={shown} now={p.now} today={today} card={card} />
       ) : p.mode === "day" ? (
-        <DayList
-          title={sayDay(nyAt(p.day, 12))}
-          items={shown.filter((i) => dayOf(i) === p.day).sort(byTime)}
-          card={card}
-        />
+        <>
+          {p.day === today && <Slipped items={shown} today={today} card={card} />}
+          <DayList
+            title={sayDay(nyAt(p.day, 12))}
+            items={shown.filter((i) => dayOf(i) === p.day).sort(byTime)}
+            card={card}
+          />
+        </>
       ) : (
-        <div className="mt-5 grid gap-4 xl:grid-cols-7 xl:gap-2" data-calendar-week>
-          {weekOf(p.day).map((d) => {
-            const list = shown.filter((i) => dayOf(i) === d).sort(byTime);
-            return (
-              <div
-                key={d}
-                className={cn("min-w-0", d === today && "xl:rounded-xl xl:ring-2 xl:ring-leaf/60")}
-              >
-                <h3
+        <>
+          {weekOf(p.day).includes(today) && <Slipped items={shown} today={today} card={card} />}
+          <div className="mt-5 grid gap-4 xl:grid-cols-7 xl:gap-2" data-calendar-week>
+            {weekOf(p.day).map((d) => {
+              const list = shown.filter((i) => dayOf(i) === d).sort(byTime);
+              return (
+                <div
+                  key={d}
                   className={cn(
-                    "px-1 pb-2 pt-1 text-sm font-semibold",
-                    d === today ? "text-forest" : "text-smoke",
+                    "min-w-0",
+                    d === today && "xl:rounded-xl xl:ring-2 xl:ring-leaf/60",
                   )}
                 >
-                  {sayDay(nyAt(d, 12))}
-                  {d === today && " · Today"}
-                </h3>
-                {list.length ? (
-                  <div className="space-y-2">{list.map((i) => card(i, true))}</div>
-                ) : (
-                  <p className="px-1 text-xs text-smoke xl:py-2">Nothing scheduled</p>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                  <h3
+                    className={cn(
+                      "px-1 pb-2 pt-1 text-sm font-semibold",
+                      d === today ? "text-forest" : "text-smoke",
+                    )}
+                  >
+                    {sayDay(nyAt(d, 12))}
+                    {d === today && " · Today"}
+                  </h3>
+                  {list.length ? (
+                    <div className="space-y-2">{list.map((i) => card(i, true))}</div>
+                  ) : (
+                    <p className="px-1 text-xs text-smoke xl:py-2">Nothing scheduled</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
       )}
     </section>
+  );
+}
+
+/** Open items from before today, above Day and Week when they show today. */
+function Slipped({
+  items,
+  today,
+  card,
+}: {
+  items: CalItem[];
+  today: string;
+  card: (i: CalItem, compact?: boolean) => ReactNode;
+}) {
+  const late = earlierOpen(items, today).sort(byTime);
+  if (!late.length) return null;
+  return (
+    <div className="mt-5" data-calendar-slipped>
+      <DayList title="Overdue" tone="late" items={late} card={card} />
+    </div>
   );
 }
 

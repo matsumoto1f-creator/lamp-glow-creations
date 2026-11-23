@@ -109,10 +109,13 @@ export function SentApplications({
   isAdmin,
   repSlug,
   reps,
+  focus,
 }: {
   isAdmin: boolean;
   repSlug: string | null;
   reps: { slug: string; name: string }[];
+  /** one link's id (from the calendar): only that link is shown, whatever the filters say */
+  focus?: string | undefined;
 }) {
   const [filter, setFilter] = useState<Filter>("all");
   const [rep, setRep] = useState("");
@@ -128,11 +131,12 @@ export function SentApplications({
     if (!sb) return;
     const now = new Date().toISOString();
     let q = sb.from("application_invites").select(COLUMNS);
-    if (isAdmin && rep) q = q.eq("rep_slug", rep);
-    if (filter === "signed") q = q.not("submitted_at", "is", null);
-    if (filter === "waiting")
+    if (focus) q = q.eq("id", focus);
+    else if (isAdmin && rep) q = q.eq("rep_slug", rep);
+    if (!focus && filter === "signed") q = q.not("submitted_at", "is", null);
+    if (!focus && filter === "waiting")
       q = q.is("submitted_at", null).is("cancelled_at", null).gte("expires_at", now);
-    if (filter === "stopped")
+    if (!focus && filter === "stopped")
       q = q.is("submitted_at", null).or(`cancelled_at.not.is.null,expires_at.lt."${now}"`);
     const { data, error: err } = await q.order("sent_at", { ascending: false }).limit(LIMIT);
     if (err) {
@@ -146,7 +150,7 @@ export function SentApplications({
     }
     setError("");
     setRows(data as unknown as Invite[]);
-  }, [filter, rep, isAdmin]);
+  }, [filter, rep, isAdmin, focus]);
 
   useEffect(() => {
     setRows(null);
@@ -183,7 +187,22 @@ export function SentApplications({
 
   return (
     <div className="mt-8">
-      <div className="flex flex-wrap items-end gap-3">
+      {focus && (
+        <p
+          className="mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-sand px-4 py-3 text-sm text-ink"
+          data-focus-invite
+        >
+          Showing one application link.
+          <Link
+            to="/staff"
+            search={{ view: "sent" }}
+            className="font-semibold text-forest underline-offset-4 hover:underline"
+          >
+            Show all
+          </Link>
+        </p>
+      )}
+      <div className={cn("flex flex-wrap items-end gap-3", focus && "hidden")}>
         <label className="text-sm">
           <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-smoke">
             Status
@@ -235,7 +254,7 @@ export function SentApplications({
         </button>
       </div>
 
-      <p className="mt-3 text-xs text-smoke">
+      <p className={cn("mt-3 text-xs text-smoke", focus && "hidden")}>
         {isAdmin ? "Every application link the team has sent" : "The application links you've sent"}
         , newest first{rows && ` · ${rows.length}${rows.length === LIMIT ? "+" : ""}`}. A signed one
         lands in Files with everything filled in. To send to leads, tick them on Engine leads.
@@ -253,7 +272,7 @@ export function SentApplications({
         />
       )}
 
-      <section className={cn(card, "mt-4 p-5")} data-public-link>
+      <section className={cn(card, "mt-4 p-5", focus && "hidden")} data-public-link>
         <p className="text-sm font-semibold">Your public application link</p>
         {repSlug ? (
           <>
@@ -279,7 +298,7 @@ export function SentApplications({
         )}
       </section>
 
-      <StartedLeads isAdmin={isAdmin} rep={rep} reps={reps} />
+      {!focus && <StartedLeads isAdmin={isAdmin} rep={rep} reps={reps} />}
 
       {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
 
@@ -290,9 +309,11 @@ export function SentApplications({
           </div>
         ) : rows.length === 0 ? (
           <p className="px-6 py-12 text-center text-sm text-smoke">
-            {filter === "all"
-              ? "No application links sent yet. Tick leads on Engine leads, or send one here."
-              : "Nothing here with that status."}
+            {focus
+              ? "That application link isn't here any more, or it isn't yours to see."
+              : filter === "all"
+                ? "No application links sent yet. Tick leads on Engine leads, or send one here."
+                : "Nothing here with that status."}
           </p>
         ) : (
           <table className="w-full min-w-[880px] text-left text-sm">

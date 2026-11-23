@@ -15,7 +15,7 @@ import {
   CALLBACK_WINDOW_DAYS,
   OUTBOX_WINDOW_DAYS,
   nyDay,
-  planCalendar,
+  planWithMerges,
   reconcile,
   shiftDay,
 } from "@/lib/calendar";
@@ -306,11 +306,12 @@ export async function syncFor(
   now = new Date(),
 ) {
   // a rep role with no rep seat owns no records: nothing to schedule
-  if (!who.isAdmin && !who.repSlug) return { added: 0, changed: 0, cleared: 0 };
+  if (!who.isAdmin && !who.repSlug) return { added: 0, changed: 0, cleared: 0, merged: 0 };
   const db = service();
   const input = await loadInput(db, who, now);
-  const desired = planCalendar(input, now);
-  const keys = desired.map((d) => d.source_key);
+  const { items: desired, absorbed } = planWithMerges(input, now);
+  // the folded-in items' rows are read too, so they can be taken away
+  const keys = [...desired.map((d) => d.source_key), ...absorbed];
   const cols = "id,source_key,rule,owner,status,title,why,link,rep_slug";
   const openQ = db.from(TABLE).select(cols).eq("status", "open");
   const [open, keyed] = await Promise.all([
@@ -328,6 +329,7 @@ export async function syncFor(
     { isAdmin: who.isAdmin, userId: who.userId },
     input.loaded,
     now,
+    absorbed,
   );
   if (plan.insert.length) {
     // two people opening the calendar at once may both add an item: the key keeps one
@@ -335,6 +337,12 @@ export async function syncFor(
       .from(TABLE)
       .upsert(plan.insert as never, { onConflict: "source_key", ignoreDuplicates: true });
     if (r.error) throw r.error;
+  }
+  if (plan.remove.length) {
+    const r = await inChunks(plan.remove, (ids) =>
+      db.from(TABLE).delete().in("id", ids).neq("status", "done").select("id"),
+    );
+    if (!r.ok) throw new Error("Couldn't take away the merged items.");
   }
   for (const u of plan.update) {
     const r = await db
@@ -347,6 +355,7 @@ export async function syncFor(
     added: plan.insert.length,
     changed: plan.update.filter((u) => u.patch["status"] !== "cleared").length,
     cleared: plan.update.filter((u) => u.patch["status"] === "cleared").length,
+    merged: plan.remove.length,
   };
 }
 

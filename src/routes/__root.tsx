@@ -133,6 +133,15 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { type: "application/ld+json", children: JSON.stringify(ORG_JSON_LD) },
     ],
     links: [
+      // The two faces every page shows first (headings, body) start downloading with the page,
+      // not after the stylesheet is read, so text doesn't sit in a fallback face and then jump.
+      ...["commissioner-normal-latin", "source-sans-3-normal-latin"].map((f) => ({
+        rel: "preload",
+        as: "font",
+        type: "font/woff2",
+        href: `/fonts/site/${f}.woff2`,
+        crossOrigin: "anonymous" as const,
+      })),
       // the site's fonts are served from getlamp.app (src/fonts.css), never from Google
       { rel: "stylesheet", href: fontsCss },
       {

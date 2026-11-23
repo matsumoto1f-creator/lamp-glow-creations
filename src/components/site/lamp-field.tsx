@@ -1,12 +1,19 @@
 import { useEffect, useRef } from "react";
+import { dueToDraw, fieldScale } from "@/lib/field-pace";
 
 /**
  * The Lamplight backdrop: a fixed WebGL field of dots, one per 6px cell, sized by slowly drifting
  * 3D simplex noise, with a pool of light that follows the pointer (dots under it swell and turn
  * leaf-light, at a steady brightness so moving the mouse never pulses the page). With no pointer for a few seconds the
  * light drifts on its own, so phones see it too. Two passes: noise at one texel per cell, then the
- * dots. Pauses while the tab is hidden; under prefers-reduced-motion the noise stops drifting.
- * Without WebGL it draws nothing and the page's own ground shows.
+ * dots. Pauses while the tab is hidden or the window is not the one in use; under
+ * prefers-reduced-motion the noise stops drifting. Without WebGL it draws nothing and the page's
+ * own ground shows.
+ *
+ * It keeps to a budget (field-pace.ts): 30 draws a second while the pointer moves the light, 15
+ * while it only drifts, and a cap on how many pixels it shades. With `still` (the staff portal, a
+ * merchant's account, the application) it draws the same field once and stops: no drift, no
+ * pointer light, redrawn only when the window or the theme changes. Work screens stay quiet.
  */
 
 type Rgb = [number, number, number];
@@ -50,7 +57,7 @@ gl_FragColor=vec4(u_hot*glowA*(1.0-dotA)+col*dotA,glowA*(1.0-dotA)+dotA);}`;
 
 const VERT = "attribute vec2 a_pos;void main(){gl_Position=vec4(a_pos,0.0,1.0);}";
 
-export function LampField() {
+export function LampField({ still = false }: { still?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -132,7 +139,7 @@ export function LampField() {
       dpr = 1,
       cell = FIELD.cellCss;
     const size = () => {
-      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      dpr = fieldScale(window.innerWidth, window.innerHeight, window.devicePixelRatio || 1);
       const w = Math.round(window.innerWidth * dpr);
       const h = Math.round(window.innerHeight * dpr);
       if (w === W && h === H) return;
@@ -161,12 +168,23 @@ export function LampField() {
       pending = false,
       frameId = 0;
     const t0 = performance.now();
+    let lastDraw = -1e9;
+    let force = true; // the first frame, and after a resize or theme change, draws whatever the pace
 
     const frame = (now: number) => {
       pending = false;
       if (document.hidden) return;
-      size();
       const idle = now - lastMove > 4000;
+      // not this frame: keep the loop alive and wait for the next slot
+      if (!force && !dueToDraw(now, lastDraw, idle)) {
+        if (!still) raf();
+        return;
+      }
+      // a window nobody is looking at keeps its last frame (focus wakes it again)
+      if (!force && !still && !document.hasFocus()) return;
+      force = false;
+      lastDraw = now;
+      size();
       if (idle) {
         const a = now / 1000;
         tx = window.innerWidth * (0.62 + 0.2 * Math.sin(a * 0.31));
@@ -176,7 +194,7 @@ export function LampField() {
       mx += (tx - mx) * ease;
       my += (ty - my) * ease;
       scrollS += (scrollNow - scrollS) * 0.12;
-      const t = reduce ? 0 : ((now - t0) / 1000) * 0.06;
+      const t = reduce || still ? 0 : ((now - t0) / 1000) * 0.06;
 
       gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
       gl.viewport(0, 0, cw, ch);
@@ -212,7 +230,8 @@ export function LampField() {
 
       const settling =
         Math.abs(tx - mx) + Math.abs(ty - my) > 0.5 || Math.abs(scrollNow - scrollS) > 0.001;
-      if (!reduce || settling || idle) raf();
+      // still: one frame and done (the listeners below ask for another when something changes)
+      if (!still && (!reduce || settling || idle)) raf();
     };
     const raf = () => {
       if (!pending) {
@@ -221,6 +240,10 @@ export function LampField() {
       }
     };
 
+    const redraw = () => {
+      force = true;
+      raf();
+    };
     const onMove = (e: PointerEvent) => {
       tx = e.clientX;
       ty = e.clientY;
@@ -232,17 +255,28 @@ export function LampField() {
       raf();
     };
     const onResize = () => {
-      onScroll();
-      size();
+      scrollNow = window.scrollY / (window.innerHeight || 1);
+      redraw();
     };
     const onVisible = () => {
-      if (!document.hidden) raf();
+      if (!document.hidden) redraw();
     };
-    window.addEventListener("pointermove", onMove, { passive: true });
-    window.addEventListener("scroll", onScroll, { passive: true });
+    // a still field has no light to move and nothing that scrolls
+    if (!still) {
+      window.addEventListener("pointermove", onMove, { passive: true });
+      window.addEventListener("scroll", onScroll, { passive: true });
+      window.addEventListener("focus", redraw);
+    }
     window.addEventListener("resize", onResize, { passive: true });
     document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("lamp-theme", raf);
+    window.addEventListener("lamp-theme", redraw);
+    // some pages set the theme straight on <html> (the application is always the light look);
+    // a field that no longer redraws by itself has to be told
+    const themeWatch = new MutationObserver(redraw);
+    themeWatch.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
     onScroll();
     scrollS = scrollNow;
     raf();
@@ -253,11 +287,13 @@ export function LampField() {
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onResize);
       document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("lamp-theme", raf);
+      window.removeEventListener("lamp-theme", redraw);
+      window.removeEventListener("focus", redraw);
+      themeWatch.disconnect();
       gl.getExtension("WEBGL_lose_context")?.loseContext();
       canvas.remove();
     };
-  }, []);
+  }, [still]);
 
   return <div ref={ref} aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10" />;
 }

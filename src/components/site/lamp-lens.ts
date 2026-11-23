@@ -178,7 +178,17 @@ export function useLamplightGlass(enabled = true) {
       ro = new ResizeObserver((es) => es.forEach((e) => update(e.target as HTMLElement)));
       const scan = () => document.querySelectorAll<HTMLElement>(SEL).forEach(attach);
       scan();
-      mo = new MutationObserver(scan);
+      // once a frame at most: a page that changes a lot used to search the whole document for
+      // panels on every single change
+      let scanning = false;
+      mo = new MutationObserver(() => {
+        if (scanning) return;
+        scanning = true;
+        requestAnimationFrame(() => {
+          scanning = false;
+          scan();
+        });
+      });
       mo.observe(document.body, { childList: true, subtree: true });
     }
 

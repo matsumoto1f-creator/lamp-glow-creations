@@ -2531,6 +2531,21 @@ export type Database = {
       _num: { Args: { _t: string }; Returns: number }
       _staff_name: { Args: { _user: string }; Returns: string }
       accept_offer: { Args: { _offer_id: string }; Returns: Json }
+      add_offer: {
+        Args: {
+          _amount: number
+          _application_id: string
+          _expires_at?: string
+          _fees: number
+          _frequency: Database["public"]["Enums"]["payment_frequency"]
+          _funder_id: string
+          _note?: string
+          _payback: number
+          _payments: number
+          _submission_id?: string
+        }
+        Returns: string
+      }
       ai_key: { Args: never; Returns: string }
       ai_key_clear: { Args: never; Returns: undefined }
       ai_key_info: {

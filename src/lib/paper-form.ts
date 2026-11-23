@@ -8,6 +8,7 @@ import {
   emptyBalance,
   emptyOwner,
   ENTITY_TYPES,
+  fundedAnswer,
   isAdult,
   US_STATES,
   type Balance,
@@ -47,6 +48,8 @@ export type PaperGroup = {
   choices: Choice[];
   get: (d: Details) => string[];
   set: (d: Details, values: string[]) => Details;
+  /** Answered, for the tick boxes the application can't go without. */
+  ok?: (d: Details) => boolean;
 };
 
 export type PaperItem = PaperField | PaperGroup;
@@ -110,6 +113,7 @@ const ownerFields = (i: number): PaperField[] => {
       input: "text",
       get: (d) => o(d)?.title ?? "",
       set: own(i, "title"),
+      ok: (d) => !needed(d) || !!o(d)?.title.trim(),
     }),
     field({
       id: `${p}ownership`,
@@ -126,6 +130,7 @@ const ownerFields = (i: number): PaperField[] => {
       options: CREDIT_BANDS,
       get: (d) => o(d)?.credit ?? "",
       set: own(i, "credit"),
+      ok: (d) => !needed(d) || !!o(d)?.credit.trim(),
     }),
     field({
       id: `${p}address`,
@@ -194,6 +199,10 @@ const ownerFields = (i: number): PaperField[] => {
   ];
 };
 
+/** They said they have funding with a balance, and no row names both the company and the balance. */
+const fundingRowNeeded = (d: Details) =>
+  fundedAnswer(d) === "yes" && !d.balances.some((x) => !!x.funder.trim() && !!x.current.trim());
+
 const balanceFields = (i: number): PaperField[] => {
   const p = `balance${i + 1}_` as const;
   const b = (d: Details) => d.balances[i];
@@ -205,6 +214,7 @@ const balanceFields = (i: number): PaperField[] => {
       input: "text",
       get: (d) => b(d)?.funder ?? "",
       set: bal(i, "funder"),
+      ...(i === 0 ? { ok: (d: Details) => !fundingRowNeeded(d) || !!b(d)?.funder.trim() } : {}),
     }),
     field({
       id: `${p}original`,
@@ -219,6 +229,7 @@ const balanceFields = (i: number): PaperField[] => {
       input: "money",
       get: (d) => b(d)?.current ?? "",
       set: bal(i, "current"),
+      ...(i === 0 ? { ok: (d: Details) => !fundingRowNeeded(d) || !!b(d)?.current.trim() } : {}),
     }),
     field({
       id: `${p}payment`,
@@ -310,6 +321,7 @@ export const PAPER_ITEMS: PaperItem[] = [
     input: "email",
     get: (d) => d.business.email,
     set: biz("email"),
+    ok: (d) => /^\S+@\S+\.\S+$/.test(d.business.email.trim()),
   }),
   field({
     id: "business_start_date",
@@ -350,6 +362,8 @@ export const PAPER_ITEMS: PaperItem[] = [
     input: "money",
     get: (d) => d.business.card_volume,
     set: biz("card_volume"),
+    // 0 is the answer for a business that takes no cards
+    ok: (d) => !!d.business.card_volume.trim(),
   }),
   field({
     id: "industry",
@@ -357,6 +371,7 @@ export const PAPER_ITEMS: PaperItem[] = [
     input: "text",
     get: (d) => d.business.industry,
     set: biz("industry"),
+    ok: (d) => !!d.business.industry.trim(),
   }),
   {
     kind: "group",
@@ -366,6 +381,7 @@ export const PAPER_ITEMS: PaperItem[] = [
     choices: uses,
     get: (d) => d.request.uses,
     set: (d, v) => ({ ...d, request: { ...d.request, uses: v } }),
+    ok: (d) => d.request.uses.length > 0,
   },
   field({
     id: "business_bank",
@@ -373,6 +389,7 @@ export const PAPER_ITEMS: PaperItem[] = [
     input: "text",
     get: (d) => d.business.bank,
     set: biz("bank"),
+    ok: (d) => !!d.business.bank.trim(),
   }),
   field({
     id: "monthly_deposit_count",
@@ -380,6 +397,7 @@ export const PAPER_ITEMS: PaperItem[] = [
     input: "numeric",
     get: (d) => d.business.deposit_count,
     set: biz("deposit_count"),
+    ok: (d) => !!d.business.deposit_count.trim(),
   }),
   {
     kind: "group",
@@ -392,6 +410,7 @@ export const PAPER_ITEMS: PaperItem[] = [
     ],
     get: (d) => (d.business.premises ? [d.business.premises] : []),
     set: (d, v) => biz("premises")(d, one(v)),
+    ok: (d) => !!d.business.premises,
   },
   field({
     id: "monthly_rent",
@@ -399,6 +418,8 @@ export const PAPER_ITEMS: PaperItem[] = [
     input: "money",
     get: (d) => d.business.rent,
     set: biz("rent"),
+    // only asked of a business that rents
+    ok: (d) => d.business.premises !== "rent" || !!d.business.rent.trim(),
   }),
   {
     kind: "group",
@@ -411,6 +432,7 @@ export const PAPER_ITEMS: PaperItem[] = [
     ],
     get: (d) => (d.business.liens ? [d.business.liens] : []),
     set: (d, v) => biz("liens")(d, one(v)),
+    ok: (d) => !!d.business.liens,
   },
   ...ownerFields(0),
   ...ownerFields(1),
@@ -440,6 +462,7 @@ export const PAPER_ITEMS: PaperItem[] = [
       ...d,
       request: { ...d.request, term: one(v) as Details["request"]["term"] },
     }),
+    ok: (d) => !!d.request.term,
   },
 ];
 
@@ -478,18 +501,14 @@ export const place = ([x0, y0, x1, y1]: Box) => ({
 
 /** Required boxes not yet right, for marking them on the page. */
 export const wrongBoxes = (d: Details): Set<string> =>
-  new Set(
-    PAPER_ITEMS.filter((x): x is PaperField => x.kind === "field" && !!x.ok && !x.ok(d)).map(
-      (x) => x.id,
-    ),
-  );
+  new Set(PAPER_ITEMS.filter((x) => !!x.ok && !x.ok(d)).map((x) => x.id));
 
 /**
  * Where the required boxes not yet right sit in PAPER_ITEMS, in reading order: what "Fill in
  * what's missing" walks on a phone (see paper-gaps.ts).
  */
 export const gapIndexes = (d: Details): number[] =>
-  PAPER_ITEMS.flatMap((x, i) => (x.kind === "field" && !!x.ok && !x.ok(d) ? [i] : []));
+  PAPER_ITEMS.flatMap((x, i) => (!!x.ok && !x.ok(d) ? [i] : []));
 
 /** Before saving: a second owner nobody filled in, and empty funding rows, dropped. */
 export function tidyPaper(d: Details): Details {

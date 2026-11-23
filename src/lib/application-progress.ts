@@ -4,7 +4,7 @@
 // form, the first section still missing something. Same meaning on both links, so the A/B test
 // compares like with like. Stored on the lead (answers.progress), keyed by a token the browser
 // got from /api/application/start. Pure functions and browser helpers only.
-import { missing, type Details } from "@/lib/application-details";
+import { FUNDING_GAPS, missing, type Details } from "@/lib/application-details";
 
 export const STAGES = ["contact", "owners", "property", "funding", "statements", "sign"] as const;
 export type Stage = (typeof STAGES)[number];
@@ -49,7 +49,7 @@ export function paperStage(d: Details): Stage {
       ? "owners"
       : /real estate|bankruptcy/.test(m)
         ? "property"
-        : /amount requested/.test(m)
+        : (FUNDING_GAPS as readonly string[]).includes(m)
           ? "funding"
           : "business";
   const todo = new Set(missing(d, { propertyDetails: false }).map(kind));

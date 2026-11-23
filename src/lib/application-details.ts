@@ -66,6 +66,8 @@ export type Request = {
   amount: string;
   term: "" | "3" | "6" | "9" | "12";
   uses: string[]; // working_capital | inventory | equipment | payroll | other
+  /** Any business funding with a balance today? "no" is the answer when there is none. */
+  funded: "" | "no" | "yes";
 };
 
 export type Details = {
@@ -253,7 +255,7 @@ export function emptyDetails(): Details {
     },
     owners: [emptyOwner()],
     balances: [],
-    request: { amount: "", term: "", uses: [] },
+    request: { amount: "", term: "", uses: [], funded: "" },
     real_estate: emptyRealEstate(),
   };
 }
@@ -391,9 +393,33 @@ export function isAdult(dob: string, today = new Date()): boolean {
   return ty - y - (birthdayPassed ? 0 : 1) >= 18;
 }
 
+/** A funding row someone started on: it names a company or a balance. */
+const balanceStarted = (b: Balance) => !!(b.funder.trim() || b.current.trim());
+
+/**
+ * Whether they have business funding with a balance today. An application from before the
+ * question was asked (2026-11-23) answers yes by having a funding row filled in.
+ */
+export const fundedAnswer = (d: Details): Request["funded"] =>
+  d.request.funded || (d.balances.some(balanceStarted) ? "yes" : "");
+
+/** The missing answers that belong to the funding step, as missing() words them. */
+export const FUNDING_GAPS = [
+  "amount requested",
+  "preferred term",
+  "what the funding is for",
+  "whether you have business funding with a balance today",
+  "current funding: the company and the balance now",
+] as const;
+
 /**
  * What's still needed before signing. The paper form (propertyDetails false) only asks whether
  * they own real estate; the rep gets the property details afterwards.
+ *
+ * Asad, 2026-11-23: "I need every freaking thing. The only thing that's optional is like
+ * property ... Co-owners, that's optional." So every box on the paper application is asked for.
+ * Where a box can't apply there is an answer that says so: 0 card sales, rent only when they
+ * rent, current funding only when they say they have some.
  */
 export function missing(d: Details, { propertyDetails = true } = {}): string[] {
   const out: string[] = [];
@@ -409,13 +435,32 @@ export function missing(d: Details, { propertyDetails = true } = {}): string[] {
   need(!!b.start_date, "business start date");
   need(digits(b.ein).length === 9, "federal tax ID (EIN, nine digits)");
   need(!!b.entity_type, "entity type");
+  need(/^\S+@\S+\.\S+$/.test(b.email.trim()), "business email");
+  need(!!b.industry.trim(), "industry");
   need(!!b.monthly_revenue.trim(), "average monthly revenue");
+  need(!!b.card_volume.trim(), "monthly card sales (0 if none)");
+  need(!!b.bank.trim(), "business bank");
+  need(!!b.deposit_count.trim(), "deposits a month");
+  need(!!b.premises, "whether you own or rent the business location");
+  if (b.premises === "rent") need(!!b.rent.trim(), "monthly rent");
+  need(!!b.liens, "whether there are liens or judgments");
   need(!!b.bankruptcy, "whether the business or an owner has filed for bankruptcy");
   need((amount(d.request.amount) ?? 0) > 0, "amount requested");
+  need(!!d.request.term, "preferred term");
+  need(d.request.uses.length > 0, "what the funding is for");
+  const funded = fundedAnswer(d);
+  need(!!funded, "whether you have business funding with a balance today");
+  if (funded === "yes")
+    need(
+      d.balances.some((x) => !!x.funder.trim() && !!x.current.trim()),
+      "current funding: the company and the balance now",
+    );
   d.owners.forEach((o, i) => {
     const who = i === 0 ? "owner" : "second owner";
     need(!!o.first.trim() && !!o.last.trim(), `${who}'s first and last name`);
+    need(!!o.title.trim(), `${who}'s title`);
     need(!!o.ownership.trim(), `${who}'s ownership %`);
+    need(!!o.credit.trim(), `${who}'s credit score (best guess)`);
     need(
       !!o.address.trim() &&
         !!o.city.trim() &&

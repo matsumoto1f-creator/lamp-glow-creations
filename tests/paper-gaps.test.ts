@@ -76,8 +76,9 @@ Deno.test("gaps: a long list is cut, and says how many more", () => {
 Deno.test("paper form: the unfinished boxes come from the same rule that marks them red", () => {
   assert(paperForm.includes("export const gapIndexes"));
   const gaps = paperForm.slice(paperForm.indexOf("export const gapIndexes"));
-  assert(gaps.slice(0, 200).includes('x.kind === "field" && !!x.ok && !x.ok(d)'));
-  assert(paperForm.includes('x.kind === "field" && !!x.ok && !x.ok(d)).map('));
+  // tick boxes count too since every box became required (2026-11-23)
+  assert(gaps.slice(0, 200).includes("!!x.ok && !x.ok(d) ? [i] : []"));
+  assert(paperForm.includes("PAPER_ITEMS.filter((x) => !!x.ok && !x.ok(d)).map((x) => x.id)"));
 });
 
 Deno.test(

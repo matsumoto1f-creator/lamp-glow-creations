@@ -8,6 +8,7 @@ import {
   detailsToPdf,
   emptyDetails,
   fromRow,
+  fundedAnswer,
   missing,
   US_STATES,
   type Details,
@@ -572,7 +573,7 @@ export function PaperApplication({
               ref={questionsRef}
               className="mt-6 scroll-mt-24 rounded-[1.5rem] bg-white p-5 ring-1 ring-line sm:p-7"
             >
-              <h2 className="font-display text-lg font-semibold">Two more questions</h2>
+              <h2 className="font-display text-lg font-semibold">Three more questions</h2>
               <div className="mt-4 grid gap-5 sm:grid-cols-2">
                 <F label="Has the business or an owner ever filed for bankruptcy?">
                   <Select
@@ -626,6 +627,32 @@ export function PaperApplication({
                     </p>
                   )}
                   {tried && !d.real_estate.owns && (
+                    <p className="mt-1.5 text-sm font-semibold text-destructive">
+                      Choose Yes or No.
+                    </p>
+                  )}
+                </div>
+                <div className="sm:col-span-2">
+                  <span className="mb-1.5 block text-[0.8rem] font-semibold text-smoke">
+                    Do you have any business funding with a balance today?
+                  </span>
+                  <Choice
+                    label="Business funding with a balance today"
+                    value={fundedAnswer(d)}
+                    options={YES_NO}
+                    onChange={(v) =>
+                      update({
+                        ...d,
+                        request: { ...d.request, funded: v as Details["request"]["funded"] },
+                      })
+                    }
+                  />
+                  {fundedAnswer(d) === "yes" && (
+                    <p className="mt-2 text-sm text-smoke">
+                      Put the company and the balance in the Current funding row on the form.
+                    </p>
+                  )}
+                  {tried && !fundedAnswer(d) && (
                     <p className="mt-1.5 text-sm font-semibold text-destructive">
                       Choose Yes or No.
                     </p>
@@ -813,7 +840,7 @@ function PaperPage({
                 key={item.id}
                 item={item}
                 d={d}
-                wrong={item.kind === "field" && wrong.has(item.id)}
+                wrong={wrong.has(item.id)}
                 onOpen={() => {
                   setWalk("all");
                   setEditing(i);
@@ -828,7 +855,13 @@ function PaperPage({
                 wrong={wrong.has(item.id)}
               />
             ) : (
-              <InPlaceGroup key={item.id} item={item} d={d} update={update} />
+              <InPlaceGroup
+                key={item.id}
+                item={item}
+                d={d}
+                update={update}
+                wrong={wrong.has(item.id)}
+              />
             ),
           )}
           {printed(SIGN_BOXES.lamp_rep, repName)}
@@ -922,15 +955,17 @@ function InPlaceGroup({
   item,
   d,
   update,
+  wrong,
 }: {
   item: PaperGroup;
   d: Details;
   update: (d: Details) => void;
+  wrong: boolean;
 }) {
   const on = item.get(d);
   return (
     <>
-      {item.choices.map((c) => {
+      {item.choices.map((c, n) => {
         const checked = on.includes(c.value);
         return (
           <button
@@ -939,7 +974,11 @@ function InPlaceGroup({
             role={item.multi ? "checkbox" : "radio"}
             aria-checked={checked}
             aria-label={`${item.label}: ${c.label}`}
-            className="absolute grid place-items-center rounded-[0.2cqw] hover:bg-leaf/20"
+            {...(n === 0 ? { "data-box": item.id } : {})}
+            className={cn(
+              "absolute grid place-items-center rounded-[0.2cqw] hover:bg-leaf/20",
+              wrong && "bg-destructive/10 ring-1 ring-destructive/70",
+            )}
             style={place(pad(CHECKBOXES[c.box]!, 1.5, 1.5))}
             onClick={() => update(item.set(d, toggle(item, on, c.value)))}
           >
@@ -983,7 +1022,11 @@ function TapBox({
               .map((c) => c.label)
               .join(", ") || "not answered"
           }`}
-          className="absolute rounded-[0.3cqw] bg-leaf/10 ring-1 ring-leaf/40"
+          data-box={item.id}
+          className={cn(
+            "absolute rounded-[0.3cqw] bg-leaf/10 ring-1 ring-leaf/40",
+            wrong && "bg-destructive/10 ring-destructive/70",
+          )}
           style={place(pad(boxOf(item), 1.5, 1.5))}
           onClick={onOpen}
         />

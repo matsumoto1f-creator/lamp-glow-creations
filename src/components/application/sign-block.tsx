@@ -20,7 +20,10 @@ export function SignBlock({
   busy,
   onSign,
   cta,
+  onFix,
 }: {
+  /** Takes the merchant to what is still missing in the application (the one-page form). */
+  onFix?: () => void;
   d: Details;
   s: Signing;
   set: (patch: Partial<Signing>) => void;
@@ -133,6 +136,16 @@ export function SignBlock({
       >
         {left.length ? `Still needed before you can sign: ${left.join(", ")}.` : "Ready to sign."}
       </p>
+      {onFix && todo.length > 0 && (
+        <button
+          type="button"
+          onClick={onFix}
+          className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-ink px-6 py-3 text-base font-semibold text-white"
+          data-fix-gaps
+        >
+          <PenLine className="size-4" /> Fill in what&apos;s missing
+        </button>
+      )}
       {error && (
         <p className="text-sm font-semibold text-destructive" role="alert">
           {error}

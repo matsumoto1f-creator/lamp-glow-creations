@@ -23,6 +23,7 @@ import {
 } from "@/lib/application-links";
 import {
   boxOf,
+  gapIndexes,
   place,
   PAPER_ITEMS,
   shown,
@@ -42,6 +43,7 @@ import {
   saveProgressToken,
   type Stage,
 } from "@/lib/application-progress";
+import { fixTarget, gapHeadline, gapList, isQuestionGap, nextGap } from "@/lib/paper-gaps";
 import { PageShell } from "@/components/site/layout";
 import { SignBlock } from "@/components/application/sign-block";
 import { emptySigning, YES_NO, type Signing } from "@/components/application/form-kit";
@@ -149,6 +151,9 @@ export function PaperApplication({
   } | null>(null);
   const honeypot = useRef<HTMLInputElement | null>(null);
   const signRef = useRef<HTMLDivElement | null>(null);
+  const questionsRef = useRef<HTMLElement | null>(null);
+  // "Fill in what's missing": which box to open, and a count so the same box can be opened twice
+  const [jump, setJump] = useState<{ index: number; n: number } | null>(null);
   const started = useRef(false);
   const key = draftKey(repSlug, open && open !== "error" ? open.draft : null);
 
@@ -317,12 +322,31 @@ export function PaperApplication({
   const repName = rep?.name ?? "your Lamp rep";
   const repFirst = repName.split(" ")[0] ?? repName;
 
+  // On a phone the form is a picture about 350 px wide and its boxes are about 6 px tall, so a
+  // merchant told only to "fill in the boxes marked in red" had nothing they could press (found
+  // 2026-11-23 with a form a rep had filled in: the SSN and date of birth were all that was left).
+  // These take them straight to what is missing. Live, not waiting for a first try at signing.
+  const gaps = useMemo(() => gapIndexes(d), [d]);
+  const toQuestions = () =>
+    questionsRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  const toSign = () => signRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const fix = () => {
+    setTried(true);
+    setError("");
+    const t = fixTarget(gaps, todo);
+    if (t?.kind === "box") setJump((j) => ({ index: t.index, n: (j?.n ?? 0) + 1 }));
+    else if (t?.kind === "questions") toQuestions();
+  };
+  // the form arrived with a rep's answers on it, so the merchant is here to finish, not start
+  const repFilled = !phoneMode && !!open && open !== "error" && !!open.answers;
+
   async function submit() {
     setError("");
     setTried(true);
     const clean = cleanDetails(tidy);
     const owner = clean.owners[0]!;
-    if (todo.length) return setError("Fill in the boxes marked in red on the form, then sign.");
+    if (todo.length)
+      return setError("Some answers are still missing. Press Fill in what's missing, then sign.");
     if (!sig.agree) return setError("Tick the box to agree to the authorization.");
     if (sig.typed.trim().length < 3) return setError("Type your full name to sign.");
     if (!sig.image) return setError("Draw your signature in the box.");
@@ -512,18 +536,42 @@ export function PaperApplication({
               />
             )}
 
+            {!phoneMode && todo.length > 0 && (repFilled || tried) && (
+              <div
+                className="mt-5 rounded-2xl bg-white p-4 ring-2 ring-amber-500/60 sm:p-5"
+                data-paper-gaps
+              >
+                <p className="font-semibold">
+                  {gapHeadline(todo, repFilled ? (rep ? repFirst : "Your rep") : null)}
+                </p>
+                <p className="mt-1 text-sm text-smoke">{gapList(todo)}.</p>
+                <button
+                  type="button"
+                  onClick={fix}
+                  className="mt-3 inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-ink px-5 py-2.5 text-sm font-semibold text-white"
+                  data-fix-gaps
+                >
+                  <PenLine className="size-4" /> {todo.length === 1 ? "Add it now" : "Add them now"}
+                </button>
+              </div>
+            )}
+
             <PaperPage
               d={d}
               update={update}
               wrong={wrong}
               sig={sig}
               repName={rep?.name ?? ""}
-              onSignBox={() =>
-                signRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
-              }
+              onSignBox={toSign}
+              jump={jump}
+              gaps={gaps}
+              onGapsDone={() => (todo.some(isQuestionGap) ? toQuestions() : toSign())}
             />
 
-            <section className="mt-6 rounded-[1.5rem] bg-white p-5 ring-1 ring-line sm:p-7">
+            <section
+              ref={questionsRef}
+              className="mt-6 scroll-mt-24 rounded-[1.5rem] bg-white p-5 ring-1 ring-line sm:p-7"
+            >
               <h2 className="font-display text-lg font-semibold">Two more questions</h2>
               <div className="mt-4 grid gap-5 sm:grid-cols-2">
                 <F label="Has the business or an owner ever filed for bankruptcy?">
@@ -540,6 +588,11 @@ export function PaperApplication({
                     }
                     options={BANKRUPTCY.map((b) => ({ id: b.id, label: b.label }))}
                   />
+                  {tried && !d.business.bankruptcy && (
+                    <p className="mt-1.5 text-sm font-semibold text-destructive">
+                      Choose an answer.
+                    </p>
+                  )}
                 </F>
                 {d.business.bankruptcy && d.business.bankruptcy !== "none" && (
                   <F label="Year it was filed">
@@ -570,6 +623,11 @@ export function PaperApplication({
                   {d.real_estate.owns === "yes" && (
                     <p className="mt-2 text-sm text-smoke">
                       {repFirst} will ask you about it after you sign.
+                    </p>
+                  )}
+                  {tried && !d.real_estate.owns && (
+                    <p className="mt-1.5 text-sm font-semibold text-destructive">
+                      Choose Yes or No.
                     </p>
                   )}
                 </div>
@@ -614,6 +672,7 @@ export function PaperApplication({
                   busy={busy}
                   onSign={() => void submit()}
                   cta={`Sign and send to ${repFirst}`}
+                  onFix={fix}
                 />
               )}
             </div>
@@ -640,6 +699,9 @@ function PaperPage({
   sig,
   repName,
   onSignBox,
+  jump,
+  gaps,
+  onGapsDone,
 }: {
   d: Details;
   update: (d: Details) => void;
@@ -647,10 +709,37 @@ function PaperPage({
   sig: Signing;
   repName: string;
   onSignBox: () => void;
+  /** "Fill in what's missing" was pressed: open this box (n counts presses) */
+  jump: { index: number; n: number } | null;
+  /** the required boxes not yet right, as indexes into PAPER_ITEMS */
+  gaps: number[];
+  /** the last unfinished box was just filled in from "Fill in what's missing" */
+  onGapsDone: () => void;
 }) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [tap, setTap] = useState(false);
   const [editing, setEditing] = useState<number | null>(null);
+  // "gaps": Next walks only the boxes still to fill, not all of them
+  const [walk, setWalk] = useState<"all" | "gaps">("all");
+  const jumped = useRef(0);
+
+  // On a phone, the editor opens on that box and Next goes to the next unfinished one. On a wide
+  // screen the box itself is typed into, so it is brought into view and focused.
+  useEffect(() => {
+    if (!jump || jump.n === jumped.current) return;
+    jumped.current = jump.n;
+    const item = PAPER_ITEMS[jump.index];
+    if (!item) return;
+    if (tap) {
+      ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setWalk("gaps");
+      setEditing(jump.index);
+      return;
+    }
+    const el = ref.current?.querySelector<HTMLElement>(`[data-box="${item.id}"]`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    el?.focus({ preventScroll: true });
+  }, [jump, tap]);
 
   useEffect(() => {
     const el = ref.current;
@@ -725,7 +814,10 @@ function PaperPage({
                 item={item}
                 d={d}
                 wrong={item.kind === "field" && wrong.has(item.id)}
-                onOpen={() => setEditing(i)}
+                onOpen={() => {
+                  setWalk("all");
+                  setEditing(i);
+                }}
               />
             ) : item.kind === "field" ? (
               <InPlaceField
@@ -753,8 +845,15 @@ function PaperPage({
           index={editing}
           d={d}
           update={update}
+          walk={walk}
+          gaps={gaps}
           onMove={setEditing}
-          onClose={() => setEditing(null)}
+          onClose={() => {
+            const finished = walk === "gaps" && gaps.length === 0;
+            setEditing(null);
+            setWalk("all");
+            if (finished) onGapsDone();
+          }}
         />
       )}
     </>
@@ -791,6 +890,7 @@ function InPlaceField({
     return (
       <select
         aria-label={item.label}
+        data-box={item.id}
         className={cn(cls, "appearance-none")}
         style={style}
         value={item.input === "state" ? item.get(d).toUpperCase() : item.get(d)}
@@ -808,6 +908,7 @@ function InPlaceField({
   return (
     <input
       aria-label={item.label}
+      data-box={item.id}
       className={cls}
       style={style}
       {...inputProps(item)}
@@ -905,6 +1006,7 @@ function TapBox({
     <button
       type="button"
       aria-label={`${item.label}: ${shown(item, d) || "empty"}`}
+      data-box={item.id}
       className={cn(
         "absolute overflow-hidden whitespace-nowrap rounded-[0.3cqw] bg-leaf/10 px-[0.4cqw] text-left text-ink",
         wrong && "bg-destructive/10 ring-1 ring-destructive/70",
@@ -945,17 +1047,24 @@ function Editor({
   index,
   d,
   update,
+  walk,
+  gaps,
   onMove,
   onClose,
 }: {
   index: number;
   d: Details;
   update: (d: Details) => void;
+  /** "gaps" (from "Fill in what's missing"): Next goes to the next box still to fill */
+  walk: "all" | "gaps";
+  gaps: number[];
   onMove: (i: number) => void;
   onClose: () => void;
 }) {
   const item = PAPER_ITEMS[index]!;
   const last = PAPER_ITEMS.length - 1;
+  const next = walk === "gaps" ? nextGap(gaps, index) : index < last ? index + 1 : null;
+  const forward = () => (next === null ? onClose() : onMove(next));
   const inputRef = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
   useEffect(() => {
     inputRef.current?.focus({ preventScroll: true });
@@ -1019,19 +1128,21 @@ function Editor({
             </select>
           ) : (
             <input
+              // a new element for each box: one that turns from a text box into a date box while
+              // it has the focus (Enter, or the phone keyboard's Next key) takes no typing
+              key={item.id}
               ref={(el) => {
                 inputRef.current = el;
               }}
               className={inputCls}
               {...inputProps(item)}
               value={item.get(d)}
-              enterKeyHint={index < last ? "next" : "done"}
+              enterKeyHint={next !== null ? "next" : "done"}
               onChange={(e) => update(item.set(d, e.target.value))}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  if (index < last) onMove(index + 1);
-                  else onClose();
+                  forward();
                 }
               }}
             />
@@ -1046,14 +1157,18 @@ function Editor({
           >
             <ChevronLeft className="size-4" /> Back
           </button>
-          <span className="text-xs text-smoke tabular-nums">
-            {index + 1} of {PAPER_ITEMS.length}
+          <span className="text-xs text-smoke tabular-nums" data-editor-count>
+            {walk === "gaps"
+              ? gaps.length
+                ? `${gaps.length} still needed`
+                : "All filled in"
+              : `${index + 1} of ${PAPER_ITEMS.length}`}
           </span>
-          {index < last ? (
+          {next !== null ? (
             <button
               type="button"
               className="ml-auto inline-flex items-center gap-1 rounded-full bg-ink px-4 py-2 text-sm font-semibold text-white"
-              onClick={() => onMove(index + 1)}
+              onClick={() => onMove(next)}
             >
               Next <ChevronRight className="size-4" />
             </button>

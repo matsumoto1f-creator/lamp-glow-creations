@@ -206,9 +206,11 @@ export type Database = {
           draft_saved_at: string | null
           draft_step: number | null
           email: string | null
+          email_kind: string | null
           email_message_id: string | null
           engine_lead_id: number | null
           expires_at: string
+          file_id: string | null
           first_name: string | null
           id: string
           last_error: string | null
@@ -216,6 +218,9 @@ export type Database = {
           note: string | null
           opened_at: string | null
           phone: string | null
+          reminded_at: string | null
+          reminders_sent: number
+          reminders_stopped_at: string | null
           rep_slug: string
           sent_at: string
           sent_by: string | null
@@ -235,9 +240,11 @@ export type Database = {
           draft_saved_at?: string | null
           draft_step?: number | null
           email?: string | null
+          email_kind?: string | null
           email_message_id?: string | null
           engine_lead_id?: number | null
           expires_at?: string
+          file_id?: string | null
           first_name?: string | null
           id?: string
           last_error?: string | null
@@ -245,6 +252,9 @@ export type Database = {
           note?: string | null
           opened_at?: string | null
           phone?: string | null
+          reminded_at?: string | null
+          reminders_sent?: number
+          reminders_stopped_at?: string | null
           rep_slug: string
           sent_at?: string
           sent_by?: string | null
@@ -264,9 +274,11 @@ export type Database = {
           draft_saved_at?: string | null
           draft_step?: number | null
           email?: string | null
+          email_kind?: string | null
           email_message_id?: string | null
           engine_lead_id?: number | null
           expires_at?: string
+          file_id?: string | null
           first_name?: string | null
           id?: string
           last_error?: string | null
@@ -274,6 +286,9 @@ export type Database = {
           note?: string | null
           opened_at?: string | null
           phone?: string | null
+          reminded_at?: string | null
+          reminders_sent?: number
+          reminders_stopped_at?: string | null
           rep_slug?: string
           sent_at?: string
           sent_by?: string | null
@@ -302,6 +317,20 @@ export type Database = {
             columns: ["engine_lead_id"]
             isOneToOne: false
             referencedRelation: "engine_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "application_invites_file_id_fkey"
+            columns: ["file_id"]
+            isOneToOne: false
+            referencedRelation: "applications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "application_invites_file_id_fkey"
+            columns: ["file_id"]
+            isOneToOne: false
+            referencedRelation: "pipeline_board"
             referencedColumns: ["id"]
           },
           {
@@ -593,6 +622,114 @@ export type Database = {
           zip?: string | null
         }
         Relationships: []
+      }
+      calendar_items: {
+        Row: {
+          all_day: boolean
+          application_id: string | null
+          cleared_at: string | null
+          created_at: string
+          done_at: string | null
+          done_by: string | null
+          due_at: string
+          engine_lead_id: number | null
+          id: string
+          invite_id: string | null
+          lead_id: string | null
+          link: string | null
+          owner: string | null
+          rep_slug: string | null
+          rule: string
+          scheduled_at: string
+          source_key: string
+          status: string
+          title: string
+          updated_at: string
+          why: string
+        }
+        Insert: {
+          all_day?: boolean
+          application_id?: string | null
+          cleared_at?: string | null
+          created_at?: string
+          done_at?: string | null
+          done_by?: string | null
+          due_at: string
+          engine_lead_id?: number | null
+          id?: string
+          invite_id?: string | null
+          lead_id?: string | null
+          link?: string | null
+          owner?: string | null
+          rep_slug?: string | null
+          rule: string
+          scheduled_at: string
+          source_key: string
+          status?: string
+          title: string
+          updated_at?: string
+          why: string
+        }
+        Update: {
+          all_day?: boolean
+          application_id?: string | null
+          cleared_at?: string | null
+          created_at?: string
+          done_at?: string | null
+          done_by?: string | null
+          due_at?: string
+          engine_lead_id?: number | null
+          id?: string
+          invite_id?: string | null
+          lead_id?: string | null
+          link?: string | null
+          owner?: string | null
+          rep_slug?: string | null
+          rule?: string
+          scheduled_at?: string
+          source_key?: string
+          status?: string
+          title?: string
+          updated_at?: string
+          why?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "calendar_items_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "applications"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calendar_items_application_id_fkey"
+            columns: ["application_id"]
+            isOneToOne: false
+            referencedRelation: "pipeline_board"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calendar_items_engine_lead_id_fkey"
+            columns: ["engine_lead_id"]
+            isOneToOne: false
+            referencedRelation: "engine_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calendar_items_invite_id_fkey"
+            columns: ["invite_id"]
+            isOneToOne: false
+            referencedRelation: "application_invites"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "calendar_items_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       chat_members: {
         Row: {
@@ -1100,6 +1237,50 @@ export type Database = {
           },
         ]
       }
+      drive_copies: {
+        Row: {
+          copied_at: string
+          document_id: string
+          drive_file_id: string
+        }
+        Insert: {
+          copied_at?: string
+          document_id: string
+          drive_file_id: string
+        }
+        Update: {
+          copied_at?: string
+          document_id?: string
+          drive_file_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "drive_copies_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: true
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      drive_folders: {
+        Row: {
+          created_at: string
+          folder_id: string
+          key: string
+        }
+        Insert: {
+          created_at?: string
+          folder_id: string
+          key: string
+        }
+        Update: {
+          created_at?: string
+          folder_id?: string
+          key?: string
+        }
+        Relationships: []
+      }
       engine_leads: {
         Row: {
           city: string | null
@@ -1108,6 +1289,8 @@ export type Database = {
           contact_phone: string | null
           contact_updated_at: string | null
           email: string | null
+          email_confidence: string | null
+          email_method: string | null
           first_found: string | null
           id: number
           industry: string | null
@@ -1133,6 +1316,8 @@ export type Database = {
           contact_phone?: string | null
           contact_updated_at?: string | null
           email?: string | null
+          email_confidence?: string | null
+          email_method?: string | null
           first_found?: string | null
           id?: number
           industry?: string | null
@@ -1158,6 +1343,8 @@ export type Database = {
           contact_phone?: string | null
           contact_updated_at?: string | null
           email?: string | null
+          email_confidence?: string | null
+          email_method?: string | null
           first_found?: string | null
           id?: number
           industry?: string | null
@@ -1529,6 +1716,9 @@ export type Database = {
           first_name: string | null
           id: string
           phone: string | null
+          reminded_at: string | null
+          reminders_sent: number
+          reminders_stopped_at: string | null
           rep_slug: string | null
           source: string | null
           utm: Json
@@ -1542,6 +1732,9 @@ export type Database = {
           first_name?: string | null
           id?: string
           phone?: string | null
+          reminded_at?: string | null
+          reminders_sent?: number
+          reminders_stopped_at?: string | null
           rep_slug?: string | null
           source?: string | null
           utm?: Json
@@ -1555,6 +1748,9 @@ export type Database = {
           first_name?: string | null
           id?: string
           phone?: string | null
+          reminded_at?: string | null
+          reminders_sent?: number
+          reminders_stopped_at?: string | null
           rep_slug?: string | null
           source?: string | null
           utm?: Json
@@ -1973,6 +2169,95 @@ export type Database = {
           id?: string
           phone?: string | null
           updated_at?: string
+        }
+        Relationships: []
+      }
+      rep_document_signatures: {
+        Row: {
+          body_sha256: string
+          document_id: string
+          id: string
+          ip: string | null
+          signed_at: string
+          signer_email: string | null
+          typed_name: string
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          body_sha256: string
+          document_id: string
+          id?: string
+          ip?: string | null
+          signed_at?: string
+          signer_email?: string | null
+          typed_name: string
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          body_sha256?: string
+          document_id?: string
+          id?: string
+          ip?: string | null
+          signed_at?: string
+          signer_email?: string | null
+          typed_name?: string
+          user_agent?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rep_document_signatures_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "rep_documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rep_documents: {
+        Row: {
+          body: string
+          body_sha256: string | null
+          created_at: string
+          created_by: string | null
+          doc_key: string
+          id: string
+          published_at: string | null
+          published_by: string | null
+          retired_at: string | null
+          title: string
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          body: string
+          body_sha256?: string | null
+          created_at?: string
+          created_by?: string | null
+          doc_key: string
+          id?: string
+          published_at?: string | null
+          published_by?: string | null
+          retired_at?: string | null
+          title: string
+          updated_at?: string
+          version: number
+        }
+        Update: {
+          body?: string
+          body_sha256?: string | null
+          created_at?: string
+          created_by?: string | null
+          doc_key?: string
+          id?: string
+          published_at?: string | null
+          published_by?: string | null
+          retired_at?: string | null
+          title?: string
+          updated_at?: string
+          version?: number
         }
         Relationships: []
       }
@@ -2620,6 +2905,8 @@ export type Database = {
       current_rep_slug: { Args: { _user_id?: string }; Returns: string }
       ensure_staff_rooms: { Args: never; Returns: undefined }
       file_contact: { Args: { _application_id: string }; Returns: string }
+      finish_remind_secret: { Args: never; Returns: string }
+      finish_remind_tick: { Args: never; Returns: undefined }
       funder_matches: {
         Args: { _application_id: string }
         Returns: {
@@ -2722,9 +3009,9 @@ export type Database = {
         Args: { _slug: string }
         Returns: {
           name: string
-          photo_url: string | null
+          photo_url: string
           slug: string
-          title: string | null
+          title: string
         }[]
       }
       reveal_application_details: {

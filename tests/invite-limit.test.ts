@@ -3,8 +3,10 @@ import { assert, assertEquals } from "jsr:@std/assert@1";
 import {
   DAILY_EMAILS,
   dailyEmailLimit,
+  emailedToday,
   limitReached,
   newYorkDayStart,
+  ONCE_A_DAY,
   roomLeft,
 } from "../src/lib/invite-limit.ts";
 import server from "../src/lib/application-links.server.ts" with { type: "text" };
@@ -89,4 +91,39 @@ Deno.test("the server checks the limit on both ways an email goes out", () => {
   );
   const counted = send.indexOf("emailRoom--");
   assert(counted > skip && counted < insert, "each email is counted before it is sent");
+});
+
+// ---------- "fill it in with them now", then Email: once a day per address ----------
+
+Deno.test(
+  "an address emailed earlier today (New York) can't be emailed again until tomorrow",
+  () => {
+    // Monday 2026-11-23, 15:00 New York (20:00 UTC)
+    const now = new Date("2026-11-23T20:00:00Z");
+    assert(emailedToday("2026-11-23T05:00:01Z", now)); // 00:00:01 New York
+    assert(emailedToday("2026-11-23T19:59:00Z", now));
+    assert(!emailedToday("2026-11-23T04:59:59Z", now)); // 23:59:59 the night before
+    assert(!emailedToday(null, now));
+    assert(!emailedToday(undefined, now));
+    assert(!emailedToday("not a time", now));
+    assert(ONCE_A_DAY.includes("today") && !/loan/i.test(ONCE_A_DAY));
+  },
+);
+
+Deno.test("the draft Email checks the address before sending, and stamps the send", () => {
+  const start = server.indexOf("export async function applicationDraft");
+  const draft = server.slice(start, server.indexOf("// ---------- POST /api/application/submit"));
+  const check = draft.indexOf("emailedToday(last, new Date())");
+  const refuse = draft.indexOf("json(429, { error: ONCE_A_DAY })");
+  const send = draft.indexOf("gmailSend(");
+  assert(
+    check > 0 && refuse > check && send > refuse,
+    "checked and refused before Gmail is called",
+  );
+  // a failed lookup stops the send instead of letting it through
+  assert(draft.includes("if (last === undefined) return tryAgain();"));
+  // the send is stamped so the next check, and the sender's daily count, see it
+  const after = draft.slice(send);
+  assert(after.includes("sent_at: new Date().toISOString()"));
+  assert(after.includes("sent_by: who.userId"));
 });

@@ -72,7 +72,14 @@ import {
   recipients,
   type Duplicate,
 } from "@/lib/new-application-email";
-import { dailyEmailLimit, limitReached, newYorkDayStart, roomLeft } from "@/lib/invite-limit";
+import {
+  dailyEmailLimit,
+  emailedToday,
+  limitReached,
+  newYorkDayStart,
+  ONCE_A_DAY,
+  roomLeft,
+} from "@/lib/invite-limit";
 
 /** The kind of email a link went with; "apply" for links sent before kinds existed, or before
  *  the email_kind column was added (20261119150000_invite_email_kind.sql). */
@@ -124,6 +131,23 @@ async function emailsSentToday(svc: Svc, userId: string): Promise<number | null>
     .gte("sent_at", newYorkDayStart(new Date()).toISOString())
     .or("email_message_id.not.is.null,last_error.is.null");
   return r.error ? null : (r.count ?? 0);
+}
+
+/**
+ * When this address last got an application email (any link, any sender), or null for never.
+ * Undefined when the lookup failed. A send that failed outright doesn't count.
+ */
+async function lastEmailedAt(svc: Svc, email: string): Promise<string | null | undefined> {
+  const r = await svc
+    .from("application_invites")
+    .select("sent_at")
+    .ilike("email", email.replace(/[\\%_]/g, "\\$&"))
+    .eq("channel", "email")
+    .or("email_message_id.not.is.null,last_error.is.null")
+    .order("sent_at", { ascending: false })
+    .limit(1);
+  if (r.error) return undefined;
+  return ((r.data ?? [])[0] as { sent_at: string } | undefined)?.sent_at ?? null;
 }
 
 /**
@@ -1000,6 +1024,10 @@ export async function applicationDraft(request: Request): Promise<Response> {
     if (dnc === null)
       return json(503, { error: "Couldn't check the do-not-contact list. Try again." });
     if (dnc) return json(409, { error: "Marked do not contact." });
+    // once a day per address: this button takes any typed address, so it gets a ceiling
+    const last = await lastEmailedAt(svc, to);
+    if (last === undefined) return tryAgain();
+    if (emailedToday(last, new Date())) return json(429, { error: ONCE_A_DAY });
     const rep = await repBySlug(svc, inv.rep_slug).catch(() => undefined);
     if (rep === undefined) return tryAgain();
     if (!rep) return json(409, { error: "That rep is gone." });
@@ -1034,7 +1062,15 @@ export async function applicationDraft(request: Request): Promise<Response> {
     }
     await svc
       .from("application_invites")
-      .update({ channel: "email", email: to, email_message_id: sent.id, last_error: null })
+      // stamped like any send, so the once-a-day check and the sender's daily count see it
+      .update({
+        channel: "email",
+        email: to,
+        email_message_id: sent.id,
+        last_error: null,
+        sent_at: new Date().toISOString(),
+        sent_by: who.userId,
+      })
       .eq("id", inv.id);
     return json(200, { sent_to: to });
   }

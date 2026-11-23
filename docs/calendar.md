@@ -47,6 +47,19 @@ day" skips Saturday and Sunday (holidays are not known to the portal).
 A file or link with no rep goes to an "Unassigned" lane only admins see. Closed files (funded,
 declined, withdrawn, closed) make nothing.
 
+### One business, one card (2026-11-23)
+
+When several items ask the same person to call the same business (two links sent, or a link plus
+a Callback or No answer on the lead), they become one card. The most pressing reason leads
+(started > callback > opened > sent > no answer), it's due when the earliest one was, and its
+words list what else is open for that business. Names match however they're written
+("Caveman Flooring, L.L.C." = "CAVEMAN FLOORING LLC"). Other rules never merge. The folded-in
+items' rows are taken away by the sync (never a done one).
+
+**Open** goes to that record: `/staff?view=sent&invite=<id>` shows only that link, and
+`/staff?view=engine&elead=<id>` shows that lead and opens its page. Both have "Show all".
+Day and Week list open items from earlier days under **Overdue** when they show today.
+
 ## What the portal does not record (so nothing is scheduled from it)
 
 - The day or time a merchant asked to be called back. Engine leads keep only the status Callback and

@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { Link } from "@tanstack/react-router";
 import {
   ChevronRight,
   Copy,
@@ -122,10 +123,13 @@ export function EngineLeads({
   isAdmin,
   repSlug,
   reps,
+  focus,
 }: {
   isAdmin: boolean;
   repSlug: string | null;
   reps: { slug: string; name: string }[];
+  /** one lead's id (from the calendar): only that lead is listed, and its page opens */
+  focus?: number | undefined;
 }) {
   const [tier, setTier] = useState<string>(isAdmin ? "A" : "");
   const [status, setStatus] = useState<string>("new");
@@ -193,6 +197,7 @@ export function EngineLeads({
     setSelected(new Set());
     (async () => {
       const load = (columns: string) => {
+        if (focus) return sb.from("engine_leads").select(columns).eq("id", focus).limit(1);
         let q = sb.from("engine_leads").select(columns).not("phone", "is", null).neq("phone", "");
         if (tier) q = q.eq("tier", tier);
         if (status) q = q.eq("status", status);
@@ -224,7 +229,15 @@ export function EngineLeads({
     return () => {
       live = false;
     };
-  }, [tier, status, query, reload, owner, ownerReady, isAdmin, repSlug]);
+  }, [tier, status, query, reload, owner, ownerReady, isAdmin, repSlug, focus]);
+
+  // a link to one lead opens its page once, as soon as the lead has loaded
+  const [focusOpened, setFocusOpened] = useState<number | null>(null);
+  useEffect(() => {
+    if (!focus || focusOpened === focus || !rows?.some((r) => r.id === focus)) return;
+    setFocusOpened(focus);
+    setOpenId(focus);
+  }, [focus, focusOpened, rows]);
 
   async function setLeadStatus(row: Row, next: EngineStatus) {
     const sb = getSupabase();
@@ -364,7 +377,24 @@ export function EngineLeads({
 
   return (
     <div className="mt-8">
-      <div className="grid grid-cols-2 items-end gap-3 md:flex md:flex-wrap">
+      {focus && (
+        <p
+          className="mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-sand px-4 py-3 text-sm text-ink"
+          data-focus-lead
+        >
+          Showing one lead.
+          <Link
+            to="/staff"
+            search={{ view: "engine" }}
+            className="font-semibold text-forest underline-offset-4 hover:underline"
+          >
+            Show all
+          </Link>
+        </p>
+      )}
+      <div
+        className={cn("grid grid-cols-2 items-end gap-3 md:flex md:flex-wrap", focus && "hidden")}
+      >
         <label className="text-sm">
           <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-smoke">
             Tier
@@ -470,7 +500,7 @@ export function EngineLeads({
         </p>
       </div>
 
-      <p className="mt-3 text-xs text-smoke">
+      <p className={cn("mt-3 text-xs text-smoke", focus && "hidden")}>
         Found by the lead engine from public records and tiered by need.{" "}
         {isAdmin
           ? "Each rep sees only the leads assigned to them."
@@ -478,7 +508,7 @@ export function EngineLeads({
         Set the status after every call; it stamps the time. Nothing here dials or sends.
       </p>
 
-      {isAdmin && <UploadLeads reps={reps} onDone={() => setReload((n) => n + 1)} />}
+      {isAdmin && !focus && <UploadLeads reps={reps} onDone={() => setReload((n) => n + 1)} />}
 
       {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
 
@@ -507,11 +537,13 @@ export function EngineLeads({
           </p>
         ) : rows.length === 0 ? (
           <p className="px-6 py-12 text-center text-sm text-smoke">
-            {query
-              ? `Nothing matches "${query}"${tier || status ? " in this tier and status. Try All tiers and Any status." : "."}`
-              : isAdmin
-                ? "No engine leads here. Send leads from the Board, or upload its file, to hand some out."
-                : "No leads assigned to you here yet."}
+            {focus
+              ? "That lead isn't here any more, or it isn't yours to see."
+              : query
+                ? `Nothing matches "${query}"${tier || status ? " in this tier and status. Try All tiers and Any status." : "."}`
+                : isAdmin
+                  ? "No engine leads here. Send leads from the Board, or upload its file, to hand some out."
+                  : "No leads assigned to you here yet."}
           </p>
         ) : (
           <>

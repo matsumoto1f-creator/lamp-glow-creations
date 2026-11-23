@@ -49,6 +49,9 @@ type StaffSearch = {
   file?: string | undefined;
   lead?: string | undefined;
   thread?: string | undefined;
+  // one application link (Applications) or one engine lead (Engine leads), e.g. from the calendar
+  invite?: string | undefined;
+  elead?: number | undefined;
 };
 
 type View =
@@ -97,6 +100,11 @@ const VIEW_TITLE: Record<View, string> = {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SLUG = /^[a-z0-9][a-z0-9-]{1,31}$/;
+/** An engine lead's id from the address: a whole number, as text or a number. */
+const eleadOf = (v: unknown) => {
+  const s = typeof v === "number" ? String(v) : typeof v === "string" ? v : "";
+  return /^[1-9]\d{0,15}$/.test(s) ? Number(s) : undefined;
+};
 
 export const Route = createFileRoute("/staff")({
   validateSearch: (s: Record<string, unknown>): StaffSearch => ({
@@ -114,6 +122,8 @@ export const Route = createFileRoute("/staff")({
     file: typeof s["file"] === "string" && UUID.test(s["file"]) ? s["file"] : undefined,
     lead: typeof s["lead"] === "string" && UUID.test(s["lead"]) ? s["lead"] : undefined,
     thread: typeof s["thread"] === "string" && UUID.test(s["thread"]) ? s["thread"] : undefined,
+    invite: typeof s["invite"] === "string" && UUID.test(s["invite"]) ? s["invite"] : undefined,
+    elead: eleadOf(s["elead"]),
   }),
   head: () =>
     seo({
@@ -320,7 +330,12 @@ function Staff() {
         ) : view === "dashboard" ? (
           <Dashboard isAdmin={access.isAdmin} repSlug={access.repSlug} />
         ) : view === "engine" ? (
-          <EngineLeads isAdmin={access.isAdmin} repSlug={access.repSlug} reps={reps} />
+          <EngineLeads
+            isAdmin={access.isAdmin}
+            repSlug={access.repSlug}
+            reps={reps}
+            focus={search.elead}
+          />
         ) : view === "lists" ? (
           <MyLists onChanged={() => setListsTick((t) => t + 1)} />
         ) : view === "replies" ? (
@@ -335,7 +350,12 @@ function Staff() {
             <p className="mt-8 text-sm text-smoke">The email engine is for admins.</p>
           )
         ) : view === "sent" ? (
-          <SentApplications isAdmin={access.isAdmin} repSlug={access.repSlug} reps={reps} />
+          <SentApplications
+            isAdmin={access.isAdmin}
+            repSlug={access.repSlug}
+            reps={reps}
+            focus={search.invite}
+          />
         ) : view === "funders" ? (
           <Funders isAdmin={access.isAdmin} />
         ) : view === "money" ? (

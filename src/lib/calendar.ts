@@ -274,9 +274,128 @@ export type Desired = {
 };
 
 const fileLink = (id: string) => `/staff?file=${id}`;
+const engineLink = (id: number) => `/staff?view=engine&elead=${id}`;
 
-/** Every item the records call for at `now`. */
+/** Every item the records call for at `now`, one per business per person (see mergeSameBusiness). */
 export function planCalendar(input: CalInput, now: Date): Desired[] {
+  return planWithMerges(input, now).items;
+}
+
+/** The plan, plus the keys of items folded into another item for the same business. */
+export function planWithMerges(
+  input: CalInput,
+  now: Date,
+): { items: Desired[]; absorbed: string[] } {
+  const engineName = new Map(input.engineLeads.map((l) => [l.id, l.name]));
+  const inviteName = new Map(
+    input.invites.map((i) => [
+      i.id,
+      i.business_name?.trim() || [i.first_name, i.last_name].filter(Boolean).join(" "),
+    ]),
+  );
+  return mergeSameBusiness(planEach(input, now), (d) =>
+    d.invite_id
+      ? (inviteName.get(d.invite_id) ?? null)
+      : d.engine_lead_id != null
+        ? (engineName.get(d.engine_lead_id) ?? null)
+        : null,
+  );
+}
+
+/** Rules that ask a person to call a business, so two of them for one business are one call. */
+const CALL_RULES: Rule[] = [
+  "link_unfinished",
+  "lead_callback",
+  "link_unstarted",
+  "link_unopened",
+  "lead_no_answer",
+];
+
+/** "Caveman Flooring, L.L.C." and "CAVEMAN FLOORING LLC" are one business. */
+export function businessKey(name: string | null | undefined): string {
+  const words = (name ?? "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/\b([a-z])\.(?=[a-z]\.)/g, "$1")
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(" ")
+    .filter((w) => w && !SUFFIXES.has(w));
+  return words.join(" ");
+}
+const SUFFIXES = new Set([
+  "llc",
+  "l",
+  "c",
+  "inc",
+  "incorporated",
+  "corp",
+  "corporation",
+  "co",
+  "company",
+  "ltd",
+  "pllc",
+  "lp",
+  "llp",
+  "the",
+]);
+
+const alsoSay = (d: Desired) =>
+  d.rule.startsWith("link_")
+    ? `another application link (${RULE_LABEL[d.rule].toLowerCase()})`
+    : `the lead is marked ${RULE_LABEL[d.rule]}`;
+
+/**
+ * Two items that ask the same person to call the same business become one: the most pressing
+ * reason leads (started > callback > opened > sent > no answer), it's due when the earliest one
+ * was, and its words say what else is open for that business. The others' keys come back as
+ * `absorbed` so the sync can take their rows away.
+ */
+export function mergeSameBusiness(
+  items: Desired[],
+  nameOf: (d: Desired) => string | null,
+): { items: Desired[]; absorbed: string[] } {
+  const groups = new Map<string, Desired[]>();
+  const kept: Desired[] = [];
+  for (const d of items) {
+    const biz = CALL_RULES.includes(d.rule) ? businessKey(nameOf(d)) : "";
+    if (!biz) {
+      kept.push(d);
+      continue;
+    }
+    const k = `${d.owner ?? "-"}|${biz}`;
+    const g = groups.get(k);
+    if (g) g.push(d);
+    else groups.set(k, [d]);
+  }
+  const absorbed: string[] = [];
+  for (const g of groups.values()) {
+    if (g.length === 1) {
+      kept.push(g[0]!);
+      continue;
+    }
+    const sorted = [...g].sort(
+      (a, b) =>
+        CALL_RULES.indexOf(a.rule) - CALL_RULES.indexOf(b.rule) ||
+        b.due_at.localeCompare(a.due_at) ||
+        a.source_key.localeCompare(b.source_key),
+    );
+    const [lead, ...rest] = sorted as [Desired, ...Desired[]];
+    const name = nameOf(lead)?.trim() || "this business";
+    const due = g.map((d) => d.due_at).sort()[0]!;
+    kept.push({
+      ...lead,
+      due_at: due,
+      why: clip(
+        `${lead.why} Also for ${name}: ${rest.map(alsoSay).join("; ")}. One call covers it.`,
+        600,
+      ),
+    });
+    absorbed.push(...rest.map((d) => d.source_key));
+  }
+  return { items: kept, absorbed };
+}
+
+function planEach(input: CalInput, now: Date): Desired[] {
   const t = now.getTime();
   const seatUser = new Map(
     input.seats.filter((s) => s.active && s.user_id).map((s) => [s.slug, s.user_id!]),
@@ -367,7 +486,7 @@ export function planCalendar(input: CalInput, now: Date): Desired[] {
         rep_slug: l.rep_slug,
         title: `Call back ${name}`,
         why: `Marked Callback on ${sayDay(worked)}. Lamp doesn't record the day they asked for, so this is the next business day: move it to the day they gave.`,
-        link: "/staff?view=engine",
+        link: engineLink(l.id),
         due_at: iso(dayAt(businessDay(worked, 1))),
         all_day: true,
         engine_lead_id: l.id,
@@ -381,7 +500,7 @@ export function planCalendar(input: CalInput, now: Date): Desired[] {
         rep_slug: l.rep_slug,
         title: `Try ${name} again`,
         why: `No answer on ${sayDay(worked)}. Try again, then set the lead's status to what happened.`,
-        link: "/staff?view=engine",
+        link: engineLink(l.id),
         due_at: iso(dayAt(businessDay(worked, 1))),
         all_day: true,
         engine_lead_id: l.id,
@@ -401,7 +520,7 @@ export function planCalendar(input: CalInput, now: Date): Desired[] {
       ...base,
       owner: ownerOf(i.rep_slug),
       rep_slug: i.rep_slug,
-      link: "/staff?view=sent",
+      link: `/staff?view=sent&invite=${i.id}`,
       all_day: true,
       invite_id: i.id,
     };
@@ -570,13 +689,16 @@ export type SyncScope = { isAdmin: boolean; userId: string };
 export type Plan = {
   insert: (Desired & { scheduled_at: string })[];
   update: { id: string; patch: Record<string, unknown> }[];
+  /** rows of items now folded into another item for the same business (never done ones) */
+  remove: string[];
 };
 
 /**
  * What to change so the table matches the plan. New items are added; an open item keeps its due
  * time (the person may have moved it) but follows its record's words and owner; an item whose
  * reason passed is cleared, and opens again if the reason comes back. Done items are left alone.
- * Only items of rules whose records were read (`loaded`) are ever cleared.
+ * Only items of rules whose records were read (`loaded`) are ever cleared. An item folded into
+ * another for the same business (`absorbed`) is taken away rather than cleared, unless it's done.
  */
 export function reconcile(
   existing: Existing[],
@@ -584,8 +706,10 @@ export function reconcile(
   scope: SyncScope,
   loaded: Rule[],
   now: Date,
+  absorbed: string[] = [],
 ): Plan {
-  const plan: Plan = { insert: [], update: [] };
+  const plan: Plan = { insert: [], update: [], remove: [] };
+  const folded = new Set(absorbed);
   const mine = (owner: string | null) => scope.isAdmin || owner === scope.userId;
   const wanted = desired.filter((d) => mine(d.owner));
   const byKey = new Map(existing.map((e) => [e.source_key, e]));
@@ -611,6 +735,10 @@ export function reconcile(
   }
   const read = new Set<string>(loaded);
   for (const e of existing) {
+    if (folded.has(e.source_key) && !keys.has(e.source_key)) {
+      if (e.status !== "done" && mine(e.owner)) plan.remove.push(e.id);
+      continue;
+    }
     if (e.status !== "open" || keys.has(e.source_key)) continue;
     if (!mine(e.owner) || !read.has(e.rule)) continue;
     plan.update.push({
@@ -640,6 +768,17 @@ export type CalItem = {
 };
 
 /** Overdue: an all-day item from an earlier day, or a timed one whose time has passed. */
+/**
+ * Open items due on a day before `today`. Day and Week show them above the current day or week,
+ * so an item that slipped is never hidden behind the day it was due.
+ */
+export function earlierOpen<T extends Pick<CalItem, "status" | "due_at">>(
+  items: T[],
+  today: string,
+): T[] {
+  return items.filter((i) => i.status === "open" && nyDay(Date.parse(i.due_at)) < today);
+}
+
 export function isOverdue(i: Pick<CalItem, "due_at" | "all_day" | "status">, now: Date): boolean {
   if (i.status !== "open") return false;
   return i.all_day ? nyDay(ms(i.due_at)) < nyDay(now.getTime()) : ms(i.due_at) < now.getTime();

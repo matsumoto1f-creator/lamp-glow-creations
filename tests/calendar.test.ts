@@ -7,6 +7,8 @@ import {
   type Existing,
   RULES,
   businessDay,
+  businessKey,
+  earlierOpen,
   isOverdue,
   itemView,
   moveTo,
@@ -14,6 +16,7 @@ import {
   nyAt,
   nyDay,
   planCalendar,
+  planWithMerges,
   reconcile,
   weekOf,
 } from "../src/lib/calendar.ts";
@@ -464,7 +467,7 @@ Deno.test(
     assertEquals(p.insert.length, 1);
     assertEquals(p.insert[0]!.scheduled_at, p.insert[0]!.due_at);
     const again = reconcile([row("a")], [desired("a")], rep, [...RULES], NOW);
-    assertEquals(again, { insert: [], update: [] });
+    assertEquals(again, { insert: [], update: [], remove: [] });
   },
 );
 
@@ -558,4 +561,156 @@ Deno.test("the card: one main button while open, none once done or cleared", () 
   assert(
     itemView(item({ due_at: ahead(48), scheduled_at: ahead(1) }), NOW).subtitle.endsWith("· moved"),
   );
+});
+
+// ---------- one business, one card ----------
+
+const engineLead = (over: Partial<CalInput["engineLeads"][number]> = {}) => ({
+  id: 42,
+  source: "fl_ucc",
+  name: "CAVEMAN FLOORING LLC",
+  status: "no_answer",
+  rep_slug: "zeus",
+  worked_at: "2026-11-13T20:00:00Z",
+  pushed_at: null,
+  signals: [],
+  ...over,
+});
+
+Deno.test("a business's name matches however it's written", () => {
+  assertEquals(businessKey("Caveman Flooring, L.L.C."), "caveman flooring");
+  assertEquals(businessKey("CAVEMAN FLOORING LLC"), "caveman flooring");
+  assertEquals(businessKey("The Smith & Sons Co."), "smith and sons");
+  assertEquals(businessKey(null), "");
+  assertEquals(businessKey("LLC"), "");
+});
+
+Deno.test("two started links to one business are one card, due when the first one was", () => {
+  const a = invite({
+    id: "inv-a",
+    business_name: "Caveman Flooring LLC",
+    opened_at: ago(60),
+    started_at: ago(50),
+  });
+  const b = invite({
+    id: "inv-b",
+    business_name: "CAVEMAN FLOORING, L.L.C.",
+    opened_at: ago(30),
+    started_at: ago(28),
+  });
+  const { items, absorbed } = planWithMerges(empty({ invites: [a, b] }), NOW);
+  assertEquals(items.length, 1, JSON.stringify(items, null, 1));
+  const d = items[0]!;
+  assertEquals(d.rule, "link_unfinished");
+  // one leads, the other is folded in (and its row will be taken away)
+  assertEquals(absorbed.length, 1);
+  assertEquals([d.source_key, ...absorbed].sort(), [
+    "link:inv-a:unfinished",
+    "link:inv-b:unfinished",
+  ]);
+  const alone = planCalendar(empty({ invites: [a] }), NOW)[0]!;
+  assertEquals(d.due_at, alone.due_at);
+  assert(d.why.includes("another application link (started, not finished)"), d.why);
+  assert(d.why.endsWith("One call covers it."), d.why);
+});
+
+Deno.test("a started link and a No answer for the same business: the link leads", () => {
+  const inv = invite({
+    business_name: "Caveman Flooring LLC",
+    opened_at: ago(60),
+    started_at: ago(50),
+  });
+  const { items, absorbed } = planWithMerges(
+    empty({ invites: [inv], engineLeads: [engineLead()] }),
+    NOW,
+  );
+  assertEquals(items.length, 1);
+  assertEquals(items[0]!.rule, "link_unfinished");
+  assert(items[0]!.why.includes("the lead is marked No answer"), items[0]!.why);
+  assertEquals(absorbed, ["noanswer:42:2026-11-13T20:00:00Z"]);
+});
+
+Deno.test("different businesses, different people, or no name stay apart", () => {
+  const two = (over: Partial<CalInput>) => planCalendar(empty(over), NOW).length;
+  assertEquals(
+    two({
+      invites: [invite({ id: "x" }), invite({ id: "y", business_name: "Other Deli" })],
+    }),
+    2,
+  );
+  // another rep's lead for the same name is that rep's call
+  assertEquals(
+    two({
+      seats: [
+        { slug: "zeus", user_id: REP, active: true },
+        { slug: "hera", user_id: "user-hera", active: true },
+      ],
+      invites: [invite({ business_name: "Caveman Flooring" })],
+      engineLeads: [engineLead({ rep_slug: "hera" })],
+    }),
+    2,
+  );
+  // nothing to match on
+  assertEquals(
+    two({
+      invites: [invite({ id: "x", business_name: null }), invite({ id: "y", business_name: null })],
+    }),
+    2,
+  );
+  // other rules never fold in, even for the same business
+  const inv = invite({ business_name: "Tampa Tile" });
+  const reply = engineLead({
+    id: 7,
+    name: "Tampa Tile",
+    source: "email-reply",
+    status: "new",
+    signals: [{ signal_type: "email_reply", signal_date: ago(2), message_id: "m1" }],
+  });
+  assertEquals(two({ invites: [inv], engineLeads: [reply] }), 2);
+});
+
+Deno.test("Open goes to that link or that lead, not the whole list", () => {
+  const link = only(empty({ invites: [invite()] }));
+  assertEquals(link.link, "/staff?view=sent&invite=inv1");
+  const lead = only(empty({ engineLeads: [engineLead({ name: "Tampa Tile" })] }));
+  assertEquals(lead.link, "/staff?view=engine&elead=42");
+  for (const d of [link, lead]) assert(d.link.length <= 300 && d.link.startsWith("/staff"));
+});
+
+Deno.test("reconcile takes away a folded-in item, but never a done one or someone else's", () => {
+  const p = reconcile(
+    [row("old"), row("done", { status: "done" }), row("hers", { owner: "user-hera" })],
+    [desired("new")],
+    rep,
+    [...RULES],
+    NOW,
+    ["old", "done", "hers"],
+  );
+  assertEquals(p.remove, ["id-old"]);
+  // a folded-in key is never also cleared
+  assertEquals(
+    p.update.filter((u) => u.patch["status"] === "cleared"),
+    [],
+  );
+  // an admin's run takes away anyone's
+  const all = reconcile([row("hers", { owner: "user-hera" })], [], admin, [...RULES], NOW, [
+    "hers",
+  ]);
+  assertEquals(all.remove, ["id-hers"]);
+});
+
+Deno.test("Day and Week list open items from earlier days above today", () => {
+  const it = (due: string, status: CalItem["status"] = "open") => ({ due_at: due, status });
+  const today = nyDay(NOW.getTime());
+  const late = earlierOpen(
+    [
+      it(ago(24 * 3)),
+      it(ago(24 * 3), "done"),
+      it(ago(1)), // earlier today: shows under today, not here
+      it(ahead(24)),
+    ],
+    today,
+  );
+  assertEquals(late.length, 1);
+  assertEquals(late[0]!.due_at, ago(24 * 3));
 });

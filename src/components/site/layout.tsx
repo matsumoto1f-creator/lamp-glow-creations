@@ -357,7 +357,12 @@ export function PageShell({
 }) {
   const live = tone === "night";
   const night = live || tone === "night-calm";
-  useLamplightGlass(live);
+  // Work screens (the staff portal, a merchant's account, the application): the same look, held
+  // still. The dot field draws once and the panels keep the plain blur, so nothing on the page
+  // costs anything while someone reads, types or sits on it all day. The public pages keep the
+  // moving field and the glass that bends it.
+  const still = live && member;
+  useLamplightGlass(live && !still);
   return (
     <div
       className={cn(
@@ -373,7 +378,7 @@ export function PageShell({
     >
       {night && (
         <>
-          {live && <LampField />}
+          {live && <LampField still={still} />}
           <div aria-hidden="true" className="ll-atmos pointer-events-none fixed inset-0 -z-20" />
         </>
       )}

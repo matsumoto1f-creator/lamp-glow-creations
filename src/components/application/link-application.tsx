@@ -16,6 +16,7 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { saveSignedCopy } from "@/lib/signed-copy";
 import { findRep, GOOGLE_SIGN_IN } from "@/lib/site";
 import {
   cleanDetails,
@@ -495,16 +496,16 @@ export function LinkApplication({
       const j = (await up.json().catch(() => ({}))) as { error?: string };
       return up.ok ? null : (j.error ?? "Didn't upload");
     };
-    try {
-      const bytes = await applicationPdfBytes(src, values, "lender");
-      await upload(
-        new Blob([bytes as BlobPart], { type: "application/pdf" }),
-        "Signed application.pdf",
-        "funder_application",
-      );
-    } catch {
-      /* staff build it from the saved answers */
-    }
+    // two tries, and what went wrong goes on the file's timeline (see signed-copy.ts)
+    const copyError = await saveSignedCopy(
+      () => applicationPdfBytes(src, values, "lender"),
+      (bytes) =>
+        upload(
+          new Blob([bytes as BlobPart], { type: "application/pdf" }),
+          "Signed application.pdf",
+          "funder_application",
+        ),
+    );
 
     const uploads: Done["uploads"] = [];
     for (const f of files) {
@@ -526,6 +527,7 @@ export function LinkApplication({
         body: JSON.stringify({
           application_id: out.application_id,
           claim_token: out.claim_token,
+          ...(copyError ? { copy_error: copyError } : {}),
         }),
       });
     } catch {

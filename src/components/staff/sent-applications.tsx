@@ -202,7 +202,7 @@ export function SentApplications({
           </Link>
         </p>
       )}
-      <div className={cn("flex flex-wrap items-end gap-3", focus && "hidden")}>
+      <div className={focus ? "hidden" : "flex flex-wrap items-end gap-3"}>
         <label className="text-sm">
           <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-smoke">
             Status

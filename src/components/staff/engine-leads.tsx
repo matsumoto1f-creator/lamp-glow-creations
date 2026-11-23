@@ -393,7 +393,9 @@ export function EngineLeads({
         </p>
       )}
       <div
-        className={cn("grid grid-cols-2 items-end gap-3 md:flex md:flex-wrap", focus && "hidden")}
+        // one lead shown: no filters (they'd do nothing). "hidden" alone loses to md:flex, so the
+        // layout classes go too
+        className={focus ? "hidden" : "grid grid-cols-2 items-end gap-3 md:flex md:flex-wrap"}
       >
         <label className="text-sm">
           <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-smoke">

@@ -326,6 +326,8 @@ export function inviteEmail(opts: {
   filled?: boolean;
   /** Which words; missing means "apply". */
   kind?: EmailKind;
+  /** The rep's number for the sign-off, when Lamp has one. */
+  repPhone?: string | null;
 }): { subject: string; text: string; html: string } {
   const hi = opts.firstName.trim() ? `Hi ${opts.firstName.trim()},` : "Hi,";
   const w = emailWords(opts.kind ?? "apply", {
@@ -352,6 +354,7 @@ export function inviteEmail(opts: {
     button: w.button,
     appLine: w.appLine ? { label: w.appLine, url: opts.url } : null,
     repName: opts.repName,
+    phone: opts.repPhone ?? null,
     footer,
   });
 }
@@ -365,6 +368,7 @@ export function finishEmail(opts: {
   firstName: string;
   businessName: string;
   repName: string;
+  repPhone?: string | null;
   site: string;
   legalName: string;
   address: string;
@@ -384,6 +388,7 @@ export function finishEmail(opts: {
     button: { label: "Finish my application", url },
     appLine: null,
     repName: opts.repName,
+    phone: opts.repPhone ?? null,
     footer: [
       `You're getting this because you checked your options on getlamp.app. Not interested? Reply "stop" and we won't email you again.`,
       [opts.legalName, opts.address].filter(Boolean).join(" · "),
@@ -442,6 +447,26 @@ export function reminderEmail(opts: {
   });
 }
 
+/** The mailbox Lamp's emails come from; merchants are told they can write to it directly. */
+export const DIRECT_EMAIL = "partners@getlamp.app";
+
+/** "908-765-8526" from however a ten-digit US number was typed; "" when it isn't one. */
+export function fmtPhone(raw: string | null | undefined): string {
+  let d = (raw ?? "").replace(/\D/g, "");
+  if (d.length === 11 && d.startsWith("1")) d = d.slice(1);
+  return d.length === 10 ? `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}` : "";
+}
+
+/**
+ * The line before the sign-off (Asad, 2026-11-23: "my phone number should be in there and
+ * encourage them to email us directly too"). Three ways to reach a person: reply, write to the
+ * mailbox, or call or text the rep when Lamp has their number.
+ */
+export const contactLine = (phone: string) =>
+  phone
+    ? `Questions? Reply to this email, email us directly at ${DIRECT_EMAIL}, or call or text me at ${phone}.`
+    : `Questions? Reply to this email, or email us directly at ${DIRECT_EMAIL}.`;
+
 /** The plain-text and branded HTML versions of one Lamp email, from its parts. */
 function renderEmail(o: {
   hi: string;
@@ -451,12 +476,16 @@ function renderEmail(o: {
   button: { label: string; url: string };
   appLine: { label: string; url: string } | null;
   repName: string;
+  /** The rep's own number, when Lamp has one for them: it goes in the sign-off. */
+  phone?: string | null;
   footer: string[];
   /** A link in the small print (the reminders' stop link): a line of its own in the text. */
   footerLink?: { text: string; label: string; url: string };
 }): { subject: string; text: string; html: string } {
   const { hi, subject, body, footer } = o;
   const fl = o.footerLink;
+  const phone = fmtPhone(o.phone);
+  const tel = phone.replace(/\D/g, "");
   const text = [
     hi,
     "",
@@ -464,10 +493,10 @@ function renderEmail(o: {
     o.textButton,
     ...(o.appLine ? ["", `${o.appLine.label}: ${o.appLine.url}`] : []),
     "",
-    "Any questions, just reply to this email.",
+    contactLine(phone),
     "",
     o.repName,
-    "Lamp · getlamp.app",
+    phone ? `Lamp · ${phone} · getlamp.app` : "Lamp · getlamp.app",
     "",
     ...(fl ? [`${fl.text} ${fl.label}: ${fl.url}`] : []),
     ...footer,
@@ -495,9 +524,9 @@ ${body.map(p).join("\n")}
 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 24px"><tr><td style="border-radius:999px;background:#4a985e">
 <a href="${esc(o.button.url)}" style="display:inline-block;padding:15px 30px;font-size:16px;font-weight:700;color:#0f1f17;text-decoration:none;border-radius:999px">${esc(o.button.label)}</a>
 </td></tr></table>
-${appLink}${p("Any questions, just reply to this email.")}
+${appLink}<p style="margin:0 0 16px;font-size:16px;line-height:1.55;color:#1f2a24">Questions? Reply to this email, email us directly at <a href="mailto:${DIRECT_EMAIL}" style="color:#2f6f43;font-weight:700">${DIRECT_EMAIL}</a>${phone ? `, or call or text me at <a href="tel:+1${tel}" style="color:#2f6f43;font-weight:700">${esc(phone)}</a>` : ""}.</p>
 <p style="margin:0 0 4px;font-size:16px;font-weight:700;color:#1f2a24">${esc(o.repName)}</p>
-<p style="margin:0 0 28px;font-size:14px;color:#5b6b61">Lamp · <a href="${esc(siteOf(o.button.url))}" style="color:#2f6f43;font-weight:700">Website</a></p>
+<p style="margin:0 0 28px;font-size:14px;color:#5b6b61">Lamp · ${phone ? `<a href="tel:+1${tel}" style="color:#2f6f43;font-weight:700">${esc(phone)}</a> · ` : ""}<a href="${esc(siteOf(o.button.url))}" style="color:#2f6f43;font-weight:700">Website</a></p>
 </td></tr>
 <tr><td style="padding:16px 28px 22px;border-top:1px solid #e3e9e4">
 ${fl ? `<p style="margin:0 0 6px;font-size:12px;line-height:1.5;color:#7a887f">${esc(fl.text)} <a href="${esc(fl.url)}" style="color:#2f6f43">${esc(fl.label)}</a></p>\n` : ""}${footer.map((f) => `<p style="margin:0 0 6px;font-size:12px;line-height:1.5;color:#7a887f">${esc(f)}</p>`).join("\n")}

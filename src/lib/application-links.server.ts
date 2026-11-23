@@ -304,19 +304,22 @@ export type Rep = {
   user_id: string | null;
   active: boolean;
   admin_slug: string | null;
+  /** The rep's own number for an email's sign-off; null until one is on their row. */
+  phone: string | null;
   /** Who this rep reports to, when active: copied on the rep's application emails. */
   lead: { name: string; title: string | null; user_id: string | null } | null;
 };
 
 /** The rep, or null when there's none. Throws when the lookup itself failed. */
 export async function repBySlug(svc: Svc, slug: string): Promise<Rep | null> {
-  const r = await svc
-    .from("reps")
-    .select("slug,name,title,user_id,active,admin_slug")
-    .eq("slug", slug)
-    .maybeSingle();
+  const cols = "slug,name,title,user_id,active,admin_slug";
+  let r = await svc.from("reps").select(`${cols},phone`).eq("slug", slug).maybeSingle();
+  // before 20261123210000_rep_phone.sql is run there is no phone column: read the row without it
+  if (r.error && (r.error.code === "42703" || r.error.code === "PGRST204"))
+    r = (await svc.from("reps").select(cols).eq("slug", slug).maybeSingle()) as typeof r;
   if (r.error) throw r.error;
-  const rep = r.data as Omit<Rep, "lead"> | null;
+  const row0 = r.data as (Omit<Rep, "lead" | "phone"> & { phone?: string | null }) | null;
+  const rep = row0 ? { ...row0, phone: row0.phone ?? null } : null;
   if (!rep) return null;
   let lead: Rep["lead"] = null;
   if (rep.admin_slug) {
@@ -625,6 +628,7 @@ export async function applicationInvites(request: Request): Promise<Response> {
       firstName: inv.first_name ?? "",
       businessName: inv.business_name ?? "",
       repName: facing(rep).name,
+      repPhone: rep.phone,
       note,
       url,
       legalName: SITE.legalName,
@@ -891,6 +895,7 @@ export async function applicationInvites(request: Request): Promise<Response> {
       firstName,
       businessName: business,
       repName: facing(rep).name,
+      repPhone: rep.phone,
       note,
       url,
       legalName: SITE.legalName,
@@ -1163,6 +1168,7 @@ export async function applicationDraft(request: Request): Promise<Response> {
       firstName: inv.first_name ?? "",
       businessName: inv.business_name ?? "",
       repName: facing(rep).name,
+      repPhone: rep.phone,
       note: "",
       // Start application opens the paper form, so the merchant gets the same paper form
       url:
@@ -1845,6 +1851,7 @@ export async function finishApplicationNudge(request: Request): Promise<Response
         firstName: app.first_name ?? "",
         businessName: app.business_name ?? "",
         repName: name,
+        repPhone: rep?.phone ?? null,
         note: "",
         url: link.url,
         legalName: SITE.legalName,
@@ -1854,6 +1861,7 @@ export async function finishApplicationNudge(request: Request): Promise<Response
         firstName: app.first_name ?? "",
         businessName: app.business_name ?? "",
         repName: name,
+        repPhone: rep?.phone ?? null,
         site: SITE_URL(),
         legalName: SITE.legalName,
         address: SITE.address,

@@ -54,7 +54,7 @@ type Row = {
   result: SendResult | null;
 };
 
-type Rep = { slug: string; name: string; admin_slug?: string | null };
+type Rep = { slug: string; name: string; admin_slug?: string | null; phone?: string | null };
 
 let nextKey = 1;
 const toRow = (s: SendSeed): Row => {
@@ -192,6 +192,7 @@ export function SendApplications({
     legalName: SITE.legalName,
     address: SITE.address,
     kind,
+    repPhone: senderRep?.phone ?? null,
   });
 
   return (

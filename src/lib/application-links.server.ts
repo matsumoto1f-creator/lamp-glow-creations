@@ -1213,7 +1213,7 @@ type SubmitBody = {
   consent_version?: unknown;
   /** "pdf": signed on the one-page paper form, which asks only whether they own real estate */
   form?: unknown;
-  /** honeypot: a field people never see */
+  /** an older page's hidden box; read by nothing now (see submitApplication) */
   company_fax?: unknown;
 };
 
@@ -1241,7 +1241,11 @@ export async function submitApplication(request: Request): Promise<Response> {
   if (nr) return nr;
   const body = await readJson<SubmitBody>(request, MAX_SUBMIT_BYTES);
   if (body instanceof Response) return body;
-  if (body.company_fax) return json(400, { error: "Couldn't submit." });
+  // No hidden-box trap. The page used to carry a box people never see, and anything in it meant a
+  // refusal with only "Couldn't submit." But a browser's autofill fills hidden boxes too, so a
+  // merchant with every answer in and both signatures drawn was turned away (2026-11-23, on a call
+  // with Asad). A signed application is never refused for that; a page still open from before
+  // may send the field, and it is ignored. The limits per network and per link stay.
   if (body.consent_version !== CONSENT_VERSION)
     return json(409, { error: "The application was updated. Refresh the page and sign again." });
 

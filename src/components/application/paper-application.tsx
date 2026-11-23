@@ -150,7 +150,6 @@ export function PaperApplication({
     src: Parameters<typeof downloadApplicationPdf>[0];
     values: Parameters<typeof downloadApplicationPdf>[1];
   } | null>(null);
-  const honeypot = useRef<HTMLInputElement | null>(null);
   const signRef = useRef<HTMLDivElement | null>(null);
   const questionsRef = useRef<HTMLElement | null>(null);
   // "Fill in what's missing": which box to open, and a count so the same box can be opened twice
@@ -392,7 +391,6 @@ export function PaperApplication({
             image2: signed.image2,
           },
           consent_version: CONSENT_VERSION,
-          company_fax: honeypot.current?.value ?? "",
         }),
       });
     } catch {
@@ -703,14 +701,6 @@ export function PaperApplication({
                 />
               )}
             </div>
-            <input
-              ref={honeypot}
-              name="company_fax"
-              tabIndex={-1}
-              autoComplete="off"
-              aria-hidden="true"
-              className="absolute left-[-9999px] h-0 w-0 opacity-0"
-            />
           </>
         )}
       </div>

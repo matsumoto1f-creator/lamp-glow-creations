@@ -220,7 +220,6 @@ export function LinkApplication({
   );
   // after the contact screen on a public link: the rough range from their answers, once
   const [showRange, setShowRange] = useState(false);
-  const honeypot = useRef<HTMLInputElement | null>(null);
   const started = useRef(false);
   const topRef = useRef<HTMLDivElement | null>(null);
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -449,7 +448,6 @@ export function LinkApplication({
             image2: signed.image2,
           },
           consent_version: CONSENT_VERSION,
-          company_fax: honeypot.current?.value ?? "",
         }),
       });
     } catch {
@@ -756,14 +754,6 @@ export function LinkApplication({
                 </div>
 
                 {/* people never see this field; form-filling bots do */}
-                <input
-                  ref={honeypot}
-                  name="company_fax"
-                  tabIndex={-1}
-                  autoComplete="off"
-                  aria-hidden="true"
-                  className="pointer-events-none absolute -left-[9999px] h-px w-px opacity-0"
-                />
 
                 <p className="mt-8 flex items-center justify-center gap-2 text-center text-sm text-smoke">
                   <Lock className="size-3.5" />{" "}

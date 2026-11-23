@@ -59,3 +59,18 @@ export function newYorkDayStart(now: Date): Date {
 export function roomLeft(limit: number, sentToday: number): number {
   return Math.max(0, limit - Math.max(0, sentToday));
 }
+
+/**
+ * One application email per address per New York day from "fill it in with them now" (Email).
+ * That button can be pressed again with any address typed in, so it would otherwise have no
+ * ceiling. Any application email to the address today counts, whichever button sent it.
+ */
+export function emailedToday(lastSentAt: string | null | undefined, now: Date): boolean {
+  if (!lastSentAt) return false;
+  const at = Date.parse(lastSentAt);
+  return !Number.isNaN(at) && at >= newYorkDayStart(now).getTime();
+}
+
+/** What the rep reads when that address was already emailed today. */
+export const ONCE_A_DAY =
+  "That address already got an application email today. Copy the link and send it yourself, or email it tomorrow.";

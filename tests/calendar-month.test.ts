@@ -91,3 +91,30 @@ Deno.test("calendar page: a square says what is on it for someone who can't see 
   assert(page.includes('"nothing scheduled"'));
   assert(page.includes("aria-pressed={d === day}"));
 });
+
+Deno.test("month: an item on a square opens its own lead or file", () => {
+  const month = page.slice(page.indexOf("function Month("), page.indexOf("function Slipped("));
+  assert(month.includes('to="/staff"') && month.includes("search={searchOf(i.link) as never}"));
+  // an item with no record to open is plain text, and a press on it picks the day
+  assert(month.includes("i.link ? ("));
+});
+
+Deno.test(
+  "month: the square is not a button holding links (a link inside a button can't be pressed)",
+  () => {
+    const month = page.slice(page.indexOf("function Month("), page.indexOf("function Slipped("));
+    // the day button covers the square; the items sit above it and take their own presses
+    assert(month.includes('className="absolute inset-0'));
+    assert(month.includes("pointer-events-auto relative"));
+    const button = month.slice(
+      month.indexOf("<button"),
+      month.indexOf("/>", month.indexOf("<button")),
+    );
+    assert(!button.includes("<Link"));
+  },
+);
+
+Deno.test("month: pressing a day brings its cards into view", () => {
+  assert(page.includes('.querySelector("[data-month-daylist]")'));
+  assert(page.includes('scrollIntoView({ behavior: "smooth", block: "nearest" })'));
+});

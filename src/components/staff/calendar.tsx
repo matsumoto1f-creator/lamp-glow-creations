@@ -380,13 +380,29 @@ export function CalendarView(p: ViewProps) {
         <Placeholder />
       ) : p.mode === "month" ? (
         <>
-          <Month items={shown} now={p.now} day={p.day} today={today} onDay={p.onDay} />
-          {p.day === today && <Slipped items={shown} today={today} card={card} />}
-          <DayList
-            title={`${sayDay(nyAt(p.day, 12))}${p.day === today ? " · Today" : ""}`}
-            items={shown.filter((i) => dayOf(i) === p.day).sort(byTime)}
-            card={card}
+          <Month
+            items={shown}
+            now={p.now}
+            day={p.day}
+            today={today}
+            onDay={(d) => {
+              p.onDay(d);
+              // the day's cards are under the grid: bring them into view so the press visibly did something
+              window.requestAnimationFrame(() =>
+                document
+                  .querySelector("[data-month-daylist]")
+                  ?.scrollIntoView({ behavior: "smooth", block: "nearest" }),
+              );
+            }}
           />
+          <div className="mt-5 scroll-mt-4" data-month-daylist={p.day}>
+            {p.day === today && <Slipped items={shown} today={today} card={card} />}
+            <DayList
+              title={`${sayDay(nyAt(p.day, 12))}${p.day === today ? " · Today" : ""}`}
+              items={shown.filter((i) => dayOf(i) === p.day).sort(byTime)}
+              card={card}
+            />
+          </div>
         </>
       ) : p.mode === "agenda" ? (
         <Agenda items={shown} now={p.now} today={today} card={card} />
@@ -441,8 +457,8 @@ const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 /**
  * The month as a grid of days. Each square shows the day's first items (time and title) and how
- * many more there are; pressing a square shows that day's cards under the grid, where the
- * buttons are. On a phone a square shows the day and a count, since titles don't fit.
+ * many more there are. Pressing an item opens its lead or file; pressing anywhere else on the
+ * square (or "+N more") shows that day's cards under the grid, where the buttons are. On a phone a square shows the day and a count, since titles don't fit.
  */
 function Month({
   items,
@@ -486,27 +502,47 @@ function Month({
             const sq = daySquare(list);
             const inMonth = monthOf(d) === monthOf(day);
             const n = Number(d.slice(8));
+            const chip = (i: CalItem) =>
+              cn(
+                "block truncate rounded-md px-1.5 py-0.5 text-[11px] leading-4",
+                i.status !== "open"
+                  ? "bg-sand text-smoke line-through"
+                  : isOverdue(i, now)
+                    ? "bg-red-100 text-red-900"
+                    : "bg-leaf/25 text-ink",
+              );
+            const words = (i: CalItem) => (
+              <>
+                {!i.all_day && <span className="font-semibold">{sayTime(i.due_at)} </span>}
+                {i.title}
+              </>
+            );
             return (
-              <button
+              <div
                 key={d}
-                type="button"
                 className={cn(
-                  "flex min-h-16 min-w-0 flex-col items-stretch gap-1 rounded-xl bg-white p-1.5 text-left ring-1 ring-line md:min-h-28 md:p-2",
+                  "relative flex min-h-16 min-w-0 flex-col items-stretch gap-1 rounded-xl bg-white p-1.5 text-left ring-1 ring-line md:min-h-28 md:p-2",
                   !inMonth && "opacity-50",
                   d === today && "ring-2 ring-leaf",
                   d === day && "ring-2 ring-ink",
                 )}
-                aria-pressed={d === day}
-                aria-label={`${sayDay(nyAt(d, 12))}${d === today ? ", today" : ""}: ${
-                  list.length === 0
-                    ? "nothing scheduled"
-                    : `${open.length} open${late ? `, ${late} overdue` : ""}, ${list.length - open.length} done`
-                }`}
-                onClick={() => onDay(d)}
-                data-month-day={d}
-                data-static
+                data-month-square={d}
               >
-                <span className="flex items-center justify-between gap-1">
+                {/* the whole square picks the day; the items on it sit above this and open their record */}
+                <button
+                  type="button"
+                  className="absolute inset-0 rounded-xl focus-visible:outline-2 focus-visible:outline-forest"
+                  aria-pressed={d === day}
+                  aria-label={`${sayDay(nyAt(d, 12))}${d === today ? ", today" : ""}: ${
+                    list.length === 0
+                      ? "nothing scheduled"
+                      : `${open.length} open${late ? `, ${late} overdue` : ""}, ${list.length - open.length} done`
+                  }. Show this day.`}
+                  onClick={() => onDay(d)}
+                  data-month-day={d}
+                  data-static
+                />
+                <span className="pointer-events-none flex items-center justify-between gap-1">
                   <span
                     className={cn(
                       "grid size-6 place-items-center rounded-full text-xs font-semibold tabular-nums",
@@ -526,28 +562,35 @@ function Month({
                     </span>
                   )}
                 </span>
-                <span className="hidden min-w-0 flex-col gap-0.5 md:flex">
-                  {sq.shown.map((i) => (
-                    <span
-                      key={i.id}
-                      className={cn(
-                        "truncate rounded-md px-1.5 py-0.5 text-[11px] leading-4",
-                        i.status !== "open"
-                          ? "bg-sand text-smoke line-through"
-                          : isOverdue(i, now)
-                            ? "bg-red-100 text-red-900"
-                            : "bg-leaf/25 text-ink",
-                      )}
-                    >
-                      {!i.all_day && <span className="font-semibold">{sayTime(i.due_at)} </span>}
-                      {i.title}
-                    </span>
-                  ))}
+                <span className="pointer-events-none hidden min-w-0 flex-col gap-0.5 md:flex">
+                  {sq.shown.map((i) =>
+                    i.link ? (
+                      <Link
+                        key={i.id}
+                        to="/staff"
+                        search={searchOf(i.link) as never}
+                        className={cn(
+                          chip(i),
+                          "pointer-events-auto relative hover:underline focus-visible:outline-2 focus-visible:outline-forest",
+                        )}
+                        title={`Open: ${i.title}`}
+                        data-month-item={i.id}
+                      >
+                        {words(i)}
+                      </Link>
+                    ) : (
+                      <span key={i.id} className={chip(i)}>
+                        {words(i)}
+                      </span>
+                    ),
+                  )}
                   {sq.more > 0 && (
-                    <span className="px-1.5 text-[11px] text-smoke">+{sq.more} more</span>
+                    <span className="px-1.5 text-[11px] font-semibold text-forest underline">
+                      +{sq.more} more
+                    </span>
                   )}
                 </span>
-              </button>
+              </div>
             );
           })}
       </div>

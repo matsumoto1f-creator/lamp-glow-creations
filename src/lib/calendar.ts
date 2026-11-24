@@ -810,6 +810,73 @@ export const isRule = (v: unknown): v is Rule =>
 
 // ---------- one item as a card (agent-run-card contract: tone, pill, next line, one main button) ----------
 
+// ---------- calling from an item (Asad, 2026-11-24: "give me a direction in what to do with these
+// or make it convenient if calling them is what you want me to do here") ----------
+
+/** Items that are a phone call to an engine lead. */
+export const CALL_ITEM_RULES: readonly string[] = ["lead_callback", "lead_no_answer"];
+
+/** What to do with an open call item, step by step; null for every other item. */
+export function callSteps(i: Pick<CalItem, "rule" | "status">): string | null {
+  if (i.status !== "open") return null;
+  if (i.rule === "lead_no_answer")
+    return "Call them. If they pick up, open the lead and set what happened: this item then clears itself. No answer again: Mark done.";
+  if (i.rule === "lead_callback")
+    return "Call them. If they gave you a day, Move this to it instead. After you talk, open the lead and set what happened: this item then clears itself.";
+  return null;
+}
+
+/** The engine lead an item's link points at ("/staff?view=engine&elead=12"), or null. */
+export function eleadOf(link: string | null): number | null {
+  const m = /[?&]elead=(\d{1,12})(?:&|$)/.exec(link ?? "");
+  return m ? Number(m[1]) : null;
+}
+
+/** The engine leads the open call items point at, each once: the numbers the page looks up. */
+export function leadsToCall(items: readonly Pick<CalItem, "rule" | "status" | "link">[]): number[] {
+  const ids = new Set<number>();
+  for (const i of items) {
+    if (i.status !== "open" || !CALL_ITEM_RULES.includes(i.rule)) continue;
+    const id = eleadOf(i.link);
+    if (id !== null) ids.add(id);
+  }
+  return [...ids].sort((a, b) => a - b);
+}
+
+export type CallTo = {
+  /** "+19087658526", for a tel: link */
+  tel: string;
+  /** "908-765-8526" */
+  shown: string;
+  /** the person to ask for, when the rep saved one */
+  who: string | null;
+};
+
+const usTen = (raw: string | null | undefined): string | null => {
+  let d = (raw ?? "").replace(/\D/g, "");
+  if (d.length === 11 && d.startsWith("1")) d = d.slice(1);
+  return d.length === 10 ? d : null;
+};
+
+/**
+ * The number to call for a lead: the contact number the rep saved, else the business line. Null
+ * when neither is a ten-digit US number, so the card never offers a call that can't connect.
+ */
+export function callTo(lead: {
+  phone: string | null;
+  contact_phone: string | null;
+  contact_name: string | null;
+}): CallTo | null {
+  const own = usTen(lead.contact_phone);
+  const d = own ?? usTen(lead.phone);
+  if (!d) return null;
+  return {
+    tel: `+1${d}`,
+    shown: `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`,
+    who: own ? lead.contact_name?.trim() || null : null,
+  };
+}
+
 export type CardTone = "working" | "attention" | "ready" | "done" | "failed";
 export type ItemView = {
   tone: CardTone;

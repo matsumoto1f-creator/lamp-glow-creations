@@ -859,6 +859,46 @@ export function weekOf(day: string): string[] {
   return Array.from({ length: 7 }, (_, n) => shiftDay(monday, n));
 }
 
+// ---------- the month grid (Asad, 2026-11-24: "can the calendar show up as an actual calendar") ----------
+
+/** "2026-11" for a YYYY-MM-DD day. */
+export const monthOf = (day: string) => day.slice(0, 7);
+
+/**
+ * The weeks (Monday first) that cover the month holding `day`: four to six rows of seven days,
+ * with the neighbouring months' days filling the first and last rows.
+ */
+export function monthGrid(day: string): string[][] {
+  const first = `${monthOf(day)}-01`;
+  const weeks: string[][] = [];
+  let week = weekOf(first);
+  do {
+    weeks.push(week);
+    week = weekOf(shiftDay(week[6]!, 1));
+  } while (monthOf(week[0]!) === monthOf(day));
+  return weeks;
+}
+
+/** The same day of the month n months on, or that month's last day when it is shorter. */
+export function shiftMonth(day: string, n: number): string {
+  const [y, m, d] = day.split("-").map(Number);
+  const first = new Date(Date.UTC(y!, m! - 1 + n, 1));
+  const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+  first.setUTCDate(Math.min(d!, last));
+  return first.toISOString().slice(0, 10);
+}
+
+/** "November 2026" for a YYYY-MM-DD day. */
+export const sayMonth = (day: string) =>
+  new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "long", year: "numeric" }).format(
+    new Date(`${monthOf(day)}-01T12:00:00Z`),
+  );
+
+/** What one day's square shows: its first few items in order, and how many more there are. */
+export function daySquare<T>(items: readonly T[], max = 3): { shown: T[]; more: number } {
+  return { shown: items.slice(0, max), more: Math.max(0, items.length - max) };
+}
+
 /** "9:00 AM" in New York time. */
 export const sayTime = (iso: string) =>
   new Intl.DateTimeFormat("en-US", {

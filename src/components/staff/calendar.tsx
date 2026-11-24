@@ -40,6 +40,12 @@ import {
   sayDay,
   shiftDay,
   weekOf,
+  daySquare,
+  monthGrid,
+  monthOf,
+  sayMonth,
+  sayTime,
+  shiftMonth,
 } from "@/lib/calendar";
 
 /**
@@ -49,8 +55,9 @@ import {
  * whose row rules let a person change only their own items (admins everyone's).
  */
 
-export type Mode = "agenda" | "day" | "week";
+export type Mode = "month" | "agenda" | "day" | "week";
 const MODES: { key: Mode; label: string }[] = [
+  { key: "month", label: "Month" },
   { key: "agenda", label: "Agenda" },
   { key: "day", label: "Day" },
   { key: "week", label: "Week" },
@@ -95,7 +102,7 @@ export function Calendar({ isAdmin }: { isAdmin: boolean }) {
   const [loadError, setLoadError] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [mode, setMode] = useState<Mode>("agenda");
+  const [mode, setMode] = useState<Mode>("month");
   const [day, setDay] = useState(() => nyDay(Date.now()));
   const [who, setWho] = useState("mine");
   const [now, setNow] = useState(() => new Date());
@@ -260,6 +267,9 @@ export function CalendarView(p: ViewProps) {
       : null;
 
   const step = p.mode === "week" ? 7 : 1;
+  const span = p.mode === "month" ? "month" : p.mode === "week" ? "week" : "day";
+  const go = (n: number) =>
+    p.onDay(p.mode === "month" ? shiftMonth(p.day, n) : shiftDay(p.day, n * step));
   const card = (i: CalItem, compact = false) => (
     <Fence key={i.id}>
       <ItemCard
@@ -307,8 +317,8 @@ export function CalendarView(p: ViewProps) {
             <button
               type="button"
               className={cn(chip, "min-h-11 min-w-11 justify-center")}
-              aria-label={p.mode === "week" ? "Previous week" : "Previous day"}
-              onClick={() => p.onDay(shiftDay(p.day, -step))}
+              aria-label={`Previous ${span}`}
+              onClick={() => go(-1)}
             >
               <ChevronLeft className="size-4" aria-hidden />
             </button>
@@ -322,8 +332,8 @@ export function CalendarView(p: ViewProps) {
             <button
               type="button"
               className={cn(chip, "min-h-11 min-w-11 justify-center")}
-              aria-label={p.mode === "week" ? "Next week" : "Next day"}
-              onClick={() => p.onDay(shiftDay(p.day, step))}
+              aria-label={`Next ${span}`}
+              onClick={() => go(1)}
             >
               <ChevronRight className="size-4" aria-hidden />
             </button>
@@ -368,6 +378,16 @@ export function CalendarView(p: ViewProps) {
 
       {p.items === null ? (
         <Placeholder />
+      ) : p.mode === "month" ? (
+        <>
+          <Month items={shown} now={p.now} day={p.day} today={today} onDay={p.onDay} />
+          {p.day === today && <Slipped items={shown} today={today} card={card} />}
+          <DayList
+            title={`${sayDay(nyAt(p.day, 12))}${p.day === today ? " · Today" : ""}`}
+            items={shown.filter((i) => dayOf(i) === p.day).sort(byTime)}
+            card={card}
+          />
+        </>
       ) : p.mode === "agenda" ? (
         <Agenda items={shown} now={p.now} today={today} card={card} />
       ) : p.mode === "day" ? (
@@ -414,6 +434,124 @@ export function CalendarView(p: ViewProps) {
         </>
       )}
     </section>
+  );
+}
+
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+/**
+ * The month as a grid of days. Each square shows the day's first items (time and title) and how
+ * many more there are; pressing a square shows that day's cards under the grid, where the
+ * buttons are. On a phone a square shows the day and a count, since titles don't fit.
+ */
+function Month({
+  items,
+  now,
+  day,
+  today,
+  onDay,
+}: {
+  items: CalItem[];
+  now: Date;
+  day: string;
+  today: string;
+  onDay: (d: string) => void;
+}) {
+  const byDay = useMemo(() => {
+    const m = new Map<string, CalItem[]>();
+    for (const i of items) {
+      const d = dayOf(i);
+      m.set(d, [...(m.get(d) ?? []), i]);
+    }
+    for (const list of m.values()) list.sort(byTime);
+    return m;
+  }, [items]);
+  return (
+    <div className="mt-5" data-calendar-month={monthOf(day)}>
+      <h3 className="px-1 pb-2 font-display text-xl font-semibold">{sayMonth(day)}</h3>
+      <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-smoke">
+        {WEEKDAYS.map((w) => (
+          <div key={w} className="py-1">
+            {w}
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 gap-1">
+        {monthGrid(day)
+          .flat()
+          .map((d) => {
+            const list = byDay.get(d) ?? [];
+            const open = list.filter((i) => i.status === "open");
+            const late = open.filter((i) => isOverdue(i, now)).length;
+            const sq = daySquare(list);
+            const inMonth = monthOf(d) === monthOf(day);
+            const n = Number(d.slice(8));
+            return (
+              <button
+                key={d}
+                type="button"
+                className={cn(
+                  "flex min-h-16 min-w-0 flex-col items-stretch gap-1 rounded-xl bg-white p-1.5 text-left ring-1 ring-line md:min-h-28 md:p-2",
+                  !inMonth && "opacity-50",
+                  d === today && "ring-2 ring-leaf",
+                  d === day && "ring-2 ring-ink",
+                )}
+                aria-pressed={d === day}
+                aria-label={`${sayDay(nyAt(d, 12))}${d === today ? ", today" : ""}: ${
+                  list.length === 0
+                    ? "nothing scheduled"
+                    : `${open.length} open${late ? `, ${late} overdue` : ""}, ${list.length - open.length} done`
+                }`}
+                onClick={() => onDay(d)}
+                data-month-day={d}
+                data-static
+              >
+                <span className="flex items-center justify-between gap-1">
+                  <span
+                    className={cn(
+                      "grid size-6 place-items-center rounded-full text-xs font-semibold tabular-nums",
+                      d === today ? "bg-leaf text-ink" : "text-ink",
+                    )}
+                  >
+                    {n}
+                  </span>
+                  {open.length > 0 && (
+                    <span
+                      className={cn(
+                        "rounded-full px-1.5 text-[11px] font-semibold tabular-nums md:hidden",
+                        late ? "bg-red-100 text-red-800" : "bg-leaf/25 text-ink",
+                      )}
+                    >
+                      {open.length}
+                    </span>
+                  )}
+                </span>
+                <span className="hidden min-w-0 flex-col gap-0.5 md:flex">
+                  {sq.shown.map((i) => (
+                    <span
+                      key={i.id}
+                      className={cn(
+                        "truncate rounded-md px-1.5 py-0.5 text-[11px] leading-4",
+                        i.status !== "open"
+                          ? "bg-sand text-smoke line-through"
+                          : isOverdue(i, now)
+                            ? "bg-red-100 text-red-900"
+                            : "bg-leaf/25 text-ink",
+                      )}
+                    >
+                      {!i.all_day && <span className="font-semibold">{sayTime(i.due_at)} </span>}
+                      {i.title}
+                    </span>
+                  ))}
+                  {sq.more > 0 && (
+                    <span className="px-1.5 text-[11px] text-smoke">+{sq.more} more</span>
+                  )}
+                </span>
+              </button>
+            );
+          })}
+      </div>
+    </div>
   );
 }
 

@@ -11,7 +11,7 @@ Deno.test("call items: an open one says what to do; a done one and other kinds d
   const na = callSteps({ rule: "lead_no_answer", status: "open" });
   const cb = callSteps({ rule: "lead_callback", status: "open" });
   assert(na?.startsWith("Call them.") && na.includes("Mark done"));
-  assert(cb?.startsWith("Call them.") && cb.includes("Move"));
+  assert(cb?.startsWith("Call them.") && cb.includes("open the lead and pick the new time"));
   assertEquals(callSteps({ rule: "lead_no_answer", status: "done" }), null);
   assertEquals(callSteps({ rule: "lead_callback", status: "cleared" }), null);
   assertEquals(callSteps({ rule: "offer_waiting", status: "open" }), null);

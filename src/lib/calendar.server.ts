@@ -99,6 +99,14 @@ export async function loadInput(
     .from("applications")
     .select("id,status,rep_slug,business_name,first_name")
     .in("status", OPEN_FILE);
+  // callbacks with a picked time (engine_leads.callback_at). Read on its own so the calendar keeps
+  // working before that column is added: a failed read here just means no picked times.
+  let pickedQ = db
+    .from("engine_leads")
+    .select("id,source,name,status,rep_slug,worked_at,pushed_at,signals,callback_at" as never)
+    .eq("status", "callback")
+    .gte("callback_at" as never, since as never);
+  if (rep) pickedQ = pickedQ.eq("rep_slug", rep);
   if (rep) {
     callsQ = callsQ.eq("assigned_to", rep);
     workedQ = workedQ.eq("rep_slug", rep);
@@ -106,7 +114,7 @@ export async function loadInput(
     invitesQ = invitesQ.eq("rep_slug", rep);
     filesQ = filesQ.eq("rep_slug", rep);
   }
-  const [seats, admins, calls, worked, replies, invites, files] = await Promise.all([
+  const [seats, admins, calls, worked, replies, invites, files, picked] = await Promise.all([
     db.from("reps").select("slug,user_id,active"),
     db.from("user_roles").select("user_id").eq("role", "admin"),
     callsQ,
@@ -114,7 +122,10 @@ export async function loadInput(
     repliesQ,
     invitesQ,
     filesQ,
+    pickedQ,
   ]);
+  const pickedRows = picked.error ? [] : ((picked.data ?? []) as unknown as Row[]);
+  const pickedIds = new Set(pickedRows.map((r) => String(r["id"])));
 
   const fileRows = (files.data ?? []) as Row[];
   const callRows = (calls.data ?? []) as Row[];
@@ -242,18 +253,22 @@ export async function loadInput(
         .trim();
       return { id: String(r["id"]), name: name || null, rep_slug: str(r["rep_slug"]) };
     }),
-    engineLeads: [...((worked.data ?? []) as Row[]), ...((replies.data ?? []) as Row[])].map(
-      (r) => ({
-        id: Number(r["id"]),
-        source: String(r["source"]),
-        name: str(r["name"]),
-        status: String(r["status"]),
-        rep_slug: str(r["rep_slug"]),
-        worked_at: str(r["worked_at"]),
-        pushed_at: str(r["pushed_at"]),
-        signals: r["signals"],
-      }),
-    ),
+    engineLeads: [
+      // a lead with a picked callback time is read once, with that time on it
+      ...pickedRows,
+      ...((worked.data ?? []) as Row[]).filter((r) => !pickedIds.has(String(r["id"]))),
+      ...((replies.data ?? []) as Row[]),
+    ].map((r) => ({
+      id: Number(r["id"]),
+      source: String(r["source"]),
+      name: str(r["name"]),
+      status: String(r["status"]),
+      rep_slug: str(r["rep_slug"]),
+      worked_at: str(r["worked_at"]),
+      pushed_at: str(r["pushed_at"]),
+      signals: r["signals"],
+      callback_at: str(r["callback_at"]),
+    })),
     invites: ((invites.data ?? []) as Row[]).map((r) => ({
       id: String(r["id"]),
       rep_slug: String(r["rep_slug"]),

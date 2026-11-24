@@ -15,6 +15,7 @@ import { getSupabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { age } from "@/lib/staff";
 import { btnOutline, btnPrimary, card } from "@/components/site/layout";
+import { CallbackPicker } from "@/components/staff/callback-picker";
 import { chip, input, textarea } from "@/components/staff/field-styles";
 import { smartLead } from "@/lib/smart-lead";
 import { LEAD_WORKED_EVENT } from "@/lib/focus";
@@ -1204,6 +1205,8 @@ function LeadPage({
           repName && <span className="text-sm text-smoke">Rep: {repName}</span>
         )}
       </div>
+
+      {row.status === "callback" && <CallbackPicker leadId={row.id} />}
 
       <section className={cn(card, "mt-5 p-5")} data-lead-contact>
         <h3 className="text-sm font-semibold">What you got on the call</h3>

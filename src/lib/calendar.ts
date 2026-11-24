@@ -159,6 +159,46 @@ export const sayDay = (t: number) =>
   }).format(new Date(t));
 
 const dayAt = (day: string) => nyAt(day, DAY_START.hour, DAY_START.minute);
+
+// ---------- a callback's day and time, as the rep picks it on the lead (New York time) ----------
+
+/**
+ * The moment to store for a picked day ("2026-11-25") and time ("14:30", or "" for no time).
+ * No time is stored as midnight and shows as an all-day item. Null when either isn't a real value.
+ */
+export function callbackAt(day: string, time: string): string | null {
+  const d = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day);
+  if (!d) return null;
+  const real = new Date(Date.UTC(Number(d[1]), Number(d[2]) - 1, Number(d[3])));
+  if (real.toISOString().slice(0, 10) !== day) return null;
+  if (time === "") return new Date(nyAt(day, 0, 0)).toISOString();
+  const m = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(time);
+  if (!m) return null;
+  return new Date(nyAt(day, Number(m[1]), Number(m[2]))).toISOString();
+}
+
+/** True when a stored callback is a day with no time (midnight in New York). */
+export function isDayOnly(at: string): boolean {
+  const p = wallParts(ms(at));
+  return p.hour === 0 && p.minute === 0;
+}
+
+/** A stored callback as the two boxes show it: { day: "2026-11-25", time: "14:30" } (time "" for none). */
+export function callbackParts(at: string | null | undefined): { day: string; time: string } {
+  if (!has(at)) return { day: "", time: "" };
+  const p = wallParts(ms(at));
+  const two = (n: number) => String(n).padStart(2, "0");
+  return {
+    day: nyDay(ms(at)),
+    time: p.hour === 0 && p.minute === 0 ? "" : `${two(p.hour)}:${two(p.minute)}`,
+  };
+}
+
+/** "Wed, Nov 25 at 2:30 PM" (New York time), or just the day when no time was picked. */
+export function sayCallback(at: string): string {
+  const day = sayDay(ms(at));
+  return isDayOnly(at) ? day : `${day} at ${sayTime(at)}`;
+}
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const clip = (s: string, n: number) => {
   const flat = s.replace(/\s+/g, " ").trim();
@@ -195,6 +235,8 @@ export type CalEngineLead = {
   worked_at: string | null;
   pushed_at: string | null;
   signals: unknown;
+  /** the day and time the rep picked for a Callback; absent until that column exists */
+  callback_at?: string | null;
 };
 export type CalInvite = {
   id: string;
@@ -477,7 +519,27 @@ function planEach(input: CalInput, now: Date): Desired[] {
     }
     if (!l.rep_slug || !has(l.worked_at)) continue;
     const worked = ms(l.worked_at);
-    if (l.status === "callback" && t - worked <= CALLBACK_WINDOW_DAYS * DAY) {
+    if (l.status === "callback" && has(l.callback_at)) {
+      // the rep picked when to call back: the item sits at that time, not on the next business day
+      const at = ms(l.callback_at);
+      if (t - at <= CALLBACK_WINDOW_DAYS * DAY) {
+        const allDay = isDayOnly(l.callback_at!);
+        out.push({
+          ...base,
+          rule: "lead_callback",
+          // the picked time is part of the key: change it and the old item clears, a new one is made
+          source_key: `callback:${l.id}:${l.worked_at}:${iso(at)}`,
+          owner,
+          rep_slug: l.rep_slug,
+          title: `Call back ${name}`,
+          why: `You set this callback for ${sayCallback(l.callback_at!)}. To change it, open the lead and pick a new time.`,
+          link: engineLink(l.id),
+          due_at: iso(at),
+          all_day: allDay,
+          engine_lead_id: l.id,
+        });
+      }
+    } else if (l.status === "callback" && t - worked <= CALLBACK_WINDOW_DAYS * DAY) {
       out.push({
         ...base,
         rule: "lead_callback",
@@ -485,7 +547,7 @@ function planEach(input: CalInput, now: Date): Desired[] {
         owner,
         rep_slug: l.rep_slug,
         title: `Call back ${name}`,
-        why: `Marked Callback on ${sayDay(worked)}. Lamp doesn't record the day they asked for, so this is the next business day: move it to the day they gave.`,
+        why: `Marked Callback on ${sayDay(worked)} with no day picked, so this is the next business day. Open the lead and pick the day and time they gave.`,
         link: engineLink(l.id),
         due_at: iso(dayAt(businessDay(worked, 1))),
         all_day: true,
@@ -822,7 +884,7 @@ export function callSteps(i: Pick<CalItem, "rule" | "status">): string | null {
   if (i.rule === "lead_no_answer")
     return "Call them. If they pick up, open the lead and set what happened: this item then clears itself. No answer again: Mark done.";
   if (i.rule === "lead_callback")
-    return "Call them. If they gave you a day, Move this to it instead. After you talk, open the lead and set what happened: this item then clears itself.";
+    return "Call them. To call on another day, open the lead and pick the new time. After you talk, open the lead and set what happened: this item then clears itself.";
   return null;
 }
 

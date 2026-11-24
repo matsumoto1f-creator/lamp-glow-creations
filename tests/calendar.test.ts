@@ -335,8 +335,8 @@ Deno.test("Callback and No answer go on the next business day, keyed by when the
   assertEquals(cb.rule, "lead_callback");
   assertEquals(nyDay(Date.parse(cb.due_at)), "2026-11-16");
   assertEquals(cb.source_key, "callback:42:2026-11-13T20:00:00Z");
-  // the portal doesn't record the day they asked for: the item says so instead of guessing
-  assert(cb.why.includes("doesn't record the day they asked for"));
+  // no day was picked on the lead: the item says so, and where to pick one
+  assert(cb.why.includes("with no day picked") && cb.why.includes("Open the lead"));
   const na = only(empty({ engineLeads: [{ ...lead, status: "no_answer" }] }));
   assertEquals(na.rule, "lead_no_answer");
   // too long ago, or nobody's lead: nothing

@@ -2267,6 +2267,7 @@ export type Database = {
           admin_slug: string | null
           created_at: string
           name: string
+          phone: string | null
           photo_url: string | null
           slug: string
           title: string | null
@@ -2278,6 +2279,7 @@ export type Database = {
           admin_slug?: string | null
           created_at?: string
           name: string
+          phone?: string | null
           photo_url?: string | null
           slug: string
           title?: string | null
@@ -2289,6 +2291,7 @@ export type Database = {
           admin_slug?: string | null
           created_at?: string
           name?: string
+          phone?: string | null
           photo_url?: string | null
           slug?: string
           title?: string | null

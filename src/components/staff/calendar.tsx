@@ -15,6 +15,7 @@ import {
   ChevronRight,
   ExternalLink,
   Loader2,
+  Phone,
   RefreshCw,
   Undo2,
 } from "lucide-react";
@@ -26,6 +27,11 @@ import {
   type CalItem,
   type CardTone,
   isOverdue,
+  callSteps,
+  callTo,
+  leadsToCall,
+  eleadOf,
+  type CallTo,
   earlierOpen,
   itemView,
   moveTo,
@@ -107,6 +113,35 @@ export function Calendar({ isAdmin }: { isAdmin: boolean }) {
     void refresh(false);
   }, [refresh]);
 
+  // the number to call for each "call back" and "try again" item, read as the signed-in person
+  // (so a rep only ever gets their own leads' numbers); a failed look leaves the cards as they were
+  const [calls, setCalls] = useState<Record<number, CallTo>>({});
+  const wanted = useMemo(() => leadsToCall(answer?.items ?? []).join(","), [answer?.items]);
+  useEffect(() => {
+    const sb = getSupabase();
+    if (!sb || !wanted) return undefined;
+    let live = true;
+    void (async () => {
+      const ids = wanted.split(",").map(Number);
+      const found: Record<number, CallTo> = {};
+      for (let n = 0; n < ids.length; n += 200) {
+        const r = await sb
+          .from("engine_leads")
+          .select("id,phone,contact_phone,contact_name")
+          .in("id", ids.slice(n, n + 200));
+        if (r.error) return;
+        for (const l of r.data ?? []) {
+          const c = callTo(l);
+          if (c) found[l.id] = c;
+        }
+      }
+      if (live) setCalls(found);
+    })();
+    return () => {
+      live = false;
+    };
+  }, [wanted]);
+
   const write = useCallback(
     async (id: string, patch: { status?: "open" | "done"; due_at?: string }) => {
       const sb = getSupabase();
@@ -160,6 +195,7 @@ export function Calendar({ isAdmin }: { isAdmin: boolean }) {
       who={who}
       busy={busy}
       errors={errors}
+      calls={calls}
       note={
         answer?.syncError
           ? `Lamp's rules didn't run just now (${answer.syncError}). These are the items already scheduled.`
@@ -189,6 +225,8 @@ export type ViewProps = {
   who: string;
   busy: string | null;
   errors: Record<string, string>;
+  /** engine lead id to the number to call, for open call items */
+  calls?: Record<number, CallTo>;
   note?: string | null;
   onMode: (m: Mode) => void;
   onDay: (d: string) => void;
@@ -232,6 +270,7 @@ export function CalendarView(p: ViewProps) {
         locked={!!p.busy && p.busy !== i.id}
         error={p.errors[i.id] || null}
         compact={compact}
+        call={i.status === "open" ? (p.calls?.[eleadOf(i.link) ?? -1] ?? null) : null}
         onDone={() => p.onDone(i.id)}
         onReopen={() => p.onReopen(i.id)}
         onMove={(d) => p.onMove(i.id, i.due_at, d)}
@@ -512,6 +551,7 @@ export function ItemCard({
   locked,
   error,
   compact,
+  call,
   onDone,
   onReopen,
   onMove,
@@ -523,10 +563,13 @@ export function ItemCard({
   locked: boolean;
   error: string | null;
   compact?: boolean;
+  /** the number to call, on an open call item whose lead has one */
+  call?: CallTo | null;
   onDone: () => void;
   onReopen: () => void;
   onMove: (day: string) => void;
 }) {
+  const steps = callSteps(item);
   const v = itemView(item, now, { busy, error });
   const root = useRef<HTMLElement>(null);
   const [moving, setMoving] = useState(false);
@@ -575,6 +618,11 @@ export function ItemCard({
       >
         {v.next}
       </p>
+      {steps && (
+        <p className="mt-1 break-words text-sm" data-call-steps>
+          {steps}
+        </p>
+      )}
       {error && (
         <p className="mt-2 rounded-xl bg-red-100 px-3 py-2 text-sm text-red-900" role="alert">
           {error}
@@ -600,9 +648,20 @@ export function ItemCard({
             {v.primary.label}
           </button>
         )}
+        {steps && call && (
+          <a
+            href={`tel:${call.tel}`}
+            className="inline-flex min-h-11 items-center gap-1.5 rounded-full px-3 text-sm font-semibold text-forest ring-1 ring-line hover:underline"
+            data-call={call.tel}
+            aria-label={`Call ${call.who ? `${call.who} at ` : ""}${call.shown}`}
+          >
+            <Phone className="size-4" aria-hidden /> Call {call.shown}
+            {call.who && <span className="font-normal text-smoke">· ask for {call.who}</span>}
+          </a>
+        )}
         {item.link && (
           <Link to="/staff" search={searchOf(item.link) as never} className={quiet}>
-            <ExternalLink className="size-3.5" aria-hidden /> Open
+            <ExternalLink className="size-3.5" aria-hidden /> {steps ? "Open lead" : "Open"}
           </Link>
         )}
         {v.canMove && !moving && (

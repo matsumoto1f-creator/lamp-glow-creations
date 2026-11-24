@@ -74,9 +74,10 @@ Deno.test("the ring fills to the target and stops; the words keep up", () => {
   assertEquals(ringLine(23), "3 past target.");
 });
 
-Deno.test("the pilot is Asad and Stevie", () => {
+Deno.test("the pilot is Asad, Stevie and Zeus", () => {
   assertEquals(inFocusPilot("asad"), true);
   assertEquals(inFocusPilot("stevie"), true);
-  assertEquals(inFocusPilot("zeus"), false);
+  assertEquals(inFocusPilot("zeus"), true); // added 2026-11-24
+  assertEquals(inFocusPilot("someone-else"), false);
   assertEquals(inFocusPilot(null), false);
 });

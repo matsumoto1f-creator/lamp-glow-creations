@@ -5,13 +5,14 @@
 //     as any other outcome: they were a real conversation, and nobody should be tempted to keep
 //     calling to earn a tick.
 //   * it starts with Asad and Stevie only (the pilot), before the rest of the team.
+//     Zeus was added on 2026-11-24 (Asad: "give zeus a call count").
 // Counted from what Lamp already stores on an engine lead: its status, its note, and worked_at, the
 // time the database stamps when the status changes. No imports, so the Deno tests load it as is.
 
 export const DAILY_TARGET = 20;
 
 /** Rep link names that see the focus tools while they're being tried out. */
-export const FOCUS_PILOT: readonly string[] = ["asad", "stevie"];
+export const FOCUS_PILOT: readonly string[] = ["asad", "stevie", "zeus"];
 export const inFocusPilot = (repSlug: string | null | undefined) =>
   !!repSlug && FOCUS_PILOT.includes(repSlug);
 

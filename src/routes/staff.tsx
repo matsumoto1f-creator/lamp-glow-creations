@@ -140,7 +140,9 @@ function Staff() {
   const access = useStaffAccess(user?.id ?? null, loading);
   const search = Route.useSearch();
   const navigate = useNavigate({ from: "/staff" });
-  const [reps, setReps] = useState<{ slug: string; name: string; admin_slug: string | null }[]>([]);
+  const [reps, setReps] = useState<
+    { slug: string; name: string; admin_slug: string | null; phone?: string | null }[]
+  >([]);
   const [repsTick, setRepsTick] = useState(0);
   // My lists is a tab only for someone who has a list (or is on the page making their first)
   const [hasLists, setHasLists] = useState(false);
@@ -170,10 +172,15 @@ function Staff() {
   useEffect(() => {
     const sb = getSupabase();
     if (!sb || !isStaff) return;
+    // phone: for the preview of an email's sign-off; before its column exists, the list without it
     sb.from("reps")
-      .select("slug,name,admin_slug")
+      .select("slug,name,admin_slug,phone" as "slug,name,admin_slug")
       .order("name")
-      .then(({ data }) => setReps(data ?? []));
+      .then(async (r) => {
+        if (!r.error) return setReps(r.data ?? []);
+        const plain = await sb.from("reps").select("slug,name,admin_slug").order("name");
+        setReps(plain.data ?? []);
+      });
   }, [isStaff, repsTick]);
   useEffect(() => {
     const sb = getSupabase();

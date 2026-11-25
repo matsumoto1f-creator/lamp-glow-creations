@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { visitHeaders } from "@/lib/visit-headers";
 import { Link } from "@tanstack/react-router";
 import {
   ArrowLeft,
@@ -251,7 +252,7 @@ export function LinkApplication({
       try {
         const res = await fetch("/api/application/open", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: await visitHeaders(),
           body: JSON.stringify(token ? { token } : { rep: repSlug }),
         });
         const o = (await res.json().catch(() => null)) as OpenResponse | null;
@@ -323,11 +324,15 @@ export function LinkApplication({
     });
     if (token && !started.current) {
       started.current = true;
-      void fetch("/api/application/open", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, event: "start" }),
-      }).catch(() => undefined);
+      void visitHeaders()
+        .then((headers) =>
+          fetch("/api/application/open", {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ token, event: "start" }),
+          }),
+        )
+        .catch(() => undefined);
     }
   };
 

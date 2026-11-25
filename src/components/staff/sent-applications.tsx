@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { openLines, tracksMerchant, type OpenFacts } from "@/lib/open-signal";
 import { recordSearch } from "@/lib/find";
 import { Link } from "@tanstack/react-router";
 import { inviteLeftAt } from "@/lib/finish-reminders";
@@ -42,10 +43,13 @@ type Invite = {
   reminders_sent: number;
   reminded_at: string | null;
   reminders_stopped_at: string | null;
-};
+} & OpenFacts;
 
 const COLUMNS =
   "id,rep_slug,engine_lead_id,first_name,last_name,business_name,email,phone,channel,sent_at,opened_at,started_at,submitted_at,cancelled_at,expires_at,application_id,last_error,draft_saved_at,reminders_sent,reminded_at,reminders_stopped_at";
+// the merchant's own visits, apart from the rep's (20261125130000); read when the SQL has run
+const OPEN_COLUMNS =
+  ",rep_filled_at,merchant_opened_at,merchant_last_opened_at,merchant_open_count,merchant_started_at,merchant_device";
 const LIMIT = 200;
 
 type Filter = "all" | "waiting" | "signed" | "stopped";
@@ -56,13 +60,20 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: "stopped", label: "Stopped or expired" },
 ];
 
-type Status = "signed" | "stopped" | "expired" | "started" | "opened" | "sent";
+type Status = "signed" | "stopped" | "expired" | "started" | "filled" | "opened" | "sent";
 
 /** Where a link stands, from its stamps; the latest step wins. */
 function statusOf(r: Invite, now = Date.now()): Status {
   if (r.submitted_at) return "signed";
   if (r.cancelled_at) return "stopped";
   if (Date.parse(r.expires_at) < now) return "expired";
+  if (tracksMerchant(r)) {
+    // only the merchant's own visits move a link to Opened or Started; the rep's call doesn't
+    if (r.merchant_started_at) return "started";
+    if (r.merchant_opened_at) return "opened";
+    if (r.rep_filled_at) return "filled";
+    return "sent";
+  }
   if (r.started_at) return "started";
   if (r.opened_at) return "opened";
   return "sent";
@@ -73,6 +84,7 @@ const STATUS_LABEL: Record<Status, string> = {
   stopped: "Stopped",
   expired: "Expired",
   started: "Started",
+  filled: "Filled in on the call",
   opened: "Opened",
   sent: "Sent",
 };
@@ -82,6 +94,7 @@ const STATUS_CHIP: Record<Status, string> = {
   stopped: "text-destructive ring-1 ring-line",
   expired: "text-destructive ring-1 ring-line",
   started: "text-forest ring-1 ring-line",
+  filled: "text-ink ring-1 ring-line",
   opened: "text-forest ring-1 ring-line",
   sent: "text-smoke ring-1 ring-line",
 };
@@ -131,15 +144,21 @@ export function SentApplications({
     const sb = getSupabase();
     if (!sb) return;
     const now = new Date().toISOString();
-    let q = sb.from("application_invites").select(COLUMNS);
-    if (focus) q = q.eq("id", focus);
-    else if (isAdmin && rep) q = q.eq("rep_slug", rep);
-    if (!focus && filter === "signed") q = q.not("submitted_at", "is", null);
-    if (!focus && filter === "waiting")
-      q = q.is("submitted_at", null).is("cancelled_at", null).gte("expires_at", now);
-    if (!focus && filter === "stopped")
-      q = q.is("submitted_at", null).or(`cancelled_at.not.is.null,expires_at.lt."${now}"`);
-    const { data, error: err } = await q.order("sent_at", { ascending: false }).limit(LIMIT);
+    const query = (columns: string) => {
+      let q = sb.from("application_invites").select(columns);
+      if (focus) q = q.eq("id", focus);
+      else if (isAdmin && rep) q = q.eq("rep_slug", rep);
+      if (!focus && filter === "signed") q = q.not("submitted_at", "is", null);
+      if (!focus && filter === "waiting")
+        q = q.is("submitted_at", null).is("cancelled_at", null).gte("expires_at", now);
+      if (!focus && filter === "stopped")
+        q = q.is("submitted_at", null).or(`cancelled_at.not.is.null,expires_at.lt."${now}"`);
+      return q.order("sent_at", { ascending: false }).limit(LIMIT);
+    };
+    let { data, error: err } = await query(COLUMNS + OPEN_COLUMNS);
+    // before the merchant-opens SQL runs the list loads as before
+    if (err && (err.code === "42703" || err.code === "PGRST204"))
+      ({ data, error: err } = await query(COLUMNS));
     if (err) {
       setError(
         err.code === "42P01" || err.code === "PGRST205"
@@ -396,18 +415,32 @@ export function SentApplications({
                           Open file
                         </Link>
                       )}
-                      {st === "started" && r.started_at && r.email && (
-                        <div className="max-w-[16rem]">
-                          <ReminderStatus
-                            kind="invite"
-                            id={r.id}
-                            leftAt={inviteLeftAt(r.started_at, r.draft_saved_at)}
-                            sent={r.reminders_sent ?? 0}
-                            remindedAt={r.reminded_at}
-                            stoppedAt={r.reminders_stopped_at}
-                          />
-                        </div>
+                      {openLines(r).length > 0 && (
+                        <ul
+                          className="mt-1 max-w-[16rem] space-y-0.5 text-xs text-smoke"
+                          data-open-lines
+                        >
+                          {openLines(r).map((l) => (
+                            <li key={l}>{l}</li>
+                          ))}
+                        </ul>
                       )}
+                      {(st === "started" ||
+                        st === "filled" ||
+                        (st === "opened" && !!r.started_at)) &&
+                        r.started_at &&
+                        r.email && (
+                          <div className="max-w-[16rem]">
+                            <ReminderStatus
+                              kind="invite"
+                              id={r.id}
+                              leftAt={inviteLeftAt(r.started_at, r.draft_saved_at)}
+                              sent={r.reminders_sent ?? 0}
+                              remindedAt={r.reminded_at}
+                              stoppedAt={r.reminders_stopped_at}
+                            />
+                          </div>
+                        )}
                       {st === "stopped" && r.last_error && (
                         <div className="mt-1 max-w-[14rem] text-xs text-destructive">
                           Email failed: {r.last_error}

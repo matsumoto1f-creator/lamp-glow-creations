@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { visitHeaders } from "@/lib/visit-headers";
 import { ChevronLeft, ChevronRight, Loader2, PenLine, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { saveSignedCopy } from "@/lib/signed-copy";
@@ -177,7 +178,7 @@ export function PaperApplication({
       try {
         const res = await fetch("/api/application/open", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: await visitHeaders(),
           body: JSON.stringify(token ? { token } : { rep: repSlug }),
         });
         const o = (await res.json().catch(() => null)) as OpenResponse | null;
@@ -226,11 +227,15 @@ export function PaperApplication({
     // a personal link counts as started at the first answer, like the online one
     if (token && !started.current) {
       started.current = true;
-      void fetch("/api/application/open", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, event: "start" }),
-      }).catch(() => undefined);
+      void visitHeaders()
+        .then((headers) =>
+          fetch("/api/application/open", {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ token, event: "start" }),
+          }),
+        )
+        .catch(() => undefined);
     }
   };
 

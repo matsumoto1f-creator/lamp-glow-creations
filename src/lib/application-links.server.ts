@@ -65,6 +65,7 @@ import {
 } from "@/lib/application-links";
 import { NEW_APPLICATION_COPY, SITE } from "@/lib/site";
 import { safeDraft } from "@/lib/application-draft";
+import { deviceOf, isScanner } from "@/lib/open-signal";
 import { copyMissingNote } from "@/lib/signed-copy";
 import type { Json } from "@/integrations/supabase/types";
 import { recordSigned } from "@/lib/tracking.server";
@@ -993,6 +994,18 @@ async function inviteAndHash(
 }
 
 /**
+ * True when the visit carries a signed-in Lamp staff member's session (a rep or an admin). The
+ * application pages send the session along when this browser has one.
+ */
+async function isStaffVisit(request: Request, svc: ReturnType<typeof service>): Promise<boolean> {
+  if (!request.headers.get("Authorization")?.startsWith("Bearer ")) return false;
+  const who = await caller(request).catch(() => null);
+  if (!who) return false;
+  const r = await svc.from("user_roles").select("role").eq("user_id", who.userId);
+  return ((r.data ?? []) as { role: string }[]).some((x) => x.role === "rep" || x.role === "admin");
+}
+
+/**
  * What the application page needs before the merchant starts: who sent it and what they already
  * know. A personal link also records that it was opened (and, with event "start", started). A
  * lookup that fails is a 503, so the page offers a retry instead of calling a good link dead.
@@ -1025,13 +1038,34 @@ export async function openApplication(request: Request): Promise<Response> {
     if (Date.parse(inv.expires_at) < Date.now())
       return json(200, { ...base, state: "expired", prefill: null });
     const now = new Date().toISOString();
-    if (body.event === "start" && !inv.started_at) {
+    // Only the merchant's own visits count (Asad, 2026-11-25). A signed-in staff member checking
+    // the link, or filling it in on the call, and link scanners don't mark it opened or started.
+    const agent = request.headers.get("user-agent");
+    const merchant = !isScanner(agent) && !(await isStaffVisit(request, svc));
+    if (merchant) {
+      const started = body.event === "start";
+      if (started && !inv.started_at) {
+        await svc
+          .from("application_invites")
+          .update({ started_at: now, opened_at: inv.opened_at ?? now })
+          .eq("id", inv.id);
+      } else if (!inv.opened_at) {
+        await svc.from("application_invites").update({ opened_at: now }).eq("id", inv.id);
+      }
+      // every visit, kept apart from the rep's (does nothing until the 20261125130000 SQL runs)
       await svc
-        .from("application_invites")
-        .update({ started_at: now, opened_at: inv.opened_at ?? now })
-        .eq("id", inv.id);
-    } else if (!inv.opened_at) {
-      await svc.from("application_invites").update({ opened_at: now }).eq("id", inv.id);
+        .rpc(
+          "note_merchant_open" as never,
+          {
+            _invite: inv.id,
+            _device: deviceOf(agent),
+            _started: started,
+          } as never,
+        )
+        .then(
+          () => undefined,
+          () => undefined,
+        );
     }
     return json(200, {
       ...base,

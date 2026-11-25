@@ -38,6 +38,7 @@ import { ChatDock, useChatDock } from "@/components/chat/chat-dock";
 import { CHAT_OPEN_EVENT } from "@/lib/chat-dock";
 import { useChatUnread } from "@/hooks/use-chat-unread";
 import { FocusRing } from "@/components/staff/focus-ring";
+import { FindAnything } from "@/components/staff/find-anything";
 import { inFocusPilot } from "@/lib/focus";
 import { knownTeam, roleLabel } from "@/lib/team-lead";
 
@@ -285,6 +286,9 @@ function Staff() {
             )}
             <NotificationsBell chatUnread={chatUnread} />
           </div>
+        </div>
+        <div className="mt-4">
+          <FindAnything />
         </div>
         {!search.file && !search.lead && (
           <nav

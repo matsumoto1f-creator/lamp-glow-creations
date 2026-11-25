@@ -200,8 +200,10 @@ export function EngineLeads({
       const load = (columns: string) => {
         if (focus) return sb.from("engine_leads").select(columns).eq("id", focus).limit(1);
         let q = sb.from("engine_leads").select(columns).not("phone", "is", null).neq("phone", "");
-        if (tier) q = q.eq("tier", tier);
-        if (status) q = q.eq("status", status);
+        // a search looks through every tier and status, so a lead is found wherever it sits
+        // (Asad, 2026-11-25: searching a number found nothing because the tier was A and status New)
+        if (tier && !query) q = q.eq("tier", tier);
+        if (status && !query) q = q.eq("status", status);
         if (isAdmin) {
           const who = ownerScope(owner, repSlug);
           if (who.kind === "rep") q = q.eq("rep_slug", who.slug);
@@ -509,6 +511,11 @@ export function EngineLeads({
           ? "Each rep sees only the leads assigned to them."
           : "These are assigned to you; no other rep sees them."}{" "}
         Set the status after every call; it stamps the time. Nothing here dials or sends.
+        {query && (tier || status) && (
+          <span className="mt-1 block font-semibold text-ink" data-search-all>
+            Searching every tier and status for &quot;{query}&quot;.
+          </span>
+        )}
       </p>
 
       {isAdmin && !focus && <UploadLeads reps={reps} onDone={() => setReload((n) => n + 1)} />}
@@ -543,7 +550,7 @@ export function EngineLeads({
             {focus
               ? "That lead isn't here any more, or it isn't yours to see."
               : query
-                ? `Nothing matches "${query}"${tier || status ? " in this tier and status. Try All tiers and Any status." : "."}`
+                ? `Nothing matches "${query}" in any tier or status${isAdmin ? " for the leads picked under Whose leads" : ""}. Try the search box at the top of the page to look through files and application links too.`
                 : isAdmin
                   ? "No engine leads here. Send leads from the Board, or upload its file, to hand some out."
                   : "No leads assigned to you here yet."}

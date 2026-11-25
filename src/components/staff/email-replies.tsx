@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Loader2, Phone } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
@@ -98,7 +99,14 @@ export function EmailReplies({
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="font-semibold text-ink">
-                    {r.name ?? r.email ?? "Unknown business"}
+                    <Link
+                      to="/staff"
+                      search={{ view: "engine", elead: r.id }}
+                      className="text-forest hover:underline"
+                      data-open-record
+                    >
+                      {r.name ?? r.email ?? "Unknown business"}
+                    </Link>
                     {optout && (
                       <span className={cn(chip, "ml-2 align-middle")}>Asked to stop emails</span>
                     )}

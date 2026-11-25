@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { recordSearch } from "@/lib/find";
 import { Link } from "@tanstack/react-router";
 import { inviteLeftAt } from "@/lib/finish-reminders";
 import { ReminderStatus } from "@/components/staff/reminder-status";
@@ -344,7 +345,27 @@ export function SentApplications({
                 >
                   <tr className="hover:bg-sand">
                     <td className="max-w-[15rem] px-4 py-3">
-                      <div className="truncate font-medium">{name || r.business_name || "—"}</div>
+                      {(() => {
+                        const to = recordSearch({
+                          file: r.application_id,
+                          elead: r.engine_lead_id,
+                          invite: r.id,
+                        });
+                        const label = name || r.business_name || "—";
+                        // the person opens the fullest record there is: their file, else their lead
+                        return to && (r.application_id || r.engine_lead_id != null) ? (
+                          <Link
+                            to="/staff"
+                            search={to as never}
+                            className="block truncate font-medium text-forest hover:underline"
+                            data-open-record
+                          >
+                            {label}
+                          </Link>
+                        ) : (
+                          <div className="truncate font-medium">{label}</div>
+                        );
+                      })()}
                       {name && r.business_name && (
                         <div className="truncate text-xs text-smoke">{r.business_name}</div>
                       )}

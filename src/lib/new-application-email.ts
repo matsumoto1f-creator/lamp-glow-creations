@@ -171,23 +171,36 @@ export function startedEmail(a: {
   /** The quick questions they answered first, a line each ("Looking for: $50k – $100k"). */
   answered?: string[];
   note?: StartedNote;
+  /**
+   * The link's slug when Lamp couldn't look its rep up (the database failed, not "no such rep"):
+   * the copy list gets it instead of the rep, so it names the link and asks them to pass it on.
+   */
+  unknownRep?: string;
 }): { subject: string; text: string } {
   const answered = a.answered ?? [];
   const name = `${a.first} ${a.last}`.trim();
   const inactive = a.note === "inactive_link";
-  const where = a.repName ? ` on ${a.repName}'s link` : " on the website";
+  const unknown = !inactive && a.unknownRep ? a.unknownRep : "";
+  const repName = unknown ? null : a.repName;
+  const where = unknown
+    ? ` on the "${unknown}" link`
+    : repName
+      ? ` on ${repName}'s link`
+      : " on the website";
   const subject = inactive
     ? `Inactive link: ${name} tried to start the application${where}`
-    : `${a.note === "not_saved" ? "NOT SAVED IN LAMP · " : ""}Started: ${name} opened the application${where}`;
+    : `${a.note === "not_saved" ? "NOT SAVED IN LAMP · " : ""}${unknown ? "REP NOT LOOKED UP · " : ""}Started: ${name} opened the application${where}`;
   const intro = inactive
     ? [
         `${name} tried to start the application on ${a.repName ?? "a rep"}'s link, but that link is inactive, so Lamp didn't save them.`,
         "Not saved in Lamp, add this person by hand and give them to a rep. Now is the time to call.",
       ]
     : [
-        a.repName
-          ? `${name} just started the application on your link. They haven't signed yet, so now is the time to call.`
-          : `${name} just started the application on the website (getlamp.app). No rep has them yet. They haven't signed, so now is the time to call.`,
+        unknown
+          ? `${name} just started the application on the rep link "${unknown}". Lamp couldn't look up that rep just now, so this came to you instead of them. Pass them to that rep: they haven't signed yet, so now is the time to call.`
+          : repName
+            ? `${name} just started the application on your link. They haven't signed yet, so now is the time to call.`
+            : `${name} just started the application on the website (getlamp.app). No rep has them yet. They haven't signed, so now is the time to call.`,
         ...(a.note === "not_saved"
           ? [
               "",
@@ -196,7 +209,7 @@ export function startedEmail(a: {
           : []),
       ];
   const text = [
-    `${(!inactive && a.repName?.split(" ")[0]) || "Hi"},`,
+    `${(!inactive && repName?.split(" ")[0]) || "Hi"},`,
     "",
     ...intro,
     "",

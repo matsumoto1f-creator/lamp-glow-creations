@@ -2,9 +2,11 @@
 import { assert, assertEquals, assertStringIncludes } from "jsr:@std/assert@1";
 import { fillInUrl, phoneStartProblem } from "../src/lib/phone-start.ts";
 import {
+  gmailSend,
   postStart,
   runStart,
   startFailureLine,
+  startOutcome,
   type Mail,
   type SendResult,
   type StartDeps,
@@ -69,7 +71,8 @@ const zeus: StartRep = { name: "Zeus Diaz", user_id: "u-zeus", active: true };
 /** A pretend database and mailbox: leads saved today, mail sent, failures counted. */
 function world(o: {
   rep?: StartRep | null;
-  repError?: boolean;
+  /** How many rep lookups fail before one works (true: all of them). */
+  repError?: boolean | number;
   insertFails?: number;
   allowed?: boolean;
   send?: SendResult;
@@ -78,11 +81,15 @@ function world(o: {
   const mail: Mail[] = [];
   const fails: { reason: StartFailure; detail?: string }[] = [];
   let inserts = 0;
+  let lookups = 0;
   let failsLeft = o.insertFails ?? 0;
   const deps: StartDeps = {
     copy: COPY,
-    findRep: () =>
-      Promise.resolve({ rep: o.rep === undefined ? zeus : o.rep, error: !!o.repError }),
+    findRep: () => {
+      lookups++;
+      const error = o.repError === true || lookups <= Number(o.repError ?? 0);
+      return Promise.resolve({ rep: error ? null : o.rep === undefined ? zeus : o.rep, error });
+    },
     seenToday: () => Promise.resolve(leads.includes(ana.email)),
     intakeAllowed: () => Promise.resolve(o.allowed ?? true),
     insertLead: () => {
@@ -102,7 +109,7 @@ function world(o: {
     progress: () => Promise.resolve(leads.length ? "tok" : null),
     fail: (reason, detail) => fails.push(detail ? { reason, detail } : { reason }),
   };
-  return { deps, leads, mail, fails, inserts: () => inserts };
+  return { deps, leads, mail, fails, inserts: () => inserts, lookups: () => lookups };
 }
 const reasons = (w: { fails: { reason: StartFailure }[] }) => w.fails.map((f) => f.reason);
 
@@ -199,12 +206,44 @@ Deno.test(
 );
 
 Deno.test("start: a failed rep lookup still saves and reaches the copy list", async () => {
-  const w = world({ rep: null, repError: true });
+  const w = world({ repError: true });
   const r = await runStart(ana, w.deps);
   assertEquals(r.status, 200);
+  assertEquals(w.lookups(), 2);
   assertEquals(w.leads.length, 1);
+  assertEquals(w.mail.length, 1);
   assertEquals(w.mail[0]!.to, "asad@test.dev");
+  assertEquals(w.mail[0]!.cc, ["stevie@test.dev"]);
+  // written to the copy list, not as if to the rep: it names the link and asks them to pass it on
+  assertStringIncludes(w.mail[0]!.subject, "REP NOT LOOKED UP");
+  assertStringIncludes(w.mail[0]!.subject, 'on the "zeus" link');
+  assert(w.mail[0]!.text.startsWith("Hi,"));
+  assert(!w.mail[0]!.text.includes("on your link"));
+  assertStringIncludes(w.mail[0]!.text, "Pass them to that rep");
   assertEquals(reasons(w), ["rep_lookup_failed"]);
+});
+
+Deno.test(
+  "start: a rep lookup that fails once is tried again, and the rep is emailed",
+  async () => {
+    const w = world({ repError: 1 });
+    const r = await runStart(ana, w.deps);
+    assertEquals(r, { status: 200, body: { ok: true, progress: "tok" } });
+    assertEquals(w.lookups(), 2);
+    assertEquals(w.mail[0]!.to, "zeus@test.dev");
+    assert(!w.mail[0]!.subject.includes("REP NOT LOOKED UP"));
+    assertEquals(w.fails, []);
+  },
+);
+
+Deno.test("start: no rep lookup and no save: the copy list is told both", async () => {
+  const w = world({ repError: true, insertFails: 2 });
+  const r = await runStart(ana, w.deps);
+  assertEquals(r, { status: 200, body: { ok: true, saved: false, progress: null } });
+  assertEquals(w.mail.length, 1);
+  assertEquals(w.mail[0]!.to, "asad@test.dev");
+  assertStringIncludes(w.mail[0]!.subject, "NOT SAVED IN LAMP · REP NOT LOOKED UP");
+  assertStringIncludes(w.mail[0]!.text, "Not saved in Lamp, add this person by hand.");
 });
 
 Deno.test(
@@ -311,9 +350,101 @@ Deno.test("browser start: emailed but not saved is not sent again", async () => 
   });
 });
 
+// ---------- the Gmail answer, every way it can go ----------
+
+const sample: Mail = { to: "zeus@test.dev", cc: COPY, subject: "s", text: "t" };
+
+Deno.test("gmail: sent when the token works and Gmail says yes", async () => {
+  const posted: string[] = [];
+  const r = await gmailSend(sample, {
+    token: () => Promise.resolve({ access: "a" }),
+    post: (access, m) => (
+      posted.push(`${access}:${m.to}`),
+      Promise.resolve({ ok: true, status: 200 })
+    ),
+  });
+  assertEquals(r, { ok: true });
+  assertEquals(posted, ["a:zeus@test.dev"]);
+});
+
+Deno.test("gmail: no mailbox or Google token is no_access, and nothing is posted", async () => {
+  let posted = 0;
+  const post = () => (posted++, Promise.resolve({ ok: true, status: 200 }));
+  assertEquals(
+    await gmailSend(sample, {
+      token: () => Promise.resolve({ error: "Connect the mailbox" }),
+      post,
+    }),
+    { ok: false, why: "no_access" },
+  );
+  assertEquals(await gmailSend(sample, { token: () => Promise.resolve({ access: "" }), post }), {
+    ok: false,
+    why: "no_access",
+  });
+  assertEquals(posted, 0);
+});
+
+Deno.test("gmail: a refusal is gmail_<status>, and a throw anywhere is threw", async () => {
+  const token = () => Promise.resolve({ access: "a" });
+  assertEquals(
+    await gmailSend(sample, { token, post: () => Promise.resolve({ ok: false, status: 403 }) }),
+    { ok: false, why: "gmail_403" },
+  );
+  assertEquals(
+    await gmailSend(sample, { token, post: () => Promise.reject(new Error("offline")) }),
+    { ok: false, why: "threw" },
+  );
+  assertEquals(
+    await gmailSend(sample, {
+      token: () => Promise.reject(new Error("google down")),
+      post: () => Promise.resolve({ ok: true, status: 200 }),
+    }),
+    { ok: false, why: "threw" },
+  );
+});
+
+Deno.test("gmail: a missing mailbox on a failed save answers 500, not saved:false", async () => {
+  const w = world({ insertFails: 2 });
+  w.deps.send = (m) =>
+    gmailSend(m, {
+      token: () => Promise.resolve({ error: "no mailbox" }),
+      post: () => Promise.resolve({ ok: true, status: 200 }),
+    });
+  const r = await runStart(ana, w.deps);
+  assertEquals(r.status, 500);
+  assertEquals(w.fails.at(-1), { reason: "email_failed", detail: "no_access" });
+});
+
+// ---------- what the one-page form does with each answer ----------
+
+Deno.test("paper form: a token is kept, a 400 is shown, and only real misses send again", () => {
+  assertEquals(startOutcome({ kind: "saved", progress: "tok" }), {
+    problem: "",
+    token: "tok",
+    retryOnChange: false,
+  });
+  // saved without a token: a change to the boxes tries again for one
+  assertEquals(startOutcome({ kind: "saved", progress: null }), {
+    problem: "",
+    token: null,
+    retryOnChange: true,
+  });
+  assertEquals(startOutcome({ kind: "problem", error: "Enter a valid email." }), {
+    problem: "Enter a valid email.",
+    token: null,
+    retryOnChange: true,
+  });
+  assertEquals(startOutcome({ kind: "failed" }), { problem: "", token: null, retryOnChange: true });
+  // the team has them by email, or the link or network said no: don't send it again
+  for (const kind of ["emailed", "stopped"] as const)
+    assertEquals(startOutcome({ kind }), { problem: "", token: null, retryOnChange: false });
+});
+
 Deno.test("server: the start route hands runStart the database and checks Gmail's answer", () => {
   assert(server.includes("const reply = await runStart("));
-  assert(server.includes("res.ok ? { ok: true } : { ok: false, why: `gmail_${res.status}` }"));
+  assert(server.includes("return gmailSend(m, {"));
+  assert(server.includes("token: () => gmailAccessToken(svc),"));
+  assert(paper.includes("const o = startOutcome(a);"));
   // the failure log is the no-PII line, never the lead
   assert(server.includes("console.warn(startFailureLine(reason, n, detail))"));
   assert(!/console\.\w+\([^)]*(email|phone|first|last)\b/.test(server));

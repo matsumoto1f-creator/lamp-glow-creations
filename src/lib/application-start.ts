@@ -69,12 +69,19 @@ export async function runStart(input: StartInput, deps: StartDeps): Promise<Star
   const website = input.rep === "";
   let rep: StartRep | null = null;
   let repName: string | null = null;
+  // the slug when the rep couldn't be looked up: the copy list is told to pass the person on
+  let unknownRep: string | undefined;
   if (!website) {
-    const found = await deps.findRep(input.rep);
+    let found = await deps.findRep(input.rep);
+    if (found.error) {
+      // a blip: one more try, so the rep can still be emailed
+      await deps.pause?.(SAVE_RETRY_MS);
+      found = await deps.findRep(input.rep);
+    }
     if (found.error) {
       // the lookup failed, not the link: go on, so the person still reaches the team
       deps.fail("rep_lookup_failed");
-      repName = input.rep;
+      unknownRep = input.rep;
     } else if (!found.rep) {
       return { status: 404, body: { error: "That link isn't active." } };
     } else if (!found.rep.active) {
@@ -106,12 +113,12 @@ export async function runStart(input: StartInput, deps: StartDeps): Promise<Star
   const repEmail = rep?.user_id ? await deps.repEmail(rep.user_id).catch(() => null) : null;
   if (!saved) {
     deps.fail("save_failed");
-    const sent = await notify(deps, input, { repName, repEmail, note: "not_saved" });
+    const sent = await notify(deps, input, { repName, repEmail, note: "not_saved", unknownRep });
     // the team has them by email, so the browser shouldn't send it again
     if (sent) return { status: 200, body: { ok: true, saved: false, progress: null } };
     return { status: 500, body: { error: "Couldn't save that. Try again." } };
   }
-  await notify(deps, input, { repName, repEmail, note: null });
+  await notify(deps, input, { repName, repEmail, note: null, unknownRep });
   return { status: 200, body: { ok: true, progress: await deps.progress() } };
 }
 
@@ -127,7 +134,12 @@ function tooMany(deps: StartDeps): StartReply {
 async function notify(
   deps: StartDeps,
   input: StartInput,
-  how: { repName: string | null; repEmail: string | null; note: StartedNote | null },
+  how: {
+    repName: string | null;
+    repEmail: string | null;
+    note: StartedNote | null;
+    unknownRep?: string | undefined;
+  },
 ): Promise<boolean> {
   const to = recipients(how.repEmail, deps.copy);
   if (!to) {
@@ -144,6 +156,7 @@ async function notify(
     textsOk: input.textsOk,
     answered: quickLines(input.quick),
     ...(how.note ? { note: how.note } : {}),
+    ...(how.unknownRep ? { unknownRep: how.unknownRep } : {}),
   });
   let r: SendResult;
   try {
@@ -153,6 +166,28 @@ async function notify(
   }
   if (!r.ok) deps.fail("email_failed", r.why);
   return r.ok;
+}
+
+/**
+ * Sends a heads-up through the company mailbox and says why when it didn't go: "no_access" (no
+ * mailbox or Google token), "gmail_<status>" (Gmail said no) or "threw". The token and the POST
+ * are passed in (the real ones are in application-start.server.ts), so each answer is tested.
+ */
+export async function gmailSend(
+  m: Mail,
+  io: {
+    token(): Promise<{ access: string } | { error: unknown }>;
+    post(access: string, m: Mail): Promise<{ ok: boolean; status: number }>;
+  },
+): Promise<SendResult> {
+  try {
+    const access = await io.token();
+    if ("error" in access || !access.access) return { ok: false, why: "no_access" };
+    const res = await io.post(access.access, m);
+    return res.ok ? { ok: true } : { ok: false, why: `gmail_${res.status}` };
+  } catch {
+    return { ok: false, why: "threw" };
+  }
 }
 
 /** One log line per failure: the reason and a count, never who it was. */
@@ -218,4 +253,28 @@ export async function postStart(
     return { kind: "stopped" };
   }
   return { kind: "failed" };
+}
+
+/**
+ * What the one-page form does with an answer: the problem to show (or ""), the progress token to
+ * keep (or null), and whether a change to the contact boxes should send it again. Anything that
+ * didn't save, or saved without a token, is sent again on a change; an inactive link, the network
+ * cap and "emailed but not saved" are not.
+ */
+export function startOutcome(a: StartAnswer): {
+  problem: string;
+  token: string | null;
+  retryOnChange: boolean;
+} {
+  switch (a.kind) {
+    case "saved":
+      return { problem: "", token: a.progress, retryOnChange: !a.progress };
+    case "problem":
+      return { problem: a.error, token: null, retryOnChange: true };
+    case "failed":
+      return { problem: "", token: null, retryOnChange: true };
+    case "emailed":
+    case "stopped":
+      return { problem: "", token: null, retryOnChange: false };
+  }
 }

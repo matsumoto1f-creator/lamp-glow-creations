@@ -254,6 +254,44 @@ Deno.test(
   },
 );
 
+Deno.test(
+  "started, rep not looked up: to the copy list, names the link, asks them to pass it on",
+  async () => {
+    const { startedEmail } = await import("../src/lib/new-application-email.ts");
+    const m = startedEmail({
+      repName: "zeus",
+      first: "Ana",
+      last: "Diaz",
+      phone: "(201) 555-0100",
+      email: "ana@test.dev",
+      textsOk: true,
+      unknownRep: "zeus",
+    });
+    assertEquals(
+      m.subject,
+      'REP NOT LOOKED UP · Started: Ana Diaz opened the application on the "zeus" link',
+    );
+    // it goes to Asad and Stevie, so it doesn't greet the slug or say "your link"
+    assert(m.text.startsWith("Hi,"));
+    assert(!m.text.includes("your link"));
+    assertStringIncludes(m.text, 'on the rep link "zeus". Lamp couldn\'t look up that rep');
+    assertStringIncludes(m.text, "Pass them to that rep");
+    assert(!m.text.includes("Not saved in Lamp"));
+    const lost = startedEmail({
+      repName: null,
+      first: "Ana",
+      last: "Diaz",
+      phone: "(201) 555-0100",
+      email: "ana@test.dev",
+      textsOk: true,
+      note: "not_saved",
+      unknownRep: "zeus",
+    });
+    assert(lost.subject.startsWith("NOT SAVED IN LAMP · REP NOT LOOKED UP · Started:"));
+    assertStringIncludes(lost.text, "Not saved in Lamp, add this person by hand.");
+  },
+);
+
 Deno.test("started: only today's fields, never an SSN or the long form", async () => {
   const { startedEmail } = await import("../src/lib/new-application-email.ts");
   // whatever else rides along on the object, the email prints only the first screen's fields
@@ -263,7 +301,12 @@ Deno.test("started: only today's fields, never an SSN or the long form", async (
     ein: "22-1234567",
     monthly_revenue: "85000",
   };
-  for (const note of [undefined, "not_saved", "inactive_link"] as const) {
+  for (const [note, unknownRep] of [
+    [undefined, undefined],
+    ["not_saved", undefined],
+    ["inactive_link", undefined],
+    [undefined, "zeus"],
+  ] as const) {
     const m = startedEmail({
       repName: "Zeus Diaz",
       first: "Ana",
@@ -272,10 +315,11 @@ Deno.test("started: only today's fields, never an SSN or the long form", async (
       email: "ana@test.dev",
       textsOk: true,
       ...(note ? { note } : {}),
+      ...(unknownRep ? { unknownRep } : {}),
       ...extra,
     } as Parameters<typeof startedEmail>[0]);
     for (const v of [...Object.values(extra), "SSN", "Social", "Date of birth", "Tax ID"])
-      assert(!m.text.includes(v) && !m.subject.includes(v), `${note}: ${v}`);
+      assert(!m.text.includes(v) && !m.subject.includes(v), `${note ?? unknownRep}: ${v}`);
     const labels = m.text
       .split("\r\n")
       .filter((l) => /^[A-Z][\w ]+: /.test(l))

@@ -21,6 +21,7 @@ import { isStage, rank, type Stage } from "@/lib/application-progress";
 import { NEW_APPLICATION_COPY } from "@/lib/site";
 import { cleanChoices } from "@/lib/apply";
 import {
+  gmailSend,
   runStart,
   startFailureLine,
   type Mail,
@@ -171,31 +172,28 @@ function countFailure(reason: StartFailure, detail?: string) {
   console.warn(startFailureLine(reason, n, detail));
 }
 
-/** The heads-up through the company mailbox. Says why when it didn't go, with no one's details. */
-async function sendHeadsUp(svc: ReturnType<typeof service>, m: Mail): Promise<SendResult> {
-  try {
-    const access = await gmailAccessToken(svc);
-    if ("error" in access) return { ok: false, why: "no_access" };
-    const res = await fetch(GMAIL_SEND_URL(), {
-      method: "POST",
-      headers: { Authorization: `Bearer ${access.access}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        raw: b64url(
-          buildMime({
-            from: `${fromName("Lamp")} <${MAILBOX()}>`,
-            to: m.to,
-            cc: m.cc,
-            subject: m.subject,
-            body: m.text,
-            attachments: [],
-          }),
-        ),
+/** The heads-up through the company mailbox (gmailSend says why when it didn't go). */
+function sendHeadsUp(svc: ReturnType<typeof service>, m: Mail): Promise<SendResult> {
+  return gmailSend(m, {
+    token: () => gmailAccessToken(svc),
+    post: (access, mail) =>
+      fetch(GMAIL_SEND_URL(), {
+        method: "POST",
+        headers: { Authorization: `Bearer ${access}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          raw: b64url(
+            buildMime({
+              from: `${fromName("Lamp")} <${MAILBOX()}>`,
+              to: mail.to,
+              cc: mail.cc,
+              subject: mail.subject,
+              body: mail.text,
+              attachments: [],
+            }),
+          ),
+        }),
       }),
-    });
-    return res.ok ? { ok: true } : { ok: false, why: `gmail_${res.status}` };
-  } catch {
-    return { ok: false, why: "threw" };
-  }
+  });
 }
 
 /**

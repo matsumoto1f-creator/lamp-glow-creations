@@ -52,7 +52,7 @@ import {
   type Stage,
 } from "@/lib/application-progress";
 import { fixTarget, gapHeadline, gapList, isQuestionGap, nextGap } from "@/lib/paper-gaps";
-import { postStart } from "@/lib/application-start";
+import { postStart, startOutcome } from "@/lib/application-start";
 import { PageShell } from "@/components/site/layout";
 import { SignBlock } from "@/components/application/sign-block";
 import { emptySigning, YES_NO, type Signing } from "@/components/application/form-kit";
@@ -311,13 +311,13 @@ export function PaperApplication({
           }),
         }),
       ).then((a) => {
-        setStartProblem(a.kind === "problem" ? a.error : "");
-        if (a.kind === "saved" && a.progress) {
-          saveProgressToken(repSlug, a.progress);
+        const o = startOutcome(a);
+        setStartProblem(o.problem);
+        if (o.token) {
+          saveProgressToken(repSlug, o.token);
           setTokenReady(true);
-        } else if (a.kind === "saved" || a.kind === "problem" || a.kind === "failed") {
-          captured.current = false;
         }
+        if (o.retryOnChange) captured.current = false;
       });
     }, SETTLE_MS);
     return () => window.clearTimeout(t);

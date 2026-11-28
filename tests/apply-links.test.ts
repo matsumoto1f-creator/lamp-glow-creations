@@ -32,6 +32,7 @@ import errorPage from "../src/lib/error-page.ts" with { type: "text" };
 import root from "../src/routes/__root.tsx" with { type: "text" };
 import about from "../src/routes/about.tsx" with { type: "text" };
 import account from "../src/routes/account.tsx" with { type: "text" };
+import applicationIndex from "../src/routes/application.index.tsx" with { type: "text" };
 import applyRoute from "../src/routes/apply.tsx" with { type: "text" };
 import applyRepRoute from "../src/routes/apply_.$rep.tsx" with { type: "text" };
 import discordLink from "../src/routes/discord-link.tsx" with { type: "text" };
@@ -82,9 +83,11 @@ const LINKING: Record<string, string> = {
 const REDIRECTS = ["routes/apply.tsx", "routes/apply_.$rep.tsx"];
 
 /**
- * TEMPORARY: these three are switched by the PRs that own them in the same wave
- * (home page, how it works, offer check). Delete this list once those merge, so the test then
- * covers every file.
+ * TEMPORARY: /apply links this PR does not switch. offer-check.tsx is switched by
+ * dashboard-measures-claims (same wave). index.tsx (home page tiles and CTAs) and
+ * how-it-works.tsx have no owner in this wave: site-copy-matches-flow, a later PR, switches
+ * them, so until it merges those links still pay the 307. Remove each entry as its PR merges;
+ * once the list is empty the test covers every file.
  */
 const OWNED_ELSEWHERE = ["routes/index.tsx", "routes/how-it-works.tsx", "routes/offer-check.tsx"];
 
@@ -194,6 +197,13 @@ Deno.test(
   () => {
     // /application's validateSearch is carriedSearch, so a direct link drops exactly what the
     // redirect dropped (ref, unknown keys, contact details) and keeps ?amount= and utm_ tags.
+    // Pin both halves: the route still filters with carriedSearch, and what carriedSearch keeps.
+    assert(
+      /validateSearch:\s*\(\s*\w+(?:\s*:\s*Record<string,\s*unknown>)?\s*\)\s*=>\s*carriedSearch\(\s*\w+\s*\)/.test(
+        applicationIndex,
+      ),
+      "/application must filter its search with carriedSearch, the same as the /apply redirect",
+    );
     assertEquals(
       carriedSearch({ amount: "lt-25k", utm_source: "x", ref: "zeus", email: "a@b.co", junk: "1" }),
       { amount: "lt-25k", utm_source: "x" },

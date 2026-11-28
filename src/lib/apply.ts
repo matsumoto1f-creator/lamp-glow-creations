@@ -1,6 +1,7 @@
 // Quick questions for the website's application (/application). Every choice id doubles as a
 // URL param value, so email campaigns can link straight into the flow, e.g.
-// /application?amount=50-100k&industry=trucking (old /apply links are sent on with the same params).
+// /application?amount=50-100k&industry=trucking. Old /apply links are sent on with their quick
+// answers and utm_ tags only (see carriedSearch); ref, contact keys and unknown keys drop.
 
 export type Option = { id: string; label: string; hint?: string };
 

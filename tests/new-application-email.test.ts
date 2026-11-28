@@ -193,3 +193,93 @@ Deno.test("started: carries the business and the quick answers when given", asyn
   assert(!bare.text.includes("What they told us"));
   assert(!bare.text.includes("Business:"));
 });
+
+Deno.test(
+  "started, not saved: the same people and details, with the add-by-hand line",
+  async () => {
+    const { startedEmail } = await import("../src/lib/new-application-email.ts");
+    const base = {
+      repName: "Stevie Marshall",
+      first: "Ana",
+      last: "Diaz",
+      business: "Riverbend Diner",
+      phone: "(201) 555-0100",
+      email: "ana@test.dev",
+      textsOk: true,
+      answered: ["Looking for: $50k – $100k"],
+    };
+    const usual = startedEmail(base);
+    const m = startedEmail({ ...base, note: "not_saved" });
+    assertEquals(
+      m.subject,
+      "NOT SAVED IN LAMP · Started: Ana Diaz opened the application on Stevie Marshall's link",
+    );
+    assertEquals(m.text.split("\r\n")[0], "Stevie,");
+    assertStringIncludes(m.text, "Not saved in Lamp, add this person by hand.");
+    assert(!usual.text.includes("Not saved in Lamp"));
+    // every detail line is the usual email's, nothing more
+    const details = (t: string) => t.split("\r\n").filter((l) => /^[A-Z][\w ]+: /.test(l));
+    assertEquals(details(m.text), details(usual.text));
+    // the website's start, not saved, still says the website
+    const site = startedEmail({ ...base, repName: null, note: "not_saved" });
+    assert(site.subject.endsWith("on the website"));
+    assert(site.text.startsWith("Hi,"));
+  },
+);
+
+Deno.test(
+  "started, inactive link: to the copy list, says the link is off, no 'your link'",
+  async () => {
+    const { startedEmail } = await import("../src/lib/new-application-email.ts");
+    const m = startedEmail({
+      repName: "Zeus Diaz",
+      first: "Ana",
+      last: "Diaz",
+      phone: "(201) 555-0100",
+      email: "ana@test.dev",
+      textsOk: false,
+      note: "inactive_link",
+    });
+    assertEquals(
+      m.subject,
+      "Inactive link: Ana Diaz tried to start the application on Zeus Diaz's link",
+    );
+    // it goes to Asad and Stevie, so it doesn't greet the rep
+    assert(m.text.startsWith("Hi,"));
+    assertStringIncludes(m.text, "on Zeus Diaz's link, but that link is inactive");
+    assertStringIncludes(m.text, "add this person by hand and give them to a rep");
+    assert(!m.text.includes("your link"));
+    assert(!m.text.includes("When they sign"));
+    assertStringIncludes(m.text, "Texts OK: No, calls only");
+  },
+);
+
+Deno.test("started: only today's fields, never an SSN or the long form", async () => {
+  const { startedEmail } = await import("../src/lib/new-application-email.ts");
+  // whatever else rides along on the object, the email prints only the first screen's fields
+  const extra = {
+    ssn: "123-45-6789",
+    dob: "1980-02-03",
+    ein: "22-1234567",
+    monthly_revenue: "85000",
+  };
+  for (const note of [undefined, "not_saved", "inactive_link"] as const) {
+    const m = startedEmail({
+      repName: "Zeus Diaz",
+      first: "Ana",
+      last: "Diaz",
+      phone: "(201) 555-0100",
+      email: "ana@test.dev",
+      textsOk: true,
+      ...(note ? { note } : {}),
+      ...extra,
+    } as Parameters<typeof startedEmail>[0]);
+    for (const v of [...Object.values(extra), "SSN", "Social", "Date of birth", "Tax ID"])
+      assert(!m.text.includes(v) && !m.subject.includes(v), `${note}: ${v}`);
+    const labels = m.text
+      .split("\r\n")
+      .filter((l) => /^[A-Z][\w ]+: /.test(l))
+      .map((l) => l.split(":")[0]);
+    assertEquals(labels, ["Name", "Phone", "Email", "Texts OK"]);
+  }
+});

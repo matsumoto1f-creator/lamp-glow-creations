@@ -3,7 +3,7 @@
 // 2026-11-27, gap 13. getlamp.app sent no content-security-policy, x-frame-options or
 // permissions-policy, so any site could put Lamp's application or staff pages in a frame and
 // trick a click. src/server.ts now adds them to every response it sends: frame-ancestors 'self'
-// (plus lovable.dev on Lovable preview addresses, so the editor preview keeps working),
+// (plus the Lovable editor on Lovable preview addresses, so the editor preview keeps working),
 // x-frame-options SAMEORIGIN off those preview addresses, base-uri 'self', object-src 'none',
 // and camera, microphone, location and payment turned off. These tests run the server with a
 // stub in place of TanStack Start's handler.
@@ -48,11 +48,15 @@ Deno.test("getlamp.app: the application page carries every header", async () => 
 Deno.test(
   "getlamp.app: no script-src, so the inline head scripts and the host script still run",
   async () => {
-    for (const path of ["/application", "/staff", "/forms/lamp-application.pdf"]) {
+    // Only paths the worker serves. Static files in public/ (such as /forms/lamp-application.pdf)
+    // are answered by the host's asset layer before src/server.ts runs, so they never get these
+    // headers and are not tested here.
+    for (const path of ["/application", "/staff", "/application/rep-1/pdf"]) {
       const value = csp(await get(`https://getlamp.app${path}`));
       assert(!value.includes("script-src"), `${path}: ${value}`);
       assert(!value.includes("default-src"), `${path}: ${value}`);
       assert(!value.includes("lovable.dev"), `${path}: only Lamp may frame getlamp.app`);
+      assert(!value.includes("gptengineer"), `${path}: only Lamp may frame getlamp.app`);
     }
   },
 );
@@ -64,11 +68,13 @@ Deno.test(
       "abc123.lovableproject.com",
       "id-preview--abc123.lovable.app",
       "abc123.lovableproject-dev.com",
+      "abc123.gpt-eng.com",
+      "abc123.gptengineer.run",
     ]) {
       const response = await get(`https://${host}/staff`);
       assertEquals(
         csp(response),
-        "frame-ancestors 'self' https://lovable.dev https://*.lovable.dev; base-uri 'self'; object-src 'none'",
+        "frame-ancestors 'self' https://lovable.dev https://*.lovable.dev https://gptengineer.app https://*.gptengineer.app; base-uri 'self'; object-src 'none'",
         host,
       );
       assertEquals(response.headers.get("x-frame-options"), null, host);
@@ -86,6 +92,11 @@ Deno.test("look-alike addresses get the strict policy", async () => {
     "lovableproject.com.evil.example",
     "evil-lovableproject.com",
     "lovable.app",
+    "gptengineer.run.evil.example",
+    "evil-gpt-eng.com",
+    // The editor's own domains are not preview addresses.
+    "lovable.dev",
+    "abc.gptengineer.app",
   ]) {
     const response = await get(`https://${host}/staff`);
     assertEquals(csp(response), "frame-ancestors 'self'; base-uri 'self'; object-src 'none'", host);
@@ -95,7 +106,7 @@ Deno.test("look-alike addresses get the strict policy", async () => {
 
 Deno.test("headers a route already set are left alone", async () => {
   const response = await get(
-    "https://getlamp.app/forms/lamp-application.pdf",
+    "https://getlamp.app/application/rep-1/pdf",
     () =>
       new Response("%PDF-1.7", {
         headers: {

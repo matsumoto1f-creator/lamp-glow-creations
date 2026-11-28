@@ -49,8 +49,18 @@ const SECURITY_HEADERS: Record<string, string> = {
 };
 
 // Only Lovable's editor may frame the page, and only when it is served from a Lovable preview
-// address. getlamp.app can be framed by Lamp itself and nobody else.
-const LOVABLE_PREVIEW_HOST = /\.(lovable\.app|lovableproject\.com|lovableproject-dev\.com)$/;
+// address. getlamp.app can be framed by Lamp itself and nobody else. The preview zones and the
+// editor origins are the same ones src/integrations/supabase/previewAuthStorage.ts (written by
+// Lovable) trusts: previews on lovableproject.com, lovableproject-dev.com, lovable.app,
+// gpt-eng.com and gptengineer.run, and the editor on lovable.dev or gptengineer.app.
+const LOVABLE_PREVIEW_HOST =
+  /\.(lovable\.app|lovableproject\.com|lovableproject-dev\.com|gpt-eng\.com|gptengineer\.run)$/;
+const LOVABLE_EDITOR_ORIGINS = [
+  "https://lovable.dev",
+  "https://*.lovable.dev",
+  "https://gptengineer.app",
+  "https://*.gptengineer.app",
+];
 
 function requestHost(request: Request): string {
   try {
@@ -67,7 +77,7 @@ export function isLovablePreview(request: Request): boolean {
 
 export function contentSecurityPolicy(request: Request): string {
   const ancestors = isLovablePreview(request)
-    ? "'self' https://lovable.dev https://*.lovable.dev"
+    ? ["'self'", ...LOVABLE_EDITOR_ORIGINS].join(" ")
     : "'self'";
   return `frame-ancestors ${ancestors}; base-uri 'self'; object-src 'none'`;
 }

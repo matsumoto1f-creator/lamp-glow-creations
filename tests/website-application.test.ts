@@ -294,10 +294,23 @@ Deno.test("first paint: the first render reads only the link, never this browser
     if (had) Object.defineProperty(g, "localStorage", { configurable: true, value: before });
     else delete g["localStorage"];
   }
-  // wiring: no state starts from storage
-  for (const line of page.split("\n").filter((l) => l.includes("useState"))) {
-    assert(!/loadQuick|hasStarted|loadDraft|localStorage/.test(line), line.trim());
+  // wiring: no state starts from storage. Every useState in the page starts from a constant, the
+  // link (firstPaint) or the website's fixed answer, so a storage read through a helper of any
+  // name is caught too
+  const comp = page.slice(page.indexOf("export function LinkApplication("));
+  const body = comp.slice(0, comp.indexOf("\nfunction "));
+  const inits: string[] = [];
+  for (let at = body.indexOf("useState"); at >= 0; at = body.indexOf("useState", at + 1)) {
+    let i = body.indexOf("(", at);
+    if (i < 0 || !/^useState(<[\s\S]*>)?$/.test(body.slice(at, i))) continue;
+    const from = ++i;
+    for (let depth = 1; depth; i++) depth += body[i] === "(" ? 1 : body[i] === ")" ? -1 : 0;
+    inits.push(body.slice(from, i - 1).trim());
   }
+  assert(inits.length >= 10, String(inits.length));
+  const SAFE =
+    /^(|false|true|-?\d+|""|null|\[\]|empty[A-Z]\w*|first\.\w+|\(\) => firstPaint\(token, prefill\)|website \? WEBSITE_OPEN : null)$/;
+  for (const init of inits) assert(SAFE.test(init), `useState(${init})`);
   assert(page.includes("const [first] = useState(() => firstPaint(token, prefill));"));
 });
 

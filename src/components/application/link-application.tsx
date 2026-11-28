@@ -358,12 +358,17 @@ export function LinkApplication({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- store follows repSlug; prefill is the first render's
   }, [token, repSlug]);
 
-  // a contact save that failed with a server error or a lost connection gets its last try when
-  // the visitor moves on (see start-retry); never on a personal link, which has no contact screen
-  const retryStart = () => {
+  // a contact save that never got the server's answer gets its last try when the visitor moves
+  // on (see start-retry); never on a personal link, which has no contact screen. furthest is the
+  // step they have reached: the stage report sent before this try's token arrived was skipped
+  // (reportStage needs the token), so a save that lands now reports it itself.
+  const retryStart = (furthest = 0) => {
     if (token) return;
     void retryKeptStart({ send: fetchStart, storage: tabStorage(), store }).then((r) => {
-      if (r?.progress) saveProgressToken(store, r.progress);
+      if (!r?.progress) return;
+      saveProgressToken(store, r.progress);
+      if (furthest > 0)
+        reportStage(store, STEPS[furthest]!.id as Exclude<StepId, "business">, "online");
     });
   };
 
@@ -437,7 +442,7 @@ export function LinkApplication({
     if (current.id === "sign" && to !== step) setSig((x) => ({ ...x, image: null, image2: null }));
     setStep(to);
     setVisited((v) => Math.max(v, to));
-    retryStart();
+    retryStart(Math.min(Math.max(visited, to), lastStep));
     // a public link's lead: the furthest step reached (the server keeps the furthest)
     if (!token && to > 0)
       reportStage(store, STEPS[to]!.id as Exclude<StepId, "business">, "online");
@@ -983,6 +988,11 @@ function ContactGate({
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // The server's HTML can reach this screen (option links work before the script loads), but the
+  // form only works once the script runs: before that a native submit would drop the answers in
+  // the URL, and typing would be lost on hydration. So it stays disabled until then.
+  const [ready, setReady] = useState(false);
+  useEffect(() => setReady(true), []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -1006,8 +1016,10 @@ function ContactGate({
       utm,
       form: "online",
     };
-    // A server error or a lost connection is kept in this tab and tried again, once now and once
-    // at the next step; a 429 (this network's hourly cap) or a 404 (an inactive rep) is not.
+    // A request that never got the server's answer (no connection, a timeout, the edge's 5xx) is
+    // kept in this tab and tried again, once now and once at the next step. The server's own 500
+    // (it has emailed the team already), a 429 (this network's hourly cap) and a 404 (an inactive
+    // rep) are not.
     const out = await sendStart(body, { send: fetchStart, storage: tabStorage(), store });
     if (out.outcome === "fix") {
       setBusy(false);
@@ -1032,66 +1044,68 @@ function ContactGate({
       className="ll-glass mt-6 rounded-[1.75rem] p-5 ring-1 ring-line sm:p-9"
       noValidate
     >
-      <button
-        type="button"
-        onClick={onBack}
-        className="mb-5 inline-flex items-center gap-1.5 text-sm font-semibold text-smoke hover:text-ink"
-      >
-        <ArrowLeft className="size-3.5" /> Back
-      </button>
-      <p className="font-mono text-[0.7rem] font-medium uppercase tracking-[0.16em] text-leaf">
-        Before you start
-      </p>
-      <h2 className="mt-2 font-display text-2xl font-bold tracking-tight sm:text-3xl">
-        Let's start with you
-      </h2>
-      <p className="mt-2 leading-relaxed text-smoke">
-        Your name, business and number, so {repFirst} can help if you get stuck. The rest takes
-        about 10 minutes, and it saves as you go.
-      </p>
-      <div className="mt-6 grid gap-4 sm:grid-cols-2">
-        <F label="First name">
-          <Text value={first} onChange={setFirst} autoComplete="given-name" />
-        </F>
-        <F label="Last name">
-          <Text value={last} onChange={setLast} autoComplete="family-name" />
-        </F>
-        <div className="sm:col-span-2">
-          <F label="Business name">
-            <Text value={business} onChange={setBusiness} autoComplete="organization" />
+      <fieldset disabled={!ready} className="min-w-0">
+        <button
+          type="button"
+          onClick={onBack}
+          className="mb-5 inline-flex items-center gap-1.5 text-sm font-semibold text-smoke hover:text-ink"
+        >
+          <ArrowLeft className="size-3.5" /> Back
+        </button>
+        <p className="font-mono text-[0.7rem] font-medium uppercase tracking-[0.16em] text-leaf">
+          Before you start
+        </p>
+        <h2 className="mt-2 font-display text-2xl font-bold tracking-tight sm:text-3xl">
+          Let's start with you
+        </h2>
+        <p className="mt-2 leading-relaxed text-smoke">
+          Your name, business and number, so {repFirst} can help if you get stuck. The rest takes
+          about 10 minutes, and it saves as you go.
+        </p>
+        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          <F label="First name">
+            <Text value={first} onChange={setFirst} autoComplete="given-name" />
+          </F>
+          <F label="Last name">
+            <Text value={last} onChange={setLast} autoComplete="family-name" />
+          </F>
+          <div className="sm:col-span-2">
+            <F label="Business name">
+              <Text value={business} onChange={setBusiness} autoComplete="organization" />
+            </F>
+          </div>
+          <F label="Mobile phone">
+            <Text value={phone} onChange={setPhone} inputMode="tel" autoComplete="tel" />
+          </F>
+          <F label="Email">
+            <Text value={email} onChange={setEmail} type="email" autoComplete="email" />
           </F>
         </div>
-        <F label="Mobile phone">
-          <Text value={phone} onChange={setPhone} inputMode="tel" autoComplete="tel" />
-        </F>
-        <F label="Email">
-          <Text value={email} onChange={setEmail} type="email" autoComplete="email" />
-        </F>
-      </div>
-      <label htmlFor="start-consent" className="mt-5 flex items-start gap-3">
-        <input
-          id="start-consent"
-          type="checkbox"
-          className="mt-1 size-4 shrink-0"
-          checked={consent}
-          onChange={(e) => setConsent(e.target.checked)}
-        />
-        <span className="text-sm leading-relaxed text-smoke">{PHONE_CONSENT_TEXT}</span>
-      </label>
-      {error && (
-        <p className="mt-4 rounded-2xl bg-sand p-4 text-sm ring-1 ring-line" role="alert">
-          {error}
-        </p>
-      )}
-      <button
-        type="submit"
-        disabled={busy}
-        className={cn(btnPrimary, "mt-6 w-full py-4 text-base")}
-      >
-        {busy ? <Loader2 className="size-4 animate-spin" /> : null}
-        Start my application
-        <ArrowRight className="size-4" aria-hidden="true" />
-      </button>
+        <label htmlFor="start-consent" className="mt-5 flex items-start gap-3">
+          <input
+            id="start-consent"
+            type="checkbox"
+            className="mt-1 size-4 shrink-0"
+            checked={consent}
+            onChange={(e) => setConsent(e.target.checked)}
+          />
+          <span className="text-sm leading-relaxed text-smoke">{PHONE_CONSENT_TEXT}</span>
+        </label>
+        {error && (
+          <p className="mt-4 rounded-2xl bg-sand p-4 text-sm ring-1 ring-line" role="alert">
+            {error}
+          </p>
+        )}
+        <button
+          type="submit"
+          disabled={busy}
+          className={cn(btnPrimary, "mt-6 w-full py-4 text-base")}
+        >
+          {busy ? <Loader2 className="size-4 animate-spin" /> : null}
+          Start my application
+          <ArrowRight className="size-4" aria-hidden="true" />
+        </button>
+      </fieldset>
     </form>
   );
 }

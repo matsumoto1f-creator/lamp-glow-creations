@@ -51,6 +51,22 @@ async function call(path: string, init: RequestInit & { key?: string; token?: st
 const asService = (path: string, init: RequestInit = {}) =>
   call(path, { ...init, key: SVC, token: SVC });
 
+// The "after" run makes about a dozen website starts, and each one emails NEW_APPLICATION_COPY
+// whenever the dev server can send mail (Google client settings set and a mailbox connected on
+// the local Funders page). Refuse to run if this local stack has any connected mailbox, so the
+// test can never send real email. Only the mailbox names are read, never the tokens.
+if (after) {
+  const mailers = await asService("/rest/v1/mailer_connections?select=mailbox");
+  if (mailers.status !== 200 || !Array.isArray(mailers.body) || mailers.body.length > 0) {
+    console.error(
+      "Refusing to run: this local stack has a connected mailbox (mailer_connections), or it " +
+        "could not be checked, so the application starts below could send real email. " +
+        "Remove the local mailer_connections rows first.",
+    );
+    Deno.exit(2);
+  }
+}
+
 /** A real session for a seeded account: a magic link made by the admin API, then verified. */
 async function sessionFor(email: string): Promise<string> {
   const link = await asService("/auth/v1/admin/generate_link", {
@@ -595,7 +611,8 @@ if (after) {
   // (lead_intake_allowed, 10 an hour). The visitor's address as the edge passes it on, a
   // documentation address (203.0.113.0/24); its count is cleared first so a second run in the
   // same hour gives the same answer. The website's own application (rep "") is used, so no rep is
-  // emailed, and a local stack has no connected mailbox, so nothing is sent at all.
+  // emailed. The copy to NEW_APPLICATION_COPY goes out only through a connected mailbox, and the
+  // check at the top refuses to run when this stack has one, so nothing is sent.
   const ip = "203.0.113.7";
   const edge = { "x-forwarded-for": ip };
   await asService(`/rest/v1/lead_intake?ip_key=eq.${ip}`, { method: "DELETE" });

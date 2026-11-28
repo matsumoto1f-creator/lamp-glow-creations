@@ -32,13 +32,35 @@ Deno.test("the browser no longer posts leads, and old /apply drafts are still sa
   assert(useAuth.includes("export function saveDraftToAccount("));
 });
 
-Deno.test("the first screen checks the per-network limit before it saves the lead", () => {
-  const limit = start.indexOf('"lead_intake_allowed"');
-  const insert = start.search(/\.from\("leads"\)\s*\.insert\(/);
-  assert(limit > 0, "the limit is checked");
-  assert(insert > 0, "the lead is saved");
-  assert(limit < insert, "the limit is checked before the insert");
-  assert(start.slice(limit, insert).includes("429"), "a network over the limit gets a 429");
-  // the insert carries the server's stamp (visitor()), which the leads table requires
-  assert(/visitor\(\)\s*\.from\("leads"\)\s*\.insert\(/.test(start));
+/** True when the file is not there. A missing module rejects; no read permission is needed. */
+async function missing(load: () => Promise<unknown>): Promise<boolean> {
+  try {
+    await load();
+    return false;
+  } catch (e) {
+    return String(e).includes("Module not found");
+  }
+}
+
+Deno.test("the route file, its server code and the old ApplyFlow are gone from src", async () => {
+  // the route tree is rebuilt by the build, so this catches a re-added route file even before then
+  assert(await missing(() => import("../src/routes/api.leads.ts", { with: { type: "text" } })));
+  assert(await missing(() => import("../src/lib/leads.server.ts", { with: { type: "text" } })));
+  assert(
+    await missing(
+      () => import("../src/components/site/apply-flow.tsx", { with: { type: "text" } }),
+    ),
+  );
 });
+
+// What the limit does (429 when over, nothing saved) is tested with stubs and against a local
+// stack (tests/server-stamp.local.ts). This only checks the one place that saves leads still
+// calls the limit and still saves with the server's stamp, whichever way the file is laid out.
+Deno.test(
+  "the first screen still calls the per-network limit and saves with the server stamp",
+  () => {
+    assert(start.includes('"lead_intake_allowed"'), "the limit is checked");
+    // the insert carries the server's stamp (visitor()), which the leads table requires
+    assert(/visitor\(\)\s*\.from\("leads"\)\s*\.insert\(/.test(start), "the lead is saved");
+  },
+);

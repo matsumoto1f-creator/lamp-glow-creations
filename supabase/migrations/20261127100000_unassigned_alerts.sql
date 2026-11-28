@@ -138,7 +138,11 @@ $$;
 
 select public.announce(
   'Website files now alert admins',
-  'A file or a start that comes in from the website with no rep now rings every admin''s bell (and Discord), and so does one on the link of a rep who has no Lamp login yet. A signed file whose email never went out is now emailed again within about 10 minutes.',
-  null, 'admin');
+  'A file or a start that comes in from the website with no rep now rings every admin''s bell (and Discord), and so does one on the link of a rep who has no Lamp login yet. A signed file whose email never went out is now sent again automatically, about 10 minutes after its last statement lands.',
+  null, 'admin')
+where not exists (
+  select 1 from public.notifications
+  where kind = 'announcement' and title = 'Website files now alert admins'
+);
 
 notify pgrst, 'reload schema';

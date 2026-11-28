@@ -76,11 +76,13 @@ import {
   NOTICE_LIMIT_MS,
   sendNoticeOnce,
   sentBody,
+  SIGNED_READ_LIMIT,
   type Delivery,
   type NoticeEvent,
   type NoticeOutcome,
   type SignedRow,
   type SweepStore,
+  type UploadRow,
 } from "@/lib/notice-retry";
 import {
   einVariants,
@@ -1723,22 +1725,50 @@ export function noticeStore(svc: Svc): SweepStore {
       return r.error || typeof id !== "number" ? null : id;
     },
     async finish(id, body, payload) {
+      // only while the claim is still open: a claim keeps CLAIM_BODY until its result is written,
+      // so a late try and the job's write-off can't overwrite each other's result
       const r = await svc
         .from("events")
         .update({ body, payload: payload as Json } as never)
-        .eq("id", id);
+        .eq("id", id)
+        .eq("body", CLAIM_BODY)
+        .select("id");
+      if (r.error) return null;
+      return ((r.data ?? []) as unknown[]).length > 0;
+    },
+    async record(appId, body, payload) {
+      const r = await svc.from("events").insert({
+        application_id: appId,
+        kind: "system",
+        body,
+        payload: payload as Json,
+        visible_to_merchant: false,
+      } as never);
       return !r.error;
     },
     async signed(fromIso, toIso) {
+      // newest first, so a busy two days can only push the oldest files (the ones nearest their
+      // 48 hour limit) past the read, never one signed an hour ago
       const r = await svc
         .from("application_details")
         .select("application_id,signed_at")
         .gte("signed_at", fromIso)
         .lte("signed_at", toIso)
-        .order("signed_at", { ascending: true })
-        .limit(100);
+        .order("signed_at", { ascending: false })
+        .limit(SIGNED_READ_LIMIT);
       if (r.error) return null;
       return (r.data ?? []) as unknown as SignedRow[];
+    },
+    async uploads(appIds, sinceIso) {
+      if (!appIds.length) return [];
+      const r = await svc
+        .from("documents")
+        .select("application_id,created_at")
+        .in("application_id", appIds)
+        .gte("created_at", sinceIso)
+        .limit(1000);
+      if (r.error) return null;
+      return (r.data ?? []) as unknown as UploadRow[];
     },
   };
 }

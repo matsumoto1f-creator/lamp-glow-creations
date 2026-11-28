@@ -26,6 +26,15 @@ export const MAX_FAILED = 2;
 export const STALE_CLAIM_MS = 15 * 60_000;
 /** Files the job emails per run, since each email carries the statements. */
 export const NOTICE_PER_RUN = 5;
+/**
+ * The browser asks for the email only after its last statement upload, so the job also leaves a
+ * file alone while statements are still landing: no document added in this long.
+ */
+export const UPLOAD_QUIET_MS = 10 * 60_000;
+/** Signed files the job reads per run (only the ones still owed an email are acted on). */
+export const SIGNED_READ_LIMIT = 1000;
+/** File ids per timeline or documents read, to keep each request short. */
+export const READ_CHUNK = 50;
 
 export type NoticeEvent = {
   id: number;
@@ -35,6 +44,8 @@ export type NoticeEvent = {
 };
 
 export type SignedRow = { application_id: string; signed_at: string };
+
+export type UploadRow = { application_id: string; created_at: string };
 
 export type NoticeState = {
   sent: boolean;
@@ -80,7 +91,14 @@ export type NoticeStore = {
   events(appIds: string[]): Promise<NoticeEvent[] | null>;
   /** The claim row's id; "taken" when another try holds this attempt; null on any other error. */
   claim(appId: string, attempt: number): Promise<number | "taken" | null>;
-  finish(id: number, body: string, payload: Record<string, unknown>): Promise<boolean>;
+  /**
+   * Writes the result onto a claim that is still open (its body is still CLAIM_BODY): true when
+   * written, false when the claim already has a result (the job wrote it off as stopped), null
+   * on an error. Never overwrites a result.
+   */
+  finish(id: number, body: string, payload: Record<string, unknown>): Promise<boolean | null>;
+  /** A result row of its own, for a send that finished after its claim was written off. */
+  record(appId: string, body: string, payload: Record<string, unknown>): Promise<boolean>;
 };
 
 export type NoticeOutcome =
@@ -119,7 +137,18 @@ export async function sendNoticeOnce(
     ? [out.body, { ...out.payload, ...claim, notice: NOTICE }]
     : [failedBody(out.why), { ...claim, notice_failed: NOTICE, error: out.why }];
   // once more if the write fails: a claim left open is later read as a try that stopped
-  if (!(await store.finish(id, body, payload))) await store.finish(id, body, payload);
+  let wrote = await store.finish(id, body, payload);
+  if (wrote === null) wrote = await store.finish(id, body, payload);
+  // This try ran so long that the job wrote its claim off. The email did go, so say so on a row
+  // of its own (no notice_claim, so the claim index doesn't apply): the job then sees it as sent
+  // and doesn't send it again. A failure needs nothing, the write-off already counts as one.
+  if (wrote === false && out.ok)
+    await store.record(appId, body, {
+      ...out.payload,
+      notice: NOTICE,
+      attempt: s.next,
+      late: true,
+    });
   return out.ok ? { kind: "sent" } : { kind: "failed", why: out.why };
 }
 
@@ -143,15 +172,22 @@ export async function mailNotice(
 
 /**
  * Which signed files the job emails now: signed 10 minutes to 47 hours ago, never emailed, at most
- * two failed tries, nobody sending right now; the oldest first, at most `cap`. Claims that never got
- * a result come back as `stale`, to be written off as failed tries.
+ * two failed tries, nobody sending right now, no statement added in the last 10 minutes; the
+ * oldest first, at most `cap`. Claims that never got a result come back as `stale`, to be written
+ * off as failed tries.
  */
 export function pickForRetry(
   signed: SignedRow[],
   events: NoticeEvent[],
   now: number,
   cap = NOTICE_PER_RUN,
+  uploads: UploadRow[] = [],
 ): { send: string[]; stale: NoticeEvent[] } {
+  const uploading = new Set(
+    uploads
+      .filter((u) => now - Date.parse(u.created_at) < UPLOAD_QUIET_MS)
+      .map((u) => u.application_id),
+  );
   const byApp = new Map<string, NoticeEvent[]>();
   for (const e of events) {
     const list = byApp.get(e.application_id) ?? [];
@@ -175,15 +211,32 @@ export function pickForRetry(
       stale.push(...s.open.filter((e) => now - Date.parse(e.created_at) > STALE_CLAIM_MS));
       continue;
     }
+    if (uploading.has(r.application_id)) continue;
     if (send.length < cap) send.push(r.application_id);
   }
   return { send, stale };
 }
 
 export type SweepStore = NoticeStore & {
-  /** Files signed between these two times; null when the read failed. */
+  /** Files signed between these two times, at most SIGNED_READ_LIMIT; null when the read failed. */
   signed(fromIso: string, toIso: string): Promise<SignedRow[] | null>;
+  /** Documents added to these files since `sinceIso`; null when the read failed. */
+  uploads(appIds: string[], sinceIso: string): Promise<UploadRow[] | null>;
 };
+
+/** Reads in chunks of READ_CHUNK ids; null when any chunk's read failed. */
+async function chunked<T>(
+  ids: string[],
+  read: (chunk: string[]) => Promise<T[] | null>,
+): Promise<T[] | null> {
+  const all: T[] = [];
+  for (let i = 0; i < ids.length; i += READ_CHUNK) {
+    const part = await read(ids.slice(i, i + READ_CHUNK));
+    if (!part) return null;
+    all.push(...part);
+  }
+  return all;
+}
 
 export type SweepResult = {
   checked: number;
@@ -208,16 +261,23 @@ export async function noticeSweep(
   if (!rows) return { ...out, error: "Couldn't read signed files." };
   out.checked = rows.length;
   if (!rows.length) return out;
-  const events = await store.events([...new Set(rows.map((r) => r.application_id))]);
+  const ids = [...new Set(rows.map((r) => r.application_id))];
+  const events = await chunked(ids, (c) => store.events(c));
   if (!events) return { ...out, error: "Couldn't read the timeline." };
-  const pick = pickForRetry(rows, events, now, cap);
+  // Only files still owed an email need the documents check. If that read fails, go on without
+  // it: an email that may miss a late statement beats no email at all.
+  const owed = ids.filter((id) => !noticeState(events.filter((e) => e.application_id === id)).sent);
+  const since = new Date(now - UPLOAD_QUIET_MS).toISOString();
+  const uploads = (await chunked(owed, (c) => store.uploads(c, since))) ?? [];
+  const pick = pickForRetry(rows, events, now, cap, uploads);
   for (const e of pick.stale) {
+    // true only when the claim was still open: a try that finished meanwhile keeps its result
     if (
-      await store.finish(e.id, failedBody(STALE_WHY), {
+      (await store.finish(e.id, failedBody(STALE_WHY), {
         ...(e.payload ?? {}),
         notice_failed: NOTICE,
         error: STALE_WHY,
-      })
+      })) === true
     )
       out.stale++;
   }

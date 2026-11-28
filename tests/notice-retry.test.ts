@@ -17,8 +17,11 @@ import {
   NOTICE_LIMIT_MS,
   sendNoticeOnce,
   type SignedRow,
+  READ_CHUNK,
   STALE_CLAIM_MS,
   type SweepStore,
+  UPLOAD_QUIET_MS,
+  type UploadRow,
 } from "../src/lib/notice-retry.ts";
 import links from "../src/lib/application-links.server.ts" with { type: "text" };
 import migration from "../supabase/migrations/20261127100000_unassigned_alerts.sql" with { type: "text" };
@@ -32,12 +35,13 @@ const ago = (ms: number) => new Date(NOW - ms).toISOString();
  * The file's timeline in memory, holding to the database's one rule: one claim row per file and
  * attempt (events_notice_claim_once).
  */
-function memoryStore(signed: SignedRow[] = [], seed: NoticeEvent[] = []) {
+function memoryStore(signed: SignedRow[] = [], seed: NoticeEvent[] = [], docs: UploadRow[] = []) {
   const rows: NoticeEvent[] = seed.map((e) => ({ ...e }));
   let nextId = 1000;
-  const calls = { claims: 0, finishes: 0 };
+  const calls = { claims: 0, finishes: 0, records: 0, eventReads: [] as number[] };
   const store: SweepStore = {
     events(ids) {
+      calls.eventReads.push(ids.length);
       return Promise.resolve(
         rows.filter((e) => ids.includes(e.application_id)).map((e) => ({ ...e })),
       );
@@ -63,13 +67,31 @@ function memoryStore(signed: SignedRow[] = [], seed: NoticeEvent[] = []) {
     finish(id, _body, payload) {
       calls.finishes++;
       const row = rows.find((e) => e.id === id);
-      if (!row) return Promise.resolve(false);
+      if (!row) return Promise.resolve(null);
+      // like the server's update, only onto a claim that has no result yet
+      const p = row.payload ?? {};
+      if (p["notice"] === NOTICE || p["notice_failed"] === NOTICE) return Promise.resolve(false);
       row.payload = payload;
+      return Promise.resolve(true);
+    },
+    record(appId, _body, payload) {
+      calls.records++;
+      rows.push({
+        id: nextId++,
+        application_id: appId,
+        created_at: new Date(NOW).toISOString(),
+        payload,
+      });
       return Promise.resolve(true);
     },
     signed() {
       // every row, whatever the window: the job's own filter is what is under test
       return Promise.resolve(signed);
+    },
+    uploads(ids, since) {
+      return Promise.resolve(
+        docs.filter((d) => ids.includes(d.application_id) && d.created_at >= since),
+      );
     },
   };
   return { store, rows, calls };
@@ -327,4 +349,135 @@ Deno.test("migration: one claim per file and attempt", () => {
   assert(migration.includes("create unique index if not exists events_notice_claim_once"));
   assert(migration.includes("where payload ? 'notice_claim'"));
   assert(migration.includes("(coalesce(payload ->> 'attempt', '0'))"));
+});
+
+Deno.test(
+  "stale: a try that finishes after its claim was written off doesn't overwrite it, and isn't sent twice",
+  async () => {
+    const signed = [{ application_id: "slow", signed_at: ago(3 * HOUR) }];
+    const { store, rows } = memoryStore(signed);
+    let release: (d: Delivery) => void = () => {};
+    const slow = sendNoticeOnce(store, "slow", () => new Promise<Delivery>((r) => (release = r)));
+    await new Promise((r) => setTimeout(r, 0));
+    // the claim is now older than the stale limit: the job writes it off
+    rows[0]!.created_at = ago(STALE_CLAIM_MS + MIN);
+    let jobSends = 0;
+    const job = (id: string) =>
+      sendNoticeOnce(store, id, () => {
+        jobSends++;
+        return Promise.resolve(sent);
+      });
+    assertEquals((await noticeSweep(store, NOW, job)).stale, 1);
+    // then the slow try's email goes out after all
+    release(sent);
+    assertEquals((await slow).kind, "sent");
+    // the write-off stays as it was, and the send has a row of its own
+    assertEquals(rows[0]!.payload?.["notice_failed"], NOTICE);
+    assertEquals(rows[0]!.payload?.["notice"], undefined);
+    const late = rows.filter((e) => e.payload?.["notice"] === NOTICE);
+    assertEquals(late.length, 1);
+    assertEquals(late[0]!.payload?.["late"], true);
+    assertEquals(late[0]!.payload?.["notice_claim"], undefined);
+    // so the next run sees it as sent and sends nothing
+    const next = await noticeSweep(store, NOW, job);
+    assertEquals(next.sent, 0);
+    assertEquals(jobSends, 0);
+  },
+);
+
+Deno.test(
+  "stale: a write-off that loses to a finished try leaves its result and isn't counted",
+  async () => {
+    const claimRow: NoticeEvent = {
+      id: 7,
+      application_id: "done",
+      created_at: ago(STALE_CLAIM_MS + MIN),
+      payload: { notice_claim: NOTICE, attempt: 0 },
+    };
+    const { store, rows } = memoryStore(
+      [{ application_id: "done", signed_at: ago(3 * HOUR) }],
+      [claimRow],
+    );
+    // the try writes its result between the job's read and its write-off
+    const read = store.events.bind(store);
+    store.events = async (ids) => {
+      const out = await read(ids);
+      rows[0]!.payload = { notice_claim: NOTICE, attempt: 0, notice: NOTICE };
+      return out;
+    };
+    const r = await noticeSweep(store, NOW, () => Promise.resolve({ kind: "sent" }));
+    assertEquals(r.stale, 0);
+    assertEquals(rows[0]!.payload?.["notice"], NOTICE);
+    assertEquals(rows[0]!.payload?.["notice_failed"], undefined);
+  },
+);
+
+Deno.test("uploads: a file whose statements are still landing is left to the browser", async () => {
+  const signed = [
+    { application_id: "uploading", signed_at: ago(12 * MIN) },
+    { application_id: "quiet", signed_at: ago(25 * MIN) },
+  ];
+  const { store } = memoryStore(
+    signed,
+    [],
+    [
+      { application_id: "uploading", created_at: ago(2 * MIN) },
+      { application_id: "quiet", created_at: ago(UPLOAD_QUIET_MS + MIN) },
+    ],
+  );
+  const tried: string[] = [];
+  await noticeSweep(store, NOW, (id) => {
+    tried.push(id);
+    return Promise.resolve({ kind: "sent" });
+  });
+  assertEquals(tried, ["quiet"]);
+  assertEquals(UPLOAD_QUIET_MS, 10 * MIN);
+  // a failed documents read doesn't stop the safety net
+  const broken = memoryStore(signed).store;
+  broken.uploads = () => Promise.resolve(null);
+  const again: string[] = [];
+  await noticeSweep(broken, NOW, (id) => {
+    again.push(id);
+    return Promise.resolve({ kind: "sent" });
+  });
+  assertEquals(again.sort(), ["quiet", "uploading"]);
+});
+
+Deno.test("busy days: hundreds of emailed files don't hide a recent one that wasn't", async () => {
+  const emailed = Array.from({ length: 240 }, (_, i) => ({
+    application_id: `e${i}`,
+    signed_at: ago(40 * HOUR - i * MIN),
+  }));
+  const signed = [...emailed, { application_id: "missed", signed_at: ago(HOUR) }];
+  const seed: NoticeEvent[] = emailed.map((r, i) => ({
+    id: i + 1,
+    application_id: r.application_id,
+    created_at: ago(30 * HOUR),
+    payload: { notice: NOTICE },
+  }));
+  const { store, calls } = memoryStore(signed, seed);
+  const tried: string[] = [];
+  await noticeSweep(store, NOW, (id) => {
+    tried.push(id);
+    return Promise.resolve({ kind: "sent" });
+  });
+  assertEquals(tried, ["missed"]);
+  // the timeline is read in short chunks
+  assert(calls.eventReads.every((n) => n <= READ_CHUNK));
+  assertEquals(calls.eventReads.length, Math.ceil(signed.length / READ_CHUNK));
+  // and the server reads the newest signed files first, well past 100
+  const store_ = links.slice(links.indexOf("export function noticeStore("));
+  assert(store_.includes('.order("signed_at", { ascending: false })'));
+  assert(store_.includes(".limit(SIGNED_READ_LIMIT)"));
+  assert(!store_.includes(".limit(100)"));
+  // the result goes only onto a claim that is still open
+  assert(store_.includes('.eq("body", CLAIM_BODY)'));
+});
+
+Deno.test("migration: the announcement goes out once, however often the file is run", () => {
+  const i = migration.indexOf("select public.announce(");
+  assert(i > 0);
+  const tail = migration.slice(i);
+  assert(tail.includes("where not exists ("));
+  assert(tail.includes("where kind = 'announcement' and title = 'Website files now alert admins'"));
 });

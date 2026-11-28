@@ -3,7 +3,7 @@
 // is proven on a local stack by tests/chat-alerts.local.ts; this covers the bell's count, how the
 // alert reaches Discord, and that the migration keeps what main already had.
 import { assert, assertEquals } from "jsr:@std/assert@1";
-import { bellCount } from "../src/lib/chat.ts";
+import { alertThread, bellCount, unreadThreads } from "../src/lib/chat.ts";
 import {
   channelKey,
   CHANNEL_KINDS,
@@ -14,37 +14,81 @@ import alertsSql from "../supabase/migrations/20261127110000_chat_staff_alerts.s
 import notesSql from "../supabase/migrations/20261029140000_file_notes_and_calls.sql" with { type: "text" };
 import staffChatSql from "../supabase/migrations/20261110120000_chat_staff.sql" with { type: "text" };
 
-const note = (kind: string, read = false) => ({
+const A = "0b8c6f3e-4a1d-4f6e-9a77-2d5c1e9b0a11";
+const B = "6d2f0a9c-1e3b-4c5d-8e7f-9a0b1c2d3e4f";
+const DM1 = "11111111-2222-4333-8444-555555555555";
+const DM2 = "99999999-8888-4777-8666-555555555555";
+const link = (thread: string) => `/staff?view=messages&thread=${thread}`;
+
+const note = (kind: string, read = false, thread?: string) => ({
   kind,
   read_at: read ? "2026-11-27T12:00:00Z" : null,
+  link: thread ? link(thread) : null,
+});
+
+Deno.test("bell: a message alert opens the conversation its link names", () => {
+  assertEquals(alertThread(link(A)), A);
+  assertEquals(alertThread(link(A.toUpperCase())), A);
+  assertEquals(alertThread(`/staff?thread=${A}&view=messages`), A);
+  assertEquals(alertThread("/staff?view=messages"), null);
+  assertEquals(alertThread("/staff?view=messages&thread=not-a-uuid"), null);
+  assertEquals(alertThread(null), null);
+  // the link the migration writes is the one parsed here
+  assert(alertsSql.includes("lnk := '/staff?view=messages&thread=' || t.id;"));
+});
+
+Deno.test("bell: the unread conversations are the inbox rows marked unread", () => {
+  assertEquals(
+    unreadThreads([
+      { thread_id: A, unread: true },
+      { thread_id: B, unread: false },
+      { thread_id: DM1, unread: true },
+    ]),
+    [A, DM1],
+  );
+  assertEquals(unreadThreads([]), []);
 });
 
 Deno.test(
   "bell: a merchant's message counts once, not as an alert plus an unread conversation",
   () => {
     // one message alert, and its conversation is unread
-    assertEquals(bellCount([note("message")], 1), 1);
-    // three conversations with alerts, all unread
-    assertEquals(bellCount([note("message"), note("message"), note("message")], 3), 3);
+    assertEquals(bellCount([note("message", false, A)], [A]), 1);
+    // two alerts on two unread conversations, plus a later alert on the same one
+    assertEquals(
+      bellCount(
+        [note("message", false, A), note("message", false, B), note("message", false, A)],
+        [A, B],
+      ),
+      2,
+    );
   },
 );
 
 Deno.test("bell: other notifications still add to unread conversations", () => {
-  assertEquals(bellCount([note("file"), note("document")], 2), 4);
-  assertEquals(bellCount([note("file"), note("message")], 1), 2);
-  // a staff room with something new and no alert, next to a merchant's alert
-  assertEquals(bellCount([note("message")], 2), 2);
+  assertEquals(bellCount([note("file"), note("document")], [DM1, DM2]), 4);
+  assertEquals(bellCount([note("file"), note("message", false, A)], [A]), 2);
+  // a staff DM with something new and no alert, next to a merchant's alert on an unread conversation
+  assertEquals(bellCount([note("message", false, A)], [A, DM1]), 2);
 });
 
 Deno.test(
-  "bell: an alert still counts after its conversation was read; read rows never count",
+  "bell: an alert whose conversation was read still counts, next to other unread conversations",
   () => {
-    assertEquals(bellCount([note("message")], 0), 1);
-    assertEquals(bellCount([note("message", true), note("file", true)], 0), 0);
-    assertEquals(bellCount([], 0), 0);
-    assertEquals(bellCount([], -1), 0);
+    // the rep read merchant A's conversation in the side panel; its alert row is still unread under
+    // the bell, and two staff DMs are unread: the bell lists three things, so the badge says 3
+    assertEquals(bellCount([note("message", false, A)], [DM1, DM2]), 3);
+    assertEquals(bellCount([note("message", false, A)], []), 1);
+    // an alert whose link names no conversation is never folded into one
+    assertEquals(bellCount([{ kind: "message", read_at: null, link: null }], [A]), 2);
   },
 );
+
+Deno.test("bell: read rows never count", () => {
+  assertEquals(bellCount([note("message", true, A), note("file", true)], []), 0);
+  assertEquals(bellCount([note("message", true, A)], [A]), 1);
+  assertEquals(bellCount([], []), 0);
+});
 
 const alert: TeamNotification = {
   id: 7,

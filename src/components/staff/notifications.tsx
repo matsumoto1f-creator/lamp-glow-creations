@@ -28,12 +28,15 @@ type Note = {
 
 const POLL_MS = 60_000;
 const SHOWN = 40;
+const NO_THREADS: string[] = [];
 
 /**
- * chatUnread: conversations in the Messages side panel with something new. A merchant's message
- * is both an unread conversation and a "Message from" notification; the badge counts it once.
+ * unreadThreads: the conversations in the Messages side panel with something new, by id. A
+ * merchant's message is both an unread conversation and a "Message from" notification; while its
+ * conversation is unread the badge counts it once (bellCount matches the alert to its thread).
  */
-export function NotificationsBell({ chatUnread = 0 }: { chatUnread?: number }) {
+export function NotificationsBell({ unreadThreads = NO_THREADS }: { unreadThreads?: string[] }) {
+  const chatUnread = unreadThreads.length;
   const [notes, setNotes] = useState<Note[]>([]);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
@@ -97,7 +100,7 @@ export function NotificationsBell({ chatUnread = 0 }: { chatUnread?: number }) {
   }
 
   const unread = notes.filter((n) => !n.read_at);
-  const badge = bellCount(notes, chatUnread);
+  const badge = bellCount(notes, unreadThreads);
 
   return (
     <div ref={ref} className="relative" data-notifications>

@@ -27,7 +27,12 @@ alter table public.notifications add constraint notifications_kind_check
 
 -- ---------- 2. who hears, and how often ----------
 
-/** True when this person already has an unread alert for this conversation from the last 15 minutes. */
+/**
+ * True when this person already has an unread alert for this conversation from the last 15 minutes.
+ * Reading the conversation in the side panel doesn't count as quiet on purpose: a rep who reads and
+ * then leaves Lamp must still hear the merchant's next line, so a long live exchange can ring again
+ * once every 15 minutes at most.
+ */
 create or replace function public.chat_alert_recent(_user uuid, _link text)
 returns boolean
 language sql

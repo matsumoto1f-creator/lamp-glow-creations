@@ -1,4 +1,5 @@
-// The in-app chat (supabase/migrations/20261110120000_chat_staff.sql, 20261110140000_chat_merchant.sql):
+// The in-app chat (supabase/migrations/20261110120000_chat_staff.sql, 20261110140000_chat_merchant.sql,
+// 20261127110000_chat_staff_alerts.sql):
 // wording and checks, with no imports so the deno tests load this file directly.
 
 /** How often an open conversation looks for new messages. */
@@ -34,6 +35,26 @@ export type InboxRow = {
 /** How many conversations have something new: the count on the tab and under the bell. */
 export const unreadCount = (rows: Pick<InboxRow, "unread">[]) =>
   rows.filter((r) => r.unread).length;
+
+/**
+ * The number on the bell: unread notifications plus conversations with something new. A merchant's
+ * message writes a 'message' notification (20261127110000_chat_staff_alerts.sql) and also leaves its
+ * conversation unread, so those two count once: the larger of the unread message alerts and the
+ * unread conversations, never their sum.
+ */
+export function bellCount(
+  notes: { kind: string; read_at: string | null }[],
+  chatUnread: number,
+): number {
+  let other = 0;
+  let messages = 0;
+  for (const n of notes) {
+    if (n.read_at) continue;
+    if (n.kind === "message") messages++;
+    else other++;
+  }
+  return other + Math.max(messages, Math.max(0, chatUnread));
+}
 
 export type ChatMessage = {
   id: number;

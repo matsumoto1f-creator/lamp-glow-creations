@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { CHAT_OPEN_EVENT } from "@/lib/chat-dock";
-import { Bell, Check } from "lucide-react";
+import { Bell, Check, MessageCircle } from "lucide-react";
+import { bellCount } from "@/lib/chat";
 import { getSupabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { age } from "@/lib/staff";
 
 /**
  * The bell on /staff: this person's own notifications (new files on their link, documents,
- * accepted offers, funded files, people starting on their link) and "What's new"
- * announcements. The database writes them (migration 20261029090000_notifications.sql) and
- * shows each person only their own; this marks them read. Checks every minute and when the
- * tab comes back into view.
+ * accepted offers, funded files, people starting on their link, a merchant writing in their
+ * file's conversation) and "What's new" announcements. The database writes them (migrations
+ * 20261029090000_notifications.sql and 20261127110000_chat_staff_alerts.sql) and shows each
+ * person only their own; this marks them read. Checks every minute and when the tab comes back
+ * into view.
  */
 
 type Note = {
@@ -27,7 +29,10 @@ type Note = {
 const POLL_MS = 60_000;
 const SHOWN = 40;
 
-/** chatUnread: conversations in the Messages side panel with something new (chat writes no notifications). */
+/**
+ * chatUnread: conversations in the Messages side panel with something new. A merchant's message
+ * is both an unread conversation and a "Message from" notification; the badge counts it once.
+ */
 export function NotificationsBell({ chatUnread = 0 }: { chatUnread?: number }) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [open, setOpen] = useState(false);
@@ -92,7 +97,7 @@ export function NotificationsBell({ chatUnread = 0 }: { chatUnread?: number }) {
   }
 
   const unread = notes.filter((n) => !n.read_at);
-  const badge = unread.length + chatUnread;
+  const badge = bellCount(notes, chatUnread);
 
   return (
     <div ref={ref} className="relative" data-notifications>
@@ -149,7 +154,8 @@ export function NotificationsBell({ chatUnread = 0 }: { chatUnread?: number }) {
           )}
           {notes.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-smoke">
-              Nothing yet. New files, documents and offers on your deals show up here.
+              Nothing yet. New files, documents, offers and merchant messages on your deals show up
+              here.
             </p>
           ) : (
             <ul className="max-h-[60vh] divide-y divide-line overflow-y-auto">
@@ -176,6 +182,13 @@ export function NotificationsBell({ chatUnread = 0 }: { chatUnread?: number }) {
                           <span className="shrink-0 rounded-full bg-ink px-2 py-0.5 text-[0.65rem] font-semibold uppercase tracking-wide text-white">
                             What's new
                           </span>
+                        )}
+                        {n.kind === "message" && (
+                          <MessageCircle
+                            aria-hidden
+                            className="size-3.5 shrink-0 self-center text-forest"
+                            data-bell-message
+                          />
                         )}
                         <span className="truncate text-sm font-semibold">{n.title}</span>
                       </span>

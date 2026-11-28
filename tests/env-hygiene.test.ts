@@ -1,4 +1,4 @@
-// deno test --node-modules-dir=none --allow-run=git tests/env-hygiene.test.ts
+// deno test --node-modules-dir=none --allow-run=git tests/env-hygiene.test.ts -- --require-scan
 //
 // The repo is public, so a server secret that gets committed is out for good: git history keeps
 // it. This scans every file git tracks (what is staged, read through git itself) and fails when
@@ -13,6 +13,8 @@
 // The scanner checks below need no permission and run with every other test. The scan of the
 // repo needs to run git, so it runs in its own CI step (.github/workflows/checks.yml, "No secrets
 // in tracked files") with --allow-run=git, and shows as ignored in a plain `deno test tests/`.
+// That step also passes `-- --require-scan`, so losing the git permission there fails the step
+// rather than skipping the scan and staying green.
 import { assert, assertEquals } from "jsr:@std/assert@1";
 
 /** Secrets the site's server reads at runtime. None of them may be given a value in a tracked file. */
@@ -43,6 +45,12 @@ const QUOTED = new RegExp(
   `(?<![A-Za-z0-9_])["']?(${NAMES})["']?\\s*[:=]\\s*(["'\`])([^"'\`\\r\\n]*)\\2`,
   "g",
 );
+// a hard-coded fallback next to a read by name: process.env.NAME ?? "value",
+// env("NAME") || 'value', Deno.env.get("NAME") ?? `value`
+const FALLBACK = new RegExp(
+  `(?<![A-Za-z0-9_])(${NAMES})["'\`\\])]*\\s*(?:\\?\\?|\\|\\|)\\s*(["'\`])([^"'\`\\r\\n]*)\\2`,
+  "g",
+);
 // NAME=value, export NAME=value, NAME: value at the start of a line (env, YAML, TOML files)
 const BARE = new RegExp(
   `^\\s*(?:export\\s+|-\\s+)?["']?(${NAMES})["']?\\s*[:=]\\s*([^\\s"'\`#;,]+)`,
@@ -52,15 +60,21 @@ const JWT = /(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{8,}\.(eyJ[A-Za-z0-9_-]{8,})\.[A-
 const POSTGRES_URL = /(?<![A-Za-z0-9_])postgres(?:ql)?:\/\/[^\s"'`<>)]/i;
 const CODE_FILE = /\.(?:[cm]?[jt]sx?)$/i;
 
-/** True when an assigned value is a literal that could be a secret, not a reference or a blank. */
-function isLiteral(value: string): boolean {
+/**
+ * True when an assigned value is a literal that could be a secret, not a reference, a template
+ * or a blank. `quoted` is true when the value sat inside quotes: a quoted string is text, never a
+ * code reference, so only templates, placeholders and prose are let through. An unquoted value
+ * (env, YAML and TOML files) is also let through when it reads a variable or calls something.
+ */
+export function isLiteral(value: string, quoted: boolean): boolean {
   if (value.length < 8) return false;
-  if (!/^[A-Za-z0-9_\-./+=:~%@]+$/.test(value)) return false; // ${...}, <placeholder>, code
+  if (/\$\{|\{\{/.test(value)) return false; // ${NAME}, ${{ secrets.NAME }}, {{ name }}
+  if (/^<[^<>]*>$/.test(value)) return false; // <the key from Lovable Cloud>
+  if (/^\$[A-Za-z_]\w*$/.test(value)) return false; // $NAME in a shell or env file
+  if (/^env\([A-Za-z_]\w*\)$/.test(value)) return false; // env(NAME) in supabase/config.toml
+  if (quoted) return !/\s/.test(value); // words with spaces are prose, not a key
   if (/^(?:process\.env|import\.meta|Deno\.env|env\.|secrets\.|vars\.)/.test(value)) return false;
-  // a dotted name such as config.serviceRoleKey is a reference; a JWT (eyJ...) is not
-  if (!value.startsWith("eyJ") && /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/.test(value)) {
-    return false;
-  }
+  if (/[()[\]{}<>]/.test(value)) return false; // a call or an expression, not a value
   return true;
 }
 
@@ -84,10 +98,11 @@ export function scanText(file: string, text: string): Finding[] {
   const code = CODE_FILE.test(file);
   text.split(/\r?\n/).forEach((lineText, i) => {
     const line = i + 1;
-    for (const m of lineText.matchAll(QUOTED)) if (isLiteral(m[3])) add(line, m[1]);
+    for (const m of lineText.matchAll(QUOTED)) if (isLiteral(m[3], true)) add(line, m[1]);
+    for (const m of lineText.matchAll(FALLBACK)) if (isLiteral(m[3], true)) add(line, m[1]);
     if (!code) {
       const bare = BARE.exec(lineText);
-      if (bare && isLiteral(bare[2])) add(line, bare[1]);
+      if (bare && isLiteral(bare[2], false)) add(line, bare[1]);
     }
     if (SB_SECRET.test(lineText)) add(line, KIND_SB_SECRET);
     for (const m of lineText.matchAll(JWT)) {
@@ -298,9 +313,79 @@ Deno.test("reading a secret by name, or leaving it blank, passes", () => {
     [".env.example", `${n}="<the service role key from Lovable Cloud>"`],
     [".env.example", `${n}=$${n}`],
     ["docs/setup.md", `Set ${n} in Lovable Cloud's secrets, never in a file.`],
-    ["config.yml", `  ${n}: config.serviceRoleKey`],
+    [".env.example", `${n}=\${${n}}`],
+    ["supabase/config.toml", `${n} = "env(${n})"`],
+    ["src/lib/a.server.ts", `const k = process.env.${n} ?? "";`],
+    ["src/lib/a.server.ts", `const k = env("${n}") || "<not set>";`],
+    ["src/i18n/en.json", `{ "${n}": "The service role key from Lovable Cloud" }`],
   ];
   for (const [file, text] of ok) assertEquals(scanText(file, text), [], `${file}: ${text}`);
+});
+
+// Shaped like a Discord bot token: three dot-separated parts, each starting with a letter and
+// with no '-', so it looks like a dotted name such as config.serviceRoleKey. Made up.
+const DISCORD_SHAPED = [
+  "MTIzNDU2Nzg5MDEyMzQ1Njc4OQ",
+  "GabcDe",
+  "abcdefghijklmnopqrstuvwxyzABCDEF",
+].join(".");
+// A webhook URL with a ?thread_id query, the normal Discord form for posting into a thread. Made up.
+const WEBHOOK_WITH_QUERY = [
+  "https://discord.com/api/webhooks/1234567890",
+  "fakeFAKEfake0123456789abcdefABCDEF?thread_id=99&wait=true",
+].join("/");
+const PUNCTUATED = "Fake0Secret!Value2#For3*The4^Test$5";
+
+Deno.test("values that look like references or hold punctuation still fail when assigned", () => {
+  const cases: [string, string, string, string][] = [
+    [".env.local", "DISCORD_BOT_TOKEN", `DISCORD_BOT_TOKEN=${DISCORD_SHAPED}`, DISCORD_SHAPED],
+    ["config.yml", "DISCORD_BOT_TOKEN", `  DISCORD_BOT_TOKEN: ${DISCORD_SHAPED}`, DISCORD_SHAPED],
+    [
+      "src/lib/x.server.ts",
+      "DISCORD_BOT_TOKEN",
+      `const DISCORD_BOT_TOKEN = "${DISCORD_SHAPED}";`,
+      DISCORD_SHAPED,
+    ],
+    [
+      ".env.local",
+      "DISCORD_DEALS_WEBHOOK",
+      `DISCORD_DEALS_WEBHOOK=${WEBHOOK_WITH_QUERY}`,
+      WEBHOOK_WITH_QUERY,
+    ],
+    [
+      "src/lib/x.server.ts",
+      "DISCORD_DEALS_WEBHOOK",
+      `const DISCORD_DEALS_WEBHOOK = '${WEBHOOK_WITH_QUERY}';`,
+      WEBHOOK_WITH_QUERY,
+    ],
+    [".env.local", "FUNDER_SEND_SECRET", `FUNDER_SEND_SECRET="${PUNCTUATED}"`, PUNCTUATED],
+    [
+      "settings.json",
+      "FUNDER_SEND_SECRET",
+      `{ "FUNDER_SEND_SECRET": "${PUNCTUATED}" }`,
+      PUNCTUATED,
+    ],
+  ];
+  for (const [file, what, text, value] of cases) {
+    const { findings, printed } = scanQuietly(file, text);
+    assertEquals(findings, [{ file, line: 1, what }], `${file}: ${what}`);
+    assertNoValueLeaks(findings, printed, [value]);
+  }
+});
+
+Deno.test("a hard-coded fallback next to a read by name fails", () => {
+  for (const name of SERVER_SECRET_NAMES) {
+    for (const text of [
+      `const k = process.env.${name} ?? "${SECRET_VALUE}";`,
+      `const k = process.env["${name}"] || '${SECRET_VALUE}';`,
+      `const k = env("${name}") ?? \`${SECRET_VALUE}\`;`,
+      `const k = Deno.env.get("${name}") || "${PUNCTUATED}";`,
+    ]) {
+      const { findings, printed } = scanQuietly("src/lib/x.server.ts", text);
+      assertEquals(findings, [{ file: "src/lib/x.server.ts", line: 1, what: name }], text);
+      assertNoValueLeaks(findings, printed, [SECRET_VALUE, PUNCTUATED]);
+    }
+  }
 });
 
 Deno.test("an sb_secret_ key fails; naming the prefix in code passes", () => {
@@ -338,13 +423,35 @@ Deno.test("the tracked-file list leaves out .env and submodules", () => {
   ]);
 });
 
-const canRunGit =
-  (await Deno.permissions.query({ name: "run", command: "git" })).state === "granted";
+/**
+ * Whether the git-backed checks run. In a plain `deno test tests/` git is not allowed, so they are
+ * skipped. The CI step that exists for them passes `-- --require-scan`, which needs no permission
+ * to read: there a missing git permission fails the run instead of quietly skipping the scan.
+ */
+export function gitScanMode(gitAllowed: boolean, args: string[]): "run" | "skip" | "fail" {
+  if (gitAllowed) return "run";
+  return args.includes("--require-scan") ? "fail" : "skip";
+}
+
+Deno.test("the scan is skipped without git, unless the run requires it", () => {
+  assertEquals(gitScanMode(true, []), "run");
+  assertEquals(gitScanMode(true, ["--require-scan"]), "run");
+  assertEquals(gitScanMode(false, []), "skip");
+  assertEquals(gitScanMode(false, ["--require-scan"]), "fail");
+});
+
+const scanMode = gitScanMode(
+  (await Deno.permissions.query({ name: "run", command: "git" })).state === "granted",
+  Deno.args,
+);
+const requireGit = () =>
+  assert(scanMode === "run", "--require-scan was passed but git may not run: add --allow-run=git");
 
 Deno.test({
   name: "no tracked file holds a server secret (.env itself is not opened)",
-  ignore: !canRunGit,
+  ignore: scanMode === "skip",
   fn: async () => {
+    requireGit();
     const { scanned, findings } = await scanRepo();
     assert(scanned > 100, `scanned only ${scanned} files`);
     assertEquals(findings.length, 0, formatFindings(findings));
@@ -353,8 +460,9 @@ Deno.test({
 
 Deno.test({
   name: ".gitignore keeps local env files out, but not .env.example or the public .env",
-  ignore: !canRunGit,
+  ignore: scanMode === "skip",
   fn: async () => {
+    requireGit();
     const ignored = async (path: string) => {
       const out = await new Deno.Command("git", {
         args: ["check-ignore", "--no-index", "-q", path],

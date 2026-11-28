@@ -55,6 +55,8 @@ alter table public.site_events add constraint site_events_action_ok
   check (
     kind <> 'action'
     or (step is null
+        -- "is not null" first: null IN (...) is null, and a check that comes out null passes
+        and question is not null
         and question in ('oc_calculated', 'oc_saved', 'oc_shared', 'oc_second_offer'))
   );
 

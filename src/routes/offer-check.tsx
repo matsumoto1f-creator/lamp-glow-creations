@@ -22,6 +22,7 @@ import {
 } from "@/lib/offer-check";
 import { btnOutline, btnPrimary, card, Eyebrow, PageShell } from "@/components/site/layout";
 import { trackAction } from "@/lib/track";
+import { countsAsCalculated } from "@/lib/tracking";
 
 // Campaign links and shared links stay simple:
 // /offer-check?amount=50000&factor=1.35&term=9&unit=months&freq=daily
@@ -172,20 +173,25 @@ function OfferCheckPage() {
   const [inputs, setInputs] = useState<Inputs>(start.inputs);
   const [saved, setSaved] = useState<Saved[]>([]);
   const [nextId, setNextId] = useState(1);
+  // Set on the visitor's first change to a figure. The example (or a shared link's figures) the
+  // page opens on is not a calculation, so it is not counted.
+  const [edited, setEdited] = useState(false);
   const set =
     <K extends keyof Inputs>(k: K) =>
-    (v: Inputs[K]) =>
+    (v: Inputs[K]) => {
+      setEdited(true);
       setInputs((p) => ({ ...p, [k]: v }));
+    };
 
   const result = useMemo(() => compute(inputs), [inputs]);
-  // Lamp counts that someone got a result, once per visit however much they type afterwards. The
-  // count is the only thing sent: no amount, rate or anything typed in.
+  // Lamp counts that someone worked out their own offer, once per visit however much they type
+  // afterwards. The count is the only thing sent: no amount, rate or anything typed in.
   const counted = useRef(false);
   useEffect(() => {
-    if (!result || counted.current) return;
+    if (!countsAsCalculated({ edited, hasResult: !!result, counted: counted.current })) return;
     counted.current = true;
     trackAction("oc_calculated");
-  }, [result]);
+  }, [edited, result]);
   const freq = FREQUENCIES.find((f) => f.value === inputs.frequency) ?? FREQUENCIES[0]!;
 
   // Campaign attribution rides through to the application. utm_content says the click came from
@@ -414,9 +420,10 @@ function Results({
 }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
-    trackAction("oc_shared");
     try {
       await navigator.clipboard.writeText(shareUrl);
+      // Counted only once the link is really on the clipboard.
+      trackAction("oc_shared");
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     } catch {

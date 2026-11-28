@@ -13,6 +13,20 @@ export type SiteEventKind = (typeof SITE_EVENT_KINDS)[number];
 export const SITE_ACTIONS = ["oc_calculated", "oc_saved", "oc_shared", "oc_second_offer"] as const;
 export type SiteAction = (typeof SITE_ACTIONS)[number];
 
+/**
+ * Whether Offer Check should send oc_calculated now. The page opens on a worked example (or on a
+ * shared link's figures), so a result is on screen before anyone types: that view is not a
+ * calculation. It counts once the visitor has changed a figure and the page shows a result, and
+ * only once per visit however much they type afterwards.
+ */
+export function countsAsCalculated(s: {
+  edited: boolean;
+  hasResult: boolean;
+  counted: boolean;
+}): boolean {
+  return s.edited && s.hasResult && !s.counted;
+}
+
 export const ACTIVITY_ACTIONS = [
   "sign_in",
   "open_file",

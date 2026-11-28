@@ -7,6 +7,7 @@ import {
   buildActivity,
   buildOfferCheck,
   buildWebsite,
+  countsAsCalculated,
   deviceOf,
   flowOf,
   isBot,
@@ -341,3 +342,33 @@ Deno.test("the database allows the same actions and refuses the same slugs as th
     [...RESERVED_SLUGS],
   );
 });
+
+Deno.test(
+  "Offer Check: the example on load is not a calculation; the first edit with a result is",
+  () => {
+    // the page opens on a worked example, so a result is there before anyone types
+    assertEquals(countsAsCalculated({ edited: false, hasResult: true, counted: false }), false);
+    // an edit that leaves the form incomplete: nothing yet
+    assertEquals(countsAsCalculated({ edited: true, hasResult: false, counted: false }), false);
+    // the first edit that gives a result counts
+    assertEquals(countsAsCalculated({ edited: true, hasResult: true, counted: false }), true);
+    // later edits in the same visit do not
+    assertEquals(countsAsCalculated({ edited: true, hasResult: true, counted: true }), false);
+
+    // walk a visit through the rule: load, three edits, one count
+    let counted = false;
+    let sent = 0;
+    for (const s of [
+      { edited: false, hasResult: true },
+      { edited: true, hasResult: false },
+      { edited: true, hasResult: true },
+      { edited: true, hasResult: true },
+    ]) {
+      if (countsAsCalculated({ ...s, counted })) {
+        counted = true;
+        sent++;
+      }
+    }
+    assertEquals(sent, 1);
+  },
+);

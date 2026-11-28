@@ -901,7 +901,7 @@ export function Dashboard({ isAdmin, repSlug }: { isAdmin: boolean; repSlug: str
                   <Funnel
                     steps={[
                       { key: "v", label: "Visited Offer Check", count: oc.visitors },
-                      { key: "c", label: "Saw what an offer costs", count: oc.calculated },
+                      { key: "c", label: "Worked out their own offer", count: oc.calculated },
                       { key: "o", label: "Pressed Get a second offer", count: oc.secondOffer },
                       { key: "l", label: "Gave their details", count: oc.leads },
                     ]}

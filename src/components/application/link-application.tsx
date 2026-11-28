@@ -46,7 +46,7 @@ import {
   type OpenResponse,
   type SubmitResponse,
 } from "@/lib/application-links";
-import { btnOutline, btnPrimary, Eyebrow, PageShell } from "@/components/site/layout";
+import { btnOutline, btnPrimary, Eyebrow } from "@/components/site/layout";
 import { GoogleButton, sendMagicLink, signInWithGoogle } from "@/components/site/auth";
 import {
   BusinessSection,
@@ -72,6 +72,21 @@ import {
 import { QuickQuestion } from "@/components/site/quick-question";
 import { reportStage, saveProgressToken } from "@/lib/application-progress";
 import { track } from "@/lib/track";
+import {
+  applicationPath,
+  countWord,
+  firstPaint,
+  openRequest,
+  pickSaved,
+  quickOptionHref,
+  resumeAt,
+  STATEMENT_MONTHS,
+  stepTracked,
+  WEBSITE_OPEN,
+  withThisBrowser,
+  type Saved,
+} from "@/lib/application-resume";
+import { fetchStart, retryKeptStart, sendStart, tabStorage } from "@/lib/start-retry";
 
 /**
  * The full application from a link: getlamp.app/application/<rep>?i=<token> (a personal link a
@@ -129,7 +144,7 @@ function missingByStep(d: Details): Record<StepId, string[]> {
 const draftKey = (invite: string | null | undefined, rep: string) =>
   invite ? `lamp.application.draft.${invite}` : `lamp.application.draft.rep.${rep}`;
 
-function loadDraft(key: string): { d: Details; step: number; savedAt: number } | null {
+function loadDraft(key: string): Saved<Details> | null {
   try {
     const raw = window.localStorage.getItem(key);
     if (!raw) return null;
@@ -187,6 +202,7 @@ export function LinkApplication({
   token,
   filling = false,
   prefill = {},
+  carried = {},
 }: {
   /** "" is the website's own application (getlamp.app/application): no rep, the file is unassigned. */
   repSlug: string;
@@ -195,6 +211,8 @@ export function LinkApplication({
   filling?: boolean;
   /** Quick answers from the link (?amount=50-100k&industry=trucking): those questions are skipped. */
   prefill?: Partial<Record<ChoiceKey, string>>;
+  /** The quick answers and utm_ tags in the address, kept on the quick-question links. */
+  carried?: Record<string, string>;
 }) {
   // only a personal link can be filled in for someone
   const phoneMode = filling && Boolean(token);
@@ -202,7 +220,8 @@ export function LinkApplication({
   // what this browser keeps between visits is keyed by the rep, or by "website"
   const store = website ? "website" : repSlug;
   const [synced, setSynced] = useState<{ at: string } | { error: string } | null>(null);
-  const [open, setOpen] = useState<OpenResponse | "error" | null>(null);
+  // the website's answer is always the same, so its page renders on the server without asking
+  const [open, setOpen] = useState<OpenResponse | "error" | null>(website ? WEBSITE_OPEN : null);
   const [d, setD] = useState<Details>(emptyDetails);
   const [step, setStep] = useState(0);
   const [visited, setVisited] = useState(0);
@@ -213,17 +232,15 @@ export function LinkApplication({
   const [error, setError] = useState("");
   const [done, setDone] = useState<Done | null>(null);
   const [uploading, setUploading] = useState<string | null>(null);
-  // a public link asks for name, phone and email first; a personal link already knows who it's for
-  const [contactDone, setContactDone] = useState(Boolean(token) || hasStarted(store));
-  // before that, the front page's quick questions, one tap each (kept in this browser; answers
-  // the link carries win)
-  const [quick, setQuick] = useState<Partial<Record<ChoiceKey, string>>>(() => ({
-    ...loadQuick(store),
-    ...prefill,
-  }));
-  const [quickStep, setQuickStep] = useState(() =>
-    firstUnanswered({ ...loadQuick(store), ...prefill }),
-  );
+  // The first render is the server's, so it uses only what the link says: a public link asks for
+  // name, phone and email first (a personal link already knows who it's for), after the front
+  // page's quick questions, one tap each. This browser's own answers are merged in after mount.
+  const [first] = useState(() => firstPaint(token, prefill));
+  const [contactDone, setContactDone] = useState(first.contactDone);
+  const [quick, setQuick] = useState<Partial<Record<ChoiceKey, string>>>(first.quick);
+  const [quickStep, setQuickStep] = useState(first.quickStep);
+  // set once this browser's saved place is back, so the drop-off count never logs a stray step
+  const [restored, setRestored] = useState(false);
   // after the contact screen on a public link: the rough range from their answers, once
   const [showRange, setShowRange] = useState(false);
   const started = useRef(false);
@@ -246,14 +263,81 @@ export function LinkApplication({
   // the PDF builder arrives in the background, so it is there by the time they sign
   useEffect(() => warmApplicationPdf(), []);
 
+  /**
+   * Reopen this browser's saved answers (or a rep's newer phone answers) on the step they left,
+   * or fill in what the rep already knows. Runs once the link is known to be open: at mount for
+   * the website, after the open call for a link.
+   */
+  const restoreSaved = (o: OpenResponse) => {
+    const local = loadDraft(draftKey(o.draft, store));
+    // answers a rep filled in on the phone, when they're newer than this browser's own
+    const server = o.answers
+      ? {
+          d: fromRow(o.answers),
+          step: Math.min(Math.max(0, o.answers_step ?? 0), STEPS.length - 1),
+          savedAt: o.answers_saved_at ? Date.parse(o.answers_saved_at) : 0,
+        }
+      : null;
+    const saved = pickSaved(local, server);
+    if (saved) {
+      setContactDone(true);
+      // reopen on the first step with gaps (the SSN and date of birth are never saved), and
+      // keep the later steps reachable
+      const gaps = missingByStep(saved.d);
+      const at = resumeAt(
+        saved.step,
+        STEPS.findIndex((x) => gaps[x.id].length > 0),
+      );
+      setD(saved.d);
+      setStep(at.step);
+      setVisited(at.visited);
+      return;
+    }
+    const p = o.prefill;
+    if (p) {
+      setD((x) => ({
+        ...x,
+        business: {
+          ...x.business,
+          legal_name: p.business_name,
+          phone: p.phone,
+          email: p.email,
+        },
+        owners: [
+          {
+            ...x.owners[0]!,
+            first: p.first_name,
+            last: p.last_name,
+            email: p.email,
+            mobile: p.phone,
+          },
+          ...x.owners.slice(1),
+        ],
+      }));
+    }
+  };
+
   useEffect(() => {
+    // this browser's quick answers and contact, kept from an earlier visit (the link's answers win)
+    const here = withThisBrowser(first, prefill, loadQuick(store), !token && hasStarted(store));
+    setQuick(here.quick);
+    setQuickStep(here.quickStep);
+    setContactDone(here.contactDone);
+    // the website asks nothing: its answer is WEBSITE_OPEN, so this browser's place comes back now
+    const ask = openRequest(token, repSlug);
+    if (!ask) {
+      setOpen(WEBSITE_OPEN);
+      restoreSaved(WEBSITE_OPEN);
+      setRestored(true);
+      return;
+    }
     let live = true;
     (async () => {
       try {
         const res = await fetch("/api/application/open", {
           method: "POST",
           headers: await visitHeaders(),
-          body: JSON.stringify(token ? { token } : { rep: repSlug }),
+          body: JSON.stringify(ask),
         });
         const o = (await res.json().catch(() => null)) as OpenResponse | null;
         if (!live) return;
@@ -262,50 +346,8 @@ export function LinkApplication({
           return;
         }
         setOpen(o);
-        if (o.state !== "open") return;
-        const local = loadDraft(draftKey(o.draft, store));
-        // answers a rep filled in on the phone, when they're newer than this browser's own
-        const serverAt = o.answers_saved_at ? Date.parse(o.answers_saved_at) : 0;
-        const saved =
-          o.answers && serverAt > (local?.savedAt ?? 0)
-            ? {
-                d: fromRow(o.answers),
-                step: Math.min(Math.max(0, o.answers_step ?? 0), STEPS.length - 1),
-              }
-            : local;
-        if (saved) {
-          setContactDone(true);
-          // reopen on the first step with gaps (the SSN and date of birth are never saved), and
-          // keep the later steps reachable
-          const gaps = missingByStep(saved.d);
-          const first = STEPS.findIndex((x) => gaps[x.id].length > 0);
-          setD(saved.d);
-          setStep(first >= 0 ? Math.min(first, saved.step) : saved.step);
-          setVisited(saved.step);
-          return;
-        }
-        const p = o.prefill;
-        if (p) {
-          setD((x) => ({
-            ...x,
-            business: {
-              ...x.business,
-              legal_name: p.business_name,
-              phone: p.phone,
-              email: p.email,
-            },
-            owners: [
-              {
-                ...x.owners[0]!,
-                first: p.first_name,
-                last: p.last_name,
-                email: p.email,
-                mobile: p.phone,
-              },
-              ...x.owners.slice(1),
-            ],
-          }));
-        }
+        if (o.state === "open") restoreSaved(o);
+        setRestored(true);
       } catch {
         if (live) setOpen("error");
       }
@@ -313,8 +355,17 @@ export function LinkApplication({
     return () => {
       live = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- store follows repSlug
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- store follows repSlug; prefill is the first render's
   }, [token, repSlug]);
+
+  // a contact save that failed with a server error or a lost connection gets its last try when
+  // the visitor moves on (see start-retry); never on a personal link, which has no contact screen
+  const retryStart = () => {
+    if (token) return;
+    void retryKeptStart({ send: fetchStart, storage: tabStorage(), store }).then((r) => {
+      if (r?.progress) saveProgressToken(store, r.progress);
+    });
+  };
 
   const update: Update = (fn) => {
     setD((x) => {
@@ -363,14 +414,15 @@ export function LinkApplication({
     return () => window.clearTimeout(t);
   }, [d, step, phoneMode, token, open, contactDone]);
   // a public application's drop-off, step by step, for the staff dashboard (staff browsers are
-  // left out by track itself)
+  // left out by track itself); only once this browser's saved place is back, so a returning
+  // visitor isn't logged at the first question on the way to their own step
   useEffect(() => {
-    if (token || !open || open === "error" || open.state !== "open") return;
+    if (!stepTracked(token, restored, open)) return;
     track(
       "apply_step",
       funnelStep({ quickStep, contactDone, showRange, part: step, signed: Boolean(done) }),
     );
-  }, [token, open, quickStep, contactDone, showRange, step, done]);
+  }, [token, restored, open, quickStep, contactDone, showRange, step, done]);
 
   const allMissing = useMemo(() => missing(d), [d]);
   const current = STEPS[step]!;
@@ -385,6 +437,7 @@ export function LinkApplication({
     if (current.id === "sign" && to !== step) setSig((x) => ({ ...x, image: null, image2: null }));
     setStep(to);
     setVisited((v) => Math.max(v, to));
+    retryStart();
     // a public link's lead: the furthest step reached (the server keeps the furthest)
     if (!token && to > 0)
       reportStage(store, STEPS[to]!.id as Exclude<StepId, "business">, "online");
@@ -550,8 +603,9 @@ export function LinkApplication({
     });
     window.scrollTo({ top: 0 });
   }
+  // the page shell (PageShell) is the route's, so its code is in the route's own preload list
   return (
-    <PageShell member themeToggle={false} minimalHeader footer={false} tone="night">
+    <>
       <div ref={topRef} className="mx-auto max-w-3xl scroll-mt-24 px-4 pb-20 pt-6 sm:px-6 sm:pt-12">
         {open === null ? (
           <div className="grid place-items-center py-40">
@@ -595,6 +649,9 @@ export function LinkApplication({
               <QuickQuestions
                 step={quickStep}
                 quick={quick}
+                hrefFor={(key, id) =>
+                  quickOptionHref(applicationPath(repSlug), carried, quick, key, id)
+                }
                 onChoose={(key, id) => {
                   const next = { ...quick, [key]: id };
                   setQuick(next);
@@ -646,6 +703,7 @@ export function LinkApplication({
                 firstName={d.owners[0]?.first ?? ""}
                 onContinue={() => {
                   setShowRange(false);
+                  retryStart();
                   window.scrollTo({ top: 0 });
                 }}
               />
@@ -780,7 +838,7 @@ export function LinkApplication({
           </>
         )}
       </div>
-    </PageShell>
+    </>
   );
 }
 
@@ -821,12 +879,6 @@ function saveQuick(rep: string, quick: Partial<Record<ChoiceKey, string>>) {
   }
 }
 
-/** The first question not answered yet; QUESTIONS.length once they're all done. */
-function firstUnanswered(quick: Partial<Record<ChoiceKey, string>>): number {
-  const i = QUESTIONS.findIndex((q) => !quick[q.key]);
-  return i === -1 ? QUESTIONS.length : i;
-}
-
 /**
  * A public link opens like the front page: the quick questions, one tap each, then name and
  * number. The answers go on the lead with the rep and fill what they can of the long form.
@@ -834,11 +886,14 @@ function firstUnanswered(quick: Partial<Record<ChoiceKey, string>>): number {
 function QuickQuestions({
   step,
   quick,
+  hrefFor,
   onChoose,
   onBack,
 }: {
   step: number;
   quick: Partial<Record<ChoiceKey, string>>;
+  /** Each answer as a link, so a tap works before the page's script has loaded. */
+  hrefFor: (key: ChoiceKey, id: string) => string;
   onChoose: (key: ChoiceKey, id: string) => void;
   onBack: () => void;
 }) {
@@ -878,10 +933,15 @@ function QuickQuestions({
         </span>
       </div>
       <div key={q.key} className="rise mt-8">
-        <QuickQuestion q={q} value={quick[q.key]} onChoose={(id) => onChoose(q.key, id)} />
+        <QuickQuestion
+          q={q}
+          value={quick[q.key]}
+          hrefFor={(id) => hrefFor(q.key, id)}
+          onChoose={(id) => onChoose(q.key, id)}
+        />
       </div>
       <p className="mt-8 flex items-center justify-center gap-2 text-center text-sm text-smoke">
-        <Lock className="size-3.5" /> Your answers are private and never affect your credit.
+        <Lock className="size-3.5" /> Checking your options never affects your credit.
       </p>
     </div>
   );
@@ -934,35 +994,28 @@ function ContactGate({
     setError("");
     const params = new URL(window.location.href).searchParams;
     const utm = Object.fromEntries([...params].filter(([k]) => k.startsWith("utm_")));
-    try {
-      const res = await fetch("/api/application/start", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          rep: repSlug,
-          first_name: first,
-          last_name: last,
-          business_name: business,
-          phone,
-          email,
-          phone_consent: consent ? PHONE_CONSENT_TEXT : null,
-          answers: quick,
-          utm,
-          form: "online",
-        }),
-      });
-      if (res.status === 400) {
-        const j = (await res.json().catch(() => ({}))) as { error?: string };
-        setBusy(false);
-        return setError(j.error ?? "Check your details and try again.");
-      }
-      // how far they get from here is reported against this lead (see application-progress)
-      const j = (await res.json().catch(() => ({}))) as { progress?: unknown };
-      if (res.ok && typeof j.progress === "string") saveProgressToken(store, j.progress);
-      // saved, or the network or limit got in the way: either way they carry on with the form
-    } catch {
-      /* carry on */
+    const body = {
+      rep: repSlug,
+      first_name: first,
+      last_name: last,
+      business_name: business,
+      phone,
+      email,
+      phone_consent: consent ? PHONE_CONSENT_TEXT : null,
+      answers: quick,
+      utm,
+      form: "online",
+    };
+    // A server error or a lost connection is kept in this tab and tried again, once now and once
+    // at the next step; a 429 (this network's hourly cap) or a 404 (an inactive rep) is not.
+    const out = await sendStart(body, { send: fetchStart, storage: tabStorage(), store });
+    if (out.outcome === "fix") {
+      setBusy(false);
+      return setError(out.error ?? "Check your details and try again.");
     }
+    // how far they get from here is reported against this lead (see application-progress)
+    if (out.progress) saveProgressToken(store, out.progress);
+    // saved, kept for a retry, or the limit got in the way: either way they carry on with the form
     setBusy(false);
     onDone({
       first: first.trim(),
@@ -1270,9 +1323,9 @@ export function Statements({ files, setFiles }: { files: File[]; setFiles: (f: F
   return (
     <div>
       <p className="max-w-xl text-smoke">
-        Your last four months of business bank statements. Funding partners decide from these, so
-        adding them now gets you offers faster. PDFs downloaded from your bank's website work best.
-        No statements handy? Skip this and add them after you sign in.
+        Your last {countWord(STATEMENT_MONTHS)} months of business bank statements. Funding partners
+        decide from these, so adding them now gets you offers faster. PDFs downloaded from your
+        bank's website work best. No statements handy? Skip this and add them after you sign in.
       </p>
       <label
         className="mt-6 flex cursor-pointer flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed border-line bg-white px-6 py-10 text-center transition hover:border-leaf/60"
